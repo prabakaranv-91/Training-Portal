@@ -512,6 +512,7 @@ class GarminService:
         year_count = 0
         month_m = 0.0
         month_count = 0
+        recent60_m = 0.0
 
         for a in acts:
             type_key = (a.get("activityType") or {}).get("typeKey", "")
@@ -526,6 +527,8 @@ class GarminService:
 
             week_start = a_date - dt.timedelta(days=a_date.weekday())
             week_m[week_start] += distance
+            if a_date >= today - dt.timedelta(days=60):
+                recent60_m += distance
 
             if a_date < year_start:
                 continue
@@ -606,6 +609,40 @@ class GarminService:
             ],
             "weekly": weekly,
             "weeklyProgress": weekly_progress,
+            "projection": self._year_projection(today, year_m, recent60_m),
+        }
+
+    def _year_projection(
+        self, today: dt.date, year_m: float, recent60_m: float
+    ) -> dict[str, Any]:
+        """Project year-end running distance.
+
+        Projects the remaining days of the year at the runner's recent 60-day
+        pace (rather than the whole-year average), so the estimate reflects
+        current training level. Blended 70/30 with the year-to-date run-rate to
+        temper an unusually hot or quiet recent spell.
+        """
+        import calendar
+
+        ytd_km = year_m / 1000
+        day_of_year = today.timetuple().tm_yday
+        days_in_year = 366 if calendar.isleap(today.year) else 365
+        remaining = days_in_year - day_of_year
+
+        recent_window = min(60, day_of_year)
+        recent_daily = (recent60_m / 1000) / recent_window if recent_window else 0
+        ytd_daily = ytd_km / day_of_year if day_of_year else 0
+
+        # Blend recent pace (70%) with year-to-date pace (30%).
+        blended_daily = 0.7 * recent_daily + 0.3 * ytd_daily
+        projected = round(ytd_km + remaining * blended_daily)
+
+        return {
+            "projectedKm": projected,
+            "ytdKm": round(ytd_km, 1),
+            "remainingDays": remaining,
+            "recentPacePerWeek": round(recent_daily * 7, 1),
+            "onPacePerMonth": round(blended_daily * 30, 1),
         }
 
     def training_guidance(self) -> dict[str, Any]:

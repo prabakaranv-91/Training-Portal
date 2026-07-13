@@ -10,6 +10,7 @@ let mileageMode = "weekly";
 let reportData = { monthly: [], weekly: [] };
 let dashSummary = null;
 let weeklyProgress = null;
+let yearProjection = null;
 let showAllStats = false;
 let guidanceData = null;
 let readinessData = null;
@@ -461,6 +462,15 @@ function openCoachModal() {
 function renderRunningReport(r) {
   const cards = document.getElementById("report-cards");
   if (cards) {
+    const proj = r.projection;
+    const projCard = proj
+      ? `
+      <div class="report-card projection" title="Projected total for ${r.year.label} — the remaining days estimated at your recent 60-day pace, blended with your year-to-date rate.">
+        <div class="rc-label">Projected ${r.year.label}</div>
+        <div class="rc-km">${proj.projectedKm.toLocaleString()} <span>km</span></div>
+        <div class="rc-sub">≈ ${proj.onPacePerMonth}/mo pace</div>
+      </div>`
+      : "";
     cards.innerHTML = `
       <div class="report-card">
         <div class="rc-label">This month · ${r.month.label}</div>
@@ -471,11 +481,13 @@ function renderRunningReport(r) {
         <div class="rc-label">This year · ${r.year.label}</div>
         <div class="rc-km">${r.year.km} <span>km</span></div>
         <div class="rc-sub">${r.year.count} run${r.year.count === 1 ? "" : "s"}</div>
-      </div>`;
+      </div>
+      ${projCard}`;
   }
   reportData.monthly = r.monthly || [];
   reportData.weekly = r.weekly || [];
   weeklyProgress = r.weeklyProgress || null;
+  yearProjection = r.projection || null;
   renderStatCards(); // refresh the "This week" card now that progress is known
   renderMileageChart();
 }
@@ -675,6 +687,18 @@ function renderStatCardsImpl(sum) {
 
   const defaultCards = [
     (() => {
+      const p = yearProjection;
+      const year = new Date().getFullYear();
+      return {
+        key: "projection",
+        icon: "🎯",
+        value: p ? `${p.projectedKm.toLocaleString()} km` : "…",
+        label: `Projected ${year}`,
+        sub: p ? `≈ ${p.onPacePerMonth}/mo` : "",
+        special: "projection",
+      };
+    })(),
+    (() => {
       const g = guidanceData;
       const icon = !g ? "🧭" : g.level === "good" ? "💪" : g.level === "watch" ? "⚠️" : "🧭";
       const short = g ? g.status.split(" — ")[0] : "…";
@@ -725,59 +749,64 @@ function renderStatCardsImpl(sum) {
 
   const container = document.getElementById("stat-cards");
 
-  // How many tiles fit across the current width? Fill every available slot with
-  // real tiles; only when tiles remain hidden do we reserve the LAST slot for
-  // the "Show all" toggle (so no slot is wasted on it while tiles are hidden).
-  const width = container.clientWidth || window.innerWidth || 1000;
-  const gap = 10;
-  const minTile = 150;
-  const cols = Math.max(1, Math.floor((width + gap) / (minTile + gap)));
-
-  const allCards = [...defaultCards, ...extraCards];
-  const total = allCards.length;
-  const fitsAll = cols >= total;
-
-  let visible;
-  let showToggle;
-  let toggleLabel = "Show all ▾";
-  if (fitsAll) {
-    visible = total;
-    showToggle = false;
-  } else if (showAllStats) {
-    visible = total;
-    showToggle = true;
-    toggleLabel = "Show less ▴";
-  } else {
-    // Fill the row, leaving the final cell for the toggle.
-    visible = Math.min(total - 1, Math.max(defaultCards.length, cols - 1));
-    showToggle = true;
-  }
-
-  let html = allCards.slice(0, visible).map((c) => card(c)).join("");
-  if (showToggle) {
-    html += `<button class="stat-toggle" id="stat-toggle">${toggleLabel}</button>`;
-  }
-  container.classList.remove("show-all");
-  container.innerHTML = html;
+  // Render all tiles; the extra ones are hidden by CSS until "Show all" is on.
+  container.innerHTML =
+    defaultCards.map((c) => card(c)).join("") +
+    extraCards.map((c) => card(c, true)).join("");
+  container.classList.toggle("show-all", showAllStats);
 
   container.querySelectorAll(".stat.clickable").forEach((el) => {
     el.addEventListener("click", () => {
       if (el.dataset.special === "weekly") openWeeklyPopup();
       else if (el.dataset.special === "coach") openCoachModal();
       else if (el.dataset.special === "readiness") openReadinessModal();
+      else if (el.dataset.special === "projection") openProjectionPopup();
       else openStatInfo(el.dataset.key);
     });
   });
+
+  // Simple text toggle placed below the grid.
   const toggle = document.getElementById("stat-toggle");
   if (toggle) {
-    toggle.addEventListener("click", () => {
+    toggle.textContent = showAllStats ? "Show less" : "Show more";
+    toggle.onclick = () => {
       showAllStats = !showAllStats;
       renderStatCardsImpl(dashSummary || {});
-    });
+    };
   }
 }
 
 // ------------------------------------------------ weekly mileage popup
+
+function openProjectionPopup() {
+  const p = yearProjection;
+  const year = new Date().getFullYear();
+  const body = document.getElementById("stat-info-body");
+  if (!p) {
+    body.innerHTML = `<div class="empty">Projection still loading…</div>`;
+    document.getElementById("stat-info-modal").classList.remove("hidden");
+    return;
+  }
+  const remainingKm = Math.max(0, p.projectedKm - Math.round(p.ytdKm));
+  body.innerHTML = `
+    <div class="si-head">
+      <span class="si-icon">🎯</span>
+      <div>
+        <div class="si-title">Projected ${year} mileage</div>
+        <div class="si-value">${p.projectedKm.toLocaleString()} km</div>
+      </div>
+    </div>
+    <div class="wk-grid">
+      <div><div class="wk-v">${Math.round(p.ytdKm).toLocaleString()} km</div><div class="wk-l">So far this year</div></div>
+      <div><div class="wk-v">${remainingKm.toLocaleString()} km</div><div class="wk-l">Projected remaining</div></div>
+      <div><div class="wk-v">${p.recentPacePerWeek} km</div><div class="wk-l">Recent pace / week</div></div>
+      <div><div class="wk-v">${p.remainingDays}</div><div class="wk-l">Days left in year</div></div>
+    </div>
+    <div class="si-section"><h4>How it's calculated</h4><p>The remaining ${p.remainingDays} days are estimated at your <strong>recent 60-day pace</strong> (${p.recentPacePerWeek} km/week), blended 70/30 with your year-to-date rate — so it tracks your current training level rather than a flat yearly average.</p></div>
+    <div class="si-tip">💡 Keep up your recent volume to land near ${p.projectedKm.toLocaleString()} km. Ramp it (safely) to beat it.</div>
+  `;
+  document.getElementById("stat-info-modal").classList.remove("hidden");
+}
 
 function openWeeklyPopup() {
   const wp = weeklyProgress;

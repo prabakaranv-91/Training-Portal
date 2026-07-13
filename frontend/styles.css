@@ -347,6 +347,9 @@ select:focus {
 .stat .value.lv-good {
   color: #34d399;
 }
+.stat[data-special="projection"] .value {
+  color: #a78bfa;
+}
 .stat .value.lv-ok {
   color: #38bdf8;
 }
@@ -363,19 +366,24 @@ select:focus {
   line-height: 1.25;
   white-space: normal;
 }
+.stat-toggle-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 10px 0 4px;
+}
 .stat-toggle {
-  background: var(--bg-soft);
-  border: 1px dashed var(--border);
-  color: var(--text-dim);
-  border-radius: 11px;
+  background: none;
+  border: none;
+  color: var(--accent);
   cursor: pointer;
   font-size: 13px;
   font-weight: 600;
-  padding: 10px;
+  padding: 6px 12px;
+  border-radius: 8px;
   transition: background 0.15s, color 0.15s;
 }
 .stat-toggle:hover {
-  background: var(--card-hover);
+  background: var(--bg-soft);
   color: var(--text);
 }
 
@@ -515,7 +523,7 @@ select:focus {
 }
 .report-cards {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
   margin-bottom: 14px;
 }
@@ -535,6 +543,12 @@ select:focus {
 }
 .report-card.year {
   border-color: var(--accent-2);
+}
+.report-card.projection {
+  border-color: #a78bfa;
+}
+.report-card.projection .rc-km {
+  color: #a78bfa;
 }
 .report-card .rc-label {
   color: var(--text-dim);
