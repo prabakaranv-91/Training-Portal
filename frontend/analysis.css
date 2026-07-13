@@ -1,0 +1,371 @@
+/* Training coach block (top of dashboard) */
+.coach-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: 14px;
+  padding: 18px 20px;
+}
+.coach-card.good {
+  border-left-color: #34d399;
+}
+.coach-card.ok {
+  border-left-color: #38bdf8;
+}
+.coach-card.watch {
+  border-left-color: #fb923c;
+}
+.coach-card.skeleton {
+  min-height: 150px;
+}
+.coach-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.coach-icon {
+  font-size: 30px;
+  line-height: 1;
+}
+.coach-head-text {
+  flex: 1;
+  min-width: 0;
+}
+.coach-status {
+  font-size: 19px;
+  font-weight: 800;
+}
+.coach-summary {
+  color: var(--text-dim);
+  font-size: 13.5px;
+  line-height: 1.55;
+  margin-top: 4px;
+}
+.coach-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 11px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.coach-badge.good {
+  background: rgba(52, 211, 153, 0.16);
+  color: #34d399;
+}
+.coach-badge.ok {
+  background: rgba(56, 189, 248, 0.16);
+  color: #38bdf8;
+}
+.coach-badge.watch {
+  background: rgba(251, 146, 60, 0.16);
+  color: #fb923c;
+}
+.coach-signals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+.coach-signal {
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--border);
+  border-radius: 10px;
+  padding: 11px 13px;
+}
+.coach-signal.good {
+  border-top-color: #34d399;
+}
+.coach-signal.ok {
+  border-top-color: #38bdf8;
+}
+.coach-signal.watch {
+  border-top-color: #fb923c;
+}
+.cs-lab {
+  color: var(--text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.cs-val {
+  font-size: 18px;
+  font-weight: 800;
+  margin: 2px 0 4px;
+}
+.cs-text {
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.coach-recs-head {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent-2);
+  margin: 16px 0 6px;
+}
+.coach-recs {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.coach-recs li {
+  margin-bottom: 3px;
+}
+
+/* Performance analysis screen */
+.analysis-intro {
+  color: var(--text-dim);
+  font-size: 14px;
+  margin: 0 0 14px;
+}
+
+/* At-a-glance summary chips */
+.a-chips {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.a-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.a-chip.good {
+  border-left-color: #34d399;
+}
+.a-chip.ok {
+  border-left-color: #38bdf8;
+}
+.a-chip.watch {
+  border-left-color: #fb923c;
+}
+.ac-icon {
+  font-size: 20px;
+}
+.ac-word {
+  font-size: 17px;
+  font-weight: 800;
+}
+.ac-label {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+/* Compact factor chips (injury risk) */
+.chip-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.chip-fact {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 11px;
+}
+.chip-fact.good {
+  border-top-color: #34d399;
+}
+.chip-fact.ok {
+  border-top-color: #38bdf8;
+}
+.chip-fact.watch {
+  border-top-color: #fb923c;
+}
+.cf-val {
+  font-weight: 800;
+  font-size: 15px;
+}
+.cf-lab {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+/* Collapsible explanations */
+.a-info {
+  margin-top: 12px;
+  font-size: 12.5px;
+}
+.a-info summary {
+  cursor: pointer;
+  color: var(--accent-2);
+  font-weight: 600;
+  list-style: none;
+}
+.a-info summary::marker,
+.a-info summary::-webkit-details-marker {
+  display: none;
+}
+.a-info summary::before {
+  content: "ℹ️ ";
+}
+.a-info[open] summary::before {
+  content: "▾ ";
+}
+.a-info p {
+  color: var(--text-dim);
+  line-height: 1.55;
+  margin: 8px 0 0;
+}
+
+.analysis-section {
+  margin-bottom: 16px;
+}
+.analysis-section h2 {
+  font-size: 16px;
+  margin: 0 0 6px;
+}
+.a-desc {
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0 0 16px;
+}
+.a-verdict {
+  margin-top: 14px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: 11px 14px;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.a-two {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 20px;
+  align-items: center;
+}
+@media (max-width: 620px) {
+  .a-two {
+    grid-template-columns: 1fr;
+  }
+}
+.a-chart {
+  height: 200px;
+  position: relative;
+}
+.a-chart.tall {
+  height: 300px;
+}
+.a-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.zrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+.zrow b {
+  margin-left: auto;
+  color: var(--text);
+  font-size: 16px;
+}
+.zdot {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+}
+.zdot.easy {
+  background: #2dd4bf;
+}
+.zdot.mod {
+  background: #fbbf24;
+}
+.zdot.hard {
+  background: #f87171;
+}
+.zdot.recovery {
+  background: #38bdf8;
+}
+
+.a-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+}
+.a-metric {
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  text-align: center;
+}
+.a-metric.clickable {
+  cursor: pointer;
+  transition: transform 0.1s, border-color 0.15s;
+}
+.a-metric.clickable:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+}
+.am-val {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--accent);
+}
+.am-lab {
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-top: 3px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+.form-card {
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+}
+.fc-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.fc-val {
+  font-size: 20px;
+  font-weight: 800;
+}
+.fc-unit {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.fc-lab {
+  font-weight: 600;
+  font-size: 13px;
+  margin-top: 6px;
+}
+.fc-desc {
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 4px;
+}

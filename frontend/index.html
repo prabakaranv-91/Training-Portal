@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Garmin Training Portal</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="analysis.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏃</text></svg>"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  </head>
+  <body>
+    <!-- ============================== LOGIN ============================== -->
+    <div id="login-view" class="view active">
+      <div class="login-card">
+        <div class="login-logo">🏃‍♂️</div>
+        <h1>Garmin Training Portal</h1>
+        <p class="subtitle">Track your runs, VO₂ max, calories and more.</p>
+
+        <form id="login-form">
+          <label for="email">Garmin email</label>
+          <input id="email" type="email" autocomplete="username" required />
+
+          <label for="password">Password</label>
+          <input
+            id="password"
+            type="password"
+            autocomplete="current-password"
+            required
+          />
+
+          <button type="submit" class="btn-primary" id="login-btn">
+            Sign in
+          </button>
+        </form>
+
+        <form id="mfa-form" class="hidden">
+          <label for="mfa-code">Enter the code from your authenticator / email</label>
+          <input
+            id="mfa-code"
+            type="text"
+            inputmode="numeric"
+            autocomplete="one-time-code"
+            placeholder="123456"
+          />
+          <button type="submit" class="btn-primary" id="mfa-btn">Verify</button>
+        </form>
+
+        <p id="login-error" class="error hidden"></p>
+        <p class="hint">
+          Your credentials are sent only to your own local backend and are not
+          stored.
+        </p>
+      </div>
+    </div>
+
+    <!-- ============================ DASHBOARD =========================== -->
+    <div id="dashboard-view" class="view">
+      <header class="topbar">
+        <div class="brand">🏃 <span>Training Portal</span></div>
+        <div class="topbar-right">
+          <span id="user-name" class="user-name"></span>
+          <button id="open-analysis" class="btn-ghost">📊 Analysis</button>
+          <button id="refresh-btn" class="btn-ghost" title="Refresh">⟳</button>
+          <button id="logout-btn" class="btn-ghost">Sign out</button>
+        </div>
+      </header>
+
+      <main class="container">
+        <section class="cards" id="stat-cards"><!-- filled by JS --></section>
+
+        <section class="panel run-report">
+          <div class="panel-head">
+            <h2>🏃 Running report</h2>
+            <div class="panel-controls">
+              <select id="mileage-mode">
+                <option value="monthly">Monthly · this year</option>
+                <option value="weekly" selected>Weekly · last 12 weeks</option>
+              </select>
+              <button id="open-insights" class="btn-link">🏅 Running insights →</button>
+            </div>
+          </div>
+          <div class="report-cards" id="report-cards"><!-- filled by JS --></div>
+          <div class="run-chart-wrap">
+            <canvas id="mileage-chart"></canvas>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>VO₂ Max &amp; Training</h2>
+          <div id="vo2-panel" class="vo2-grid"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Activities</h2>
+            <div class="panel-controls">
+              <select id="activity-range">
+                <option value="days:30" selected>Last 30 days</option>
+                <option value="days:90">Last 90 days</option>
+                <option value="days:183">Last 6 months</option>
+                <option value="days:365">Last 1 year</option>
+                <option value="limit:50">Last 50 activities</option>
+                <option value="limit:100">Last 100 activities</option>
+                <option value="limit:300">All (up to 300)</option>
+              </select>
+              <select id="activity-filter">
+                <option value="all">All sports</option>
+                <option value="running">Running</option>
+                <option value="cycling">Cycling</option>
+                <option value="walking">Walking</option>
+                <option value="swimming">Swimming</option>
+              </select>
+            </div>
+          </div>
+          <div id="activities-count" class="activities-count"></div>
+          <div id="activities-list" class="activities"></div>
+        </section>
+      </main>
+    </div>
+
+    <!-- ============================ ANALYSIS =========================== -->
+    <div id="analysis-view" class="view">
+      <header class="topbar">
+        <div class="brand">📊 <span>Performance Analysis</span></div>
+        <div class="topbar-right">
+          <select id="analysis-period">
+            <option value="30">Last 30 days</option>
+            <option value="90" selected>Last 90 days</option>
+            <option value="180">Last 6 months</option>
+          </select>
+          <button id="analysis-back" class="btn-ghost">← Dashboard</button>
+        </div>
+      </header>
+      <main class="container" id="analysis-content"></main>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <!-- ======================= STAT INFO MODAL ======================= -->
+    <div id="stat-info-modal" class="modal-overlay hidden">
+      <div class="modal">
+        <div class="modal-head">
+          <h2>Metric guide</h2>
+          <button id="stat-info-close" class="modal-close" title="Close">×</button>
+        </div>
+        <div class="modal-body" id="stat-info-body"></div>
+      </div>
+    </div>
+
+    <!-- ==================== RANGE ACTIVITIES MODAL ==================== -->
+    <div id="range-modal" class="modal-overlay hidden">
+      <div class="modal modal-lg">
+        <div class="modal-head">
+          <h2>Activities</h2>
+          <button id="range-close" class="modal-close" title="Close">×</button>
+        </div>
+        <div class="modal-body" id="range-modal-body"></div>
+      </div>
+    </div>
+
+    <!-- ========================= VO₂ MAX MODAL ========================= -->
+    <div id="vo2-modal" class="modal-overlay hidden">
+      <div class="modal">
+        <div class="modal-head">
+          <h2>VO₂ Max trend</h2>
+          <button id="vo2-close" class="modal-close" title="Close">×</button>
+        </div>
+        <div class="period-tabs" id="vo2-periods">
+          <button data-period="1m">1 month</button>
+          <button data-period="6m" class="active">6 months</button>
+          <button data-period="1y">1 year</button>
+        </div>
+        <div class="modal-body">
+          <canvas id="vo2-chart" height="220"></canvas>
+          <p id="vo2-empty" class="empty hidden">
+            No VO₂ max data recorded for this period.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====================== RUNNING INSIGHTS MODAL ================== -->
+    <div id="insights-modal" class="modal-overlay hidden">
+      <div class="modal modal-lg">
+        <div class="modal-head">
+          <h2>🏅 Running insights</h2>
+          <button id="insights-close" class="modal-close" title="Close">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="insights-block">
+            <h3>Personal records · last 12 months</h3>
+            <div class="pr-cards" id="pr-cards"></div>
+          </div>
+          <div class="insights-block">
+            <h3>Race predictions</h3>
+            <div class="pred-note" id="pred-note"></div>
+            <div class="pred-cards" id="pred-cards"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== VO₂ MAX ANALYSIS MODAL ==================== -->
+    <div id="vo2-analysis-modal" class="modal-overlay hidden">
+      <div class="modal modal-lg">
+        <div class="modal-head">
+          <h2>VO₂ Max — what improved it</h2>
+          <button id="vo2-analysis-close" class="modal-close" title="Close">×</button>
+        </div>
+        <div class="period-tabs" id="vo2-analysis-periods">
+          <button data-period="1m">1 month</button>
+          <button data-period="6m" class="active">6 months</button>
+          <button data-period="1y">1 year</button>
+        </div>
+        <div class="modal-body" id="vo2-analysis-body"></div>
+      </div>
+    </div>
+
+    <!-- ======================== ACTIVITY MODAL ======================== -->
+    <div id="activity-modal" class="modal-overlay hidden">
+      <div class="modal modal-lg">
+        <div class="modal-head">
+          <h2>Activity details</h2>
+          <button id="activity-close" class="modal-close" title="Close">×</button>
+        </div>
+        <div class="modal-body" id="activity-modal-body"></div>
+      </div>
+    </div>
+
+    <!-- ======================== COMPARE MODAL ========================= -->
+    <div id="compare-modal" class="modal-overlay hidden">
+      <div class="modal modal-lg">
+        <div class="modal-head">
+          <h2>Performance comparison</h2>
+          <button id="compare-close" class="modal-close" title="Close">×</button>
+        </div>
+        <div class="modal-body" id="compare-modal-body"></div>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
