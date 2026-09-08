@@ -3,22 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Garmin Training Portal</title>
+    <title>Training Lab — Running Portal</title>
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="analysis.css" />
-    <link
-      rel="icon"
-      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏃</text></svg>"
-    />
+    <link rel="icon" type="image/svg+xml" href="logo.svg" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   </head>
   <body>
     <!-- ============================== LOGIN ============================== -->
     <div id="login-view" class="view active">
       <div class="login-card">
-        <div class="login-logo">🏃‍♂️</div>
-        <h1>Garmin Training Portal</h1>
-        <p class="subtitle">Track your runs, VO₂ max, calories and more.</p>
+        <div class="login-logo"><img src="logo.svg" alt="Training Lab" width="64" height="64" /></div>
+        <h1>Training Lab</h1>
+        <p class="subtitle">Your running lab — track pace, VO₂ max, race predictions and more, across Garmin and Strava.</p>
 
         <form id="login-form">
           <label for="email">Garmin email</label>
@@ -33,7 +30,7 @@
           />
 
           <button type="submit" class="btn-primary" id="login-btn">
-            Sign in
+            Sign in with Garmin
           </button>
         </form>
 
@@ -49,10 +46,15 @@
           <button type="submit" class="btn-primary" id="mfa-btn">Verify</button>
         </form>
 
+        <div class="or-divider"><span>or</span></div>
+        <button id="strava-login-btn" class="btn-strava-lg" type="button">
+          🔗 Continue with Strava
+        </button>
+
         <p id="login-error" class="error hidden"></p>
         <p class="hint">
-          Your credentials are sent only to your own local backend and are not
-          stored.
+          Sign in with either account — you can connect the other one afterwards.
+          Credentials are sent only to your own local backend and are not stored.
         </p>
       </div>
     </div>
@@ -60,9 +62,12 @@
     <!-- ============================ DASHBOARD =========================== -->
     <div id="dashboard-view" class="view">
       <header class="topbar">
-        <div class="brand">🏃 <span>Training Portal</span></div>
+        <div class="brand"><img src="logo.svg" alt="" class="brand-logo" /> <span>Training Lab</span></div>
         <div class="topbar-right">
+          <img id="user-avatar" class="user-avatar hidden" alt="" />
           <span id="user-name" class="user-name"></span>
+          <button id="connect-garmin-btn" class="btn-ghost hidden">⌚ Connect Garmin</button>
+          <button id="strava-btn" class="btn-ghost strava-topbar hidden" type="button">🔗 Connect Strava</button>
           <button id="open-analysis" class="btn-ghost">📊 Analysis</button>
           <button id="refresh-btn" class="btn-ghost" title="Refresh">⟳</button>
           <button id="logout-btn" class="btn-ghost">Sign out</button>
@@ -101,6 +106,13 @@
           <div class="panel-head">
             <h2>Activities</h2>
             <div class="panel-controls">
+              <div id="compare-controls" class="compare-controls">
+                <button id="compare-mode-btn" class="btn-ghost" type="button">⚖️ Compare</button>
+                <div id="compare-actions" class="compare-actions hidden">
+                  <button id="compare-run" class="btn-primary btn-sm" type="button" disabled>Compare</button>
+                  <button id="compare-cancel" class="btn-ghost btn-sm" type="button">Cancel</button>
+                </div>
+              </div>
               <select id="activity-range">
                 <option value="days:30" selected>Last 30 days</option>
                 <option value="days:90">Last 90 days</option>
@@ -111,11 +123,18 @@
                 <option value="limit:300">All (up to 300)</option>
               </select>
               <select id="activity-filter">
-                <option value="all">All sports</option>
+                <option value="all">All activities</option>
                 <option value="running">Running</option>
                 <option value="cycling">Cycling</option>
                 <option value="walking">Walking</option>
                 <option value="swimming">Swimming</option>
+                <option value="strength">Strength training</option>
+              </select>
+              <select id="activity-tag-filter">
+                <option value="all">All types</option>
+                <option value="race">🏁 Races</option>
+                <option value="long_run">🏃 Long runs</option>
+                <option value="workout">⚡ Workouts</option>
               </select>
             </div>
           </div>
@@ -186,6 +205,29 @@
       </div>
     </div>
 
+    <!-- ================= TRAINING (STATUS·READINESS·THRESHOLD) ========= -->
+    <div id="training-modal" class="modal-overlay hidden">
+      <div class="modal">
+        <div class="modal-head">
+          <h2>Training status, readiness &amp; threshold</h2>
+          <button id="training-close" class="modal-close" title="Close">×</button>
+        </div>
+        <div class="period-tabs" id="training-periods">
+          <button data-period="1m">1 month</button>
+          <button data-period="3m" class="active">3 months</button>
+          <button data-period="6m">6 months</button>
+          <button data-period="1y">1 year</button>
+        </div>
+        <div class="modal-body">
+          <div id="training-summary" class="tr-summary"></div>
+          <h3 class="tr-chart-title">Readiness score trend</h3>
+          <canvas id="training-chart" height="210"></canvas>
+          <p id="training-empty" class="empty hidden">No readiness history for this period.</p>
+          <div id="training-details"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- ====================== RUNNING INSIGHTS MODAL ================== -->
     <div id="insights-modal" class="modal-overlay hidden">
       <div class="modal modal-lg">
@@ -242,6 +284,17 @@
           <button id="compare-close" class="modal-close" title="Close">×</button>
         </div>
         <div class="modal-body" id="compare-modal-body"></div>
+      </div>
+    </div>
+
+    <!-- ==================== MULTI COMPARE MODAL ======================= -->
+    <div id="multi-compare-modal" class="modal-overlay hidden">
+      <div class="modal modal-lg">
+        <div class="modal-head">
+          <h2>Compare activities</h2>
+          <button id="multi-compare-close" class="modal-close" title="Close">×</button>
+        </div>
+        <div class="modal-body" id="multi-compare-body"></div>
       </div>
     </div>
 

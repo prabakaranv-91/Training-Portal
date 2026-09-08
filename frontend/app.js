@@ -3,6 +3,9 @@
 
 const API = "";
 let allActivities = [];
+let stravaActivities = [];
+let stravaConnected = false;
+let garminConnected = false;
 let monthlyKmChart = null;
 let weeklyKmChart = null;
 let mileageChart = null;
@@ -14,10 +17,22 @@ let yearProjection = null;
 let showAllStats = false;
 let guidanceData = null;
 let readinessData = null;
+let racePrediction = null;
+let lactateThreshold = null;
+let stravaGear = null;
+let stravaStreak = null;
+let stravaYearlyGoal = null;
+let runMonthKm = null;
 let hrZoneChart = null;
 let cadencePaceChart = null;
 let currentSportFilter = "all";
 let currentActivityQuery = "days=30";
+let currentTagFilter = "all";
+
+// Multi-activity comparison state.
+let compareMode = false;
+const compareSelection = new Set(); // activityIds of Garmin activities picked
+let multiCompareCharts = [];
 
 // Plain-language descriptions for Garmin training statuses.
 const TRAINING_STATUS = {
@@ -33,6 +48,8 @@ const TRAINING_STATUS = {
 let vo2Chart = null;
 let vo2CurrentMetric = "running";
 let vo2CurrentPeriod = "6m";
+let trainingPeriod = "3m";
+let trainingChart = null;
 let lapsChart = null;
 let lapState = null;
 
@@ -100,6 +117,15 @@ function num(v, suffix = "") {
   return `${Math.round(v).toLocaleString()}${suffix}`;
 }
 
+// Escape a string for safe use inside an HTML attribute (e.g. title="…").
+function escapeAttr(v) {
+  return String(v == null ? "" : v)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 const SPORT_ICONS = {
   running: "🏃",
   trail_running: "🏞️",
@@ -119,6 +145,13 @@ const SPORT_ICONS = {
 function sportIcon(type) {
   return SPORT_ICONS[type] || "🏅";
 }
+
+// Strava workout_type tags (race / long run / workout) shown as row badges.
+const TAG_META = {
+  race: { icon: "🏁", label: "Race", cls: "tag-race" },
+  long_run: { icon: "🏃", label: "Long run", cls: "tag-long" },
+  workout: { icon: "⚡", label: "Workout", cls: "tag-workout" },
+};
 
 // Colour class for a Garmin training-effect / primary-benefit label.
 function benefitClass(raw) {
@@ -206,6 +239,19 @@ document.getElementById("logout-btn").addEventListener("click", async () => {
   document.getElementById("mfa-form").classList.add("hidden");
 });
 
+// Log in with Strava (OAuth redirect) from the login screen.
+document.getElementById("strava-login-btn").addEventListener("click", () => {
+  window.location.href = "/api/strava/connect";
+});
+
+// Connect Garmin from the dashboard (Strava-first users).
+document.getElementById("connect-garmin-btn").addEventListener("click", () => {
+  show("login-view");
+  document.getElementById("login-form").classList.remove("hidden");
+  document.getElementById("mfa-form").classList.add("hidden");
+  document.getElementById("login-error").classList.add("hidden");
+});
+
 document.getElementById("refresh-btn").addEventListener("click", () => {
   loadDashboard();
   toast("Refreshing…");
@@ -227,11 +273,29 @@ document.getElementById("activity-filter").addEventListener("change", (e) => {
   renderActivities(currentSportFilter);
 });
 
+document.getElementById("activity-tag-filter").addEventListener("change", (e) => {
+  currentTagFilter = e.target.value;
+  // Races / long runs / workouts are infrequent — when one is picked, widen
+  // the date range to the last year so there's actually something to show.
+  const rangeSel = document.getElementById("activity-range");
+  if (currentTagFilter !== "all" && rangeSel && rangeSel.value !== "days:365") {
+    rangeSel.value = "days:365";
+    currentActivityQuery = "days=365";
+    // Reload Garmin + Strava together; the loader stays until both finish and
+    // the list renders once (no partial/stale flash, no wiped loader).
+    reloadAllActivities();
+  } else {
+    renderActivities(currentSportFilter);
+  }
+});
+
 document.getElementById("activity-range").addEventListener("change", (e) => {
   const [kind, val] = e.target.value.split(":");
   currentActivityQuery = `${kind}=${val}`;
-  reloadActivities();
+  reloadAllActivities();
 });
+
+document.getElementById("strava-btn").addEventListener("click", onStravaButton);
 
 // Running insights modal (loaded on demand).
 let insightsLoaded = false;
@@ -314,9 +378,14 @@ function loadAnalysis(days) {
     });
 }
 
+// Loading indicator (spinner) shown inside the activity list area.
+function activitiesLoadingHtml() {
+  return `<div class="list-loading"><div class="loader-ring"></div><div>Loading activities…</div></div>`;
+}
+
 async function reloadActivities() {
   const list = document.getElementById("activities-list");
-  list.innerHTML = `<div class="empty">Loading activities…</div>`;
+  list.innerHTML = activitiesLoadingHtml();
   try {
     const acts = await api(`/api/activities?${currentActivityQuery}`);
     allActivities = acts.activities || [];
@@ -325,6 +394,38 @@ async function reloadActivities() {
     if (ex.status === 401) show("login-view");
     else list.innerHTML = `<div class="empty">Could not load activities: ${ex.message}</div>`;
   }
+}
+
+// Reload Garmin AND Strava activities for the current query, keeping the loader
+// visible until BOTH finish so the list isn't rendered with partial/stale data.
+async function reloadAllActivities() {
+  const list = document.getElementById("activities-list");
+  list.innerHTML = activitiesLoadingHtml();
+
+  const jobs = [
+    api(`/api/activities?${currentActivityQuery}`)
+      .then((r) => {
+        allActivities = r.activities || [];
+      })
+      .catch((ex) => {
+        if (ex.status === 401) show("login-view");
+        allActivities = [];
+      }),
+  ];
+  if (stravaConnected) {
+    jobs.push(
+      api(`/api/strava/activities?${currentActivityQuery}`)
+        .then((r) => {
+          stravaActivities = r.activities || [];
+        })
+        .catch(() => {
+          stravaActivities = [];
+        })
+    );
+  }
+
+  await Promise.all(jobs);
+  renderActivities(currentSportFilter);
 }
 
 // ----------------------------------------------------------- dashboard
@@ -338,8 +439,7 @@ function showDashboardLoading() {
     skel("report-card") + skel("report-card");
   const chartWrap = document.querySelector(".run-report .run-chart-wrap");
   if (chartWrap) chartWrap.classList.add("skeleton");
-  document.getElementById("activities-list").innerHTML =
-    `<div class="empty">Loading activities…</div>`;
+  document.getElementById("activities-list").innerHTML = activitiesLoadingHtml();
   document.getElementById("activities-count").textContent = "";
 }
 
@@ -348,6 +448,10 @@ async function loadDashboard() {
   insightsLoaded = false;
   showDashboardLoading();
   try {
+    const session = await api("/api/session").catch(() => ({}));
+    garminConnected = !!session.garmin;
+    updateConnectButtons();
+
     const [profile, dash, acts] = await Promise.all([
       api("/api/profile"),
       api("/api/dashboard"),
@@ -355,10 +459,14 @@ async function loadDashboard() {
     ]);
 
     document.getElementById("user-name").textContent = profile.fullName || profile.email || "";
+    setAvatar(profile.avatar);
     renderStatCards(dash.summary);
     renderVo2(dash.vo2max, dash.training);
     allActivities = acts.activities || [];
     renderActivities(currentSportFilter);
+
+    // Strava (extra activity source) loads independently.
+    loadStravaStatus();
 
     // Running report loads independently (it scans the year's activities).
     api("/api/running-report")
@@ -366,6 +474,18 @@ async function loadDashboard() {
       .catch(() => {});
     api("/api/training-guidance")
       .then(renderGuidance)
+      .catch(() => {});
+    api("/api/race-prediction")
+      .then((rp) => {
+        racePrediction = rp;
+        renderStatCards();
+      })
+      .catch(() => {});
+    api("/api/lactate-threshold")
+      .then((lt) => {
+        lactateThreshold = lt;
+        renderStatCards();
+      })
       .catch(() => {});
     api("/api/readiness")
       .then((r) => {
@@ -387,14 +507,8 @@ function renderGuidance(g) {
   renderStatCards(); // refresh the compact "Training" tile
 }
 
-function openReadinessModal() {
-  const r = readinessData;
-  const body = document.getElementById("stat-info-body");
-  if (!r) {
-    body.innerHTML = `<div class="empty">Readiness still loading…</div>`;
-    document.getElementById("stat-info-modal").classList.remove("hidden");
-    return;
-  }
+function readinessBodyHtml(r) {
+  if (!r) return `<div class="empty">Readiness still loading…</div>`;
   const icon = r.level === "good" ? "🟢" : r.level === "watch" ? "😴" : "🟡";
   const badge = `<span class="assess ${r.level}">${
     r.level === "good" ? "Go" : r.level === "watch" ? "Recover" : "Easy"
@@ -408,7 +522,7 @@ function openReadinessModal() {
       </div>`
     )
     .join("");
-  body.innerHTML = `
+  return `
     <div class="si-head">
       <span class="si-icon">${icon}</span>
       <div>
@@ -419,17 +533,10 @@ function openReadinessModal() {
     <div class="coach-signals">${factors}</div>
     <div class="si-tip">💡 "Train or recover?" blends Garmin's Training Readiness with your sleep, Body Battery, resting HR and HRV.</div>
   `;
-  document.getElementById("stat-info-modal").classList.remove("hidden");
 }
 
-function openCoachModal() {
-  const g = guidanceData;
-  const body = document.getElementById("stat-info-body");
-  if (!g) {
-    body.innerHTML = `<div class="empty">Training analysis still loading…</div>`;
-    document.getElementById("stat-info-modal").classList.remove("hidden");
-    return;
-  }
+function coachBodyHtml(g) {
+  if (!g) return `<div class="empty">Training analysis still loading…</div>`;
   const icon = g.level === "good" ? "💪" : g.level === "watch" ? "⚠️" : "🧭";
   const badge = `<span class="assess ${g.level}">${
     g.level === "good" ? "On track" : g.level === "watch" ? "Adjust" : "Heads up"
@@ -445,7 +552,7 @@ function openCoachModal() {
     )
     .join("");
   const recs = (g.recommendations || []).map((r) => `<li>${r}</li>`).join("");
-  body.innerHTML = `
+  return `
     <div class="si-head">
       <span class="si-icon">${icon}</span>
       <div>
@@ -455,6 +562,430 @@ function openCoachModal() {
     </div>
     <div class="coach-signals">${signals}</div>
     ${recs ? `<div class="coach-recs-head">What to do</div><ul class="coach-recs">${recs}</ul>` : ""}
+  `;
+}
+
+function openReadinessModal() {
+  document.getElementById("stat-info-body").innerHTML = readinessBodyHtml(readinessData);
+  document.getElementById("stat-info-modal").classList.remove("hidden");
+}
+
+function openCoachModal() {
+  document.getElementById("stat-info-body").innerHTML = coachBodyHtml(guidanceData);
+  document.getElementById("stat-info-modal").classList.remove("hidden");
+}
+
+function openTrainReadiModal() {
+  const body = document.getElementById("stat-info-body");
+  body.innerHTML = `
+    <div class="tr-section">
+      <div class="tr-heading">🧭 Training</div>
+      ${coachBodyHtml(guidanceData)}
+    </div>
+    <div class="tr-divider"></div>
+    <div class="tr-section">
+      <div class="tr-heading">🔋 Readiness</div>
+      ${readinessBodyHtml(readinessData)}
+    </div>
+  `;
+  document.getElementById("stat-info-modal").classList.remove("hidden");
+}
+
+// -------- Combined Training modal (status · readiness · threshold + trend) ----
+
+function trainingThresholdHtml() {
+  const lt = lactateThreshold;
+  if (!lt || (!lt.hr && !lt.paceMinPerKm)) {
+    return `<div class="empty">No lactate threshold data from Garmin yet. It's auto-detected during harder guided runs.</div>`;
+  }
+  return `
+    <div class="coach-signals">
+      <div class="coach-signal">
+        <div class="cs-lab">Threshold heart rate</div>
+        <div class="cs-val">${lt.hr ? `${lt.hr} bpm` : "—"}</div>
+      </div>
+      <div class="coach-signal">
+        <div class="cs-lab">Threshold pace</div>
+        <div class="cs-val">${lt.paceMinPerKm ? fmtPace(lt.paceMinPerKm) : "—"}</div>
+      </div>
+    </div>`;
+}
+
+function renderTrainingSummary() {
+  const g = guidanceData;
+  const r = readinessData;
+  const lt = lactateThreshold;
+  const thr = lt && lt.paceMinPerKm ? fmtPace(lt.paceMinPerKm) : lt && lt.hr ? `${lt.hr} bpm` : "—";
+  const cell = (icon, val, lab, level) =>
+    `<div class="ts-card${level ? ` lv-${level}` : ""}">
+       <div class="ts-icon">${icon}</div>
+       <div class="ts-val">${val}</div>
+       <div class="ts-lab">${lab}</div>
+     </div>`;
+  document.getElementById("training-summary").innerHTML = `
+    ${cell("🧭", g ? g.status.split(" — ")[0] : "—", "Training status", g && g.level)}
+    ${cell("🔋", r && r.score != null ? `${r.score}/100` : "—", r ? r.headline : "Readiness", r && r.level)}
+    ${cell("🩸", thr, "Lactate threshold", null)}
+  `;
+}
+
+function openTrainingModal() {
+  document.getElementById("training-modal").classList.remove("hidden");
+  renderTrainingSummary();
+  document.getElementById("training-details").innerHTML = `
+    <div class="tr-section">
+      <div class="tr-heading">🧭 Training status</div>
+      ${coachBodyHtml(guidanceData)}
+    </div>
+    <div class="tr-divider"></div>
+    <div class="tr-section">
+      <div class="tr-heading">🔋 Readiness</div>
+      ${readinessBodyHtml(readinessData)}
+    </div>
+    <div class="tr-divider"></div>
+    <div class="tr-section">
+      <div class="tr-heading">🩸 Lactate threshold</div>
+      ${trainingThresholdHtml()}
+    </div>
+  `;
+  loadTrainingHistory(trainingPeriod);
+}
+
+function closeTrainingModal() {
+  document.getElementById("training-modal").classList.add("hidden");
+  if (trainingChart) {
+    trainingChart.destroy();
+    trainingChart = null;
+  }
+}
+
+async function loadTrainingHistory(period) {
+  trainingPeriod = period;
+  document.querySelectorAll("#training-periods button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.period === period);
+  });
+  const canvas = document.getElementById("training-chart");
+  const empty = document.getElementById("training-empty");
+  if (trainingChart) {
+    trainingChart.destroy();
+    trainingChart = null;
+  }
+  canvas.style.display = "none";
+  empty.classList.remove("hidden");
+  empty.innerHTML = `<div class="list-loading"><div class="loader-ring"></div><div>Loading readiness trend…</div></div>`;
+  try {
+    const data = await api(`/api/training-readiness/history?period=${period}`);
+    renderTrainingChart(data.points || []);
+  } catch (ex) {
+    empty.textContent = `Could not load trend: ${ex.message}`;
+    empty.classList.remove("hidden");
+  }
+}
+
+function renderTrainingChart(points) {
+  const canvas = document.getElementById("training-chart");
+  const empty = document.getElementById("training-empty");
+  const series = points.filter((p) => p.score != null);
+
+  if (!series.length) {
+    empty.textContent = "No readiness history for this period.";
+    empty.classList.remove("hidden");
+    canvas.style.display = "none";
+    if (trainingChart) {
+      trainingChart.destroy();
+      trainingChart = null;
+    }
+    return;
+  }
+  empty.classList.add("hidden");
+  canvas.style.display = "block";
+
+  const labels = series.map((p) =>
+    new Date(p.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+  );
+  const values = series.map((p) => p.score);
+
+  if (trainingChart) trainingChart.destroy();
+  trainingChart = new Chart(canvas.getContext("2d"), {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Readiness",
+          data: values,
+          borderColor: "#2dd4bf",
+          backgroundColor: "rgba(45, 212, 191, 0.15)",
+          fill: true,
+          tension: 0.3,
+          pointRadius: series.length > 40 ? 0 : 3,
+          pointHoverRadius: 5,
+        },
+      ],
+    },
+    options: {
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: { label: (ctx) => `Readiness: ${Math.round(ctx.parsed.y)}/100` },
+        },
+      },
+      scales: {
+        x: { ticks: { color: "#9fb0cc", maxTicksLimit: 8, autoSkip: true }, grid: { display: false } },
+        y: {
+          ticks: { color: "#9fb0cc" },
+          grid: { color: "#243450" },
+          suggestedMin: 0,
+          suggestedMax: 100,
+        },
+      },
+    },
+  });
+}
+
+function openRacePredictionPopup() {
+  const rp = racePrediction;
+  const body = document.getElementById("stat-info-body");
+  if (!rp || !rp.rows || !rp.rows.length || (!rp.hasGarmin && !rp.hasStrava)) {
+    body.innerHTML = `<div class="empty">No race predictions available yet.</div>`;
+    document.getElementById("stat-info-modal").classList.remove("hidden");
+    return;
+  }
+  const rows = rp.rows
+    .map(
+      (r) => `
+      <div class="rp-row">
+        <div class="rp-dist">${r.label}</div>
+        <div class="rp-cell">${r.garminSec != null ? fmtClock(r.garminSec) : "—"}</div>
+        <div class="rp-cell">${r.stravaSec != null ? fmtClock(r.stravaSec) : "—"}</div>
+      </div>`
+    )
+    .join("");
+  body.innerHTML = `
+    <div class="si-head">
+      <span class="si-icon">🏁</span>
+      <div>
+        <div class="si-title">Race predictions</div>
+        <div class="coach-summary">Garmin's own predictions and Strava's projected times, side by side.</div>
+      </div>
+    </div>
+    <div class="rp-table">
+      <div class="rp-row rp-head">
+        <div class="rp-dist">Distance</div>
+        <div class="rp-cell">⌚ Garmin</div>
+        <div class="rp-cell">🟠 Strava</div>
+      </div>
+      ${rows}
+    </div>
+    <div class="si-tip">💡 Garmin values are Garmin Connect's race predictor. Strava values are projected from your best recent efforts. “—” means not enough data.</div>
+  `;
+  document.getElementById("stat-info-modal").classList.remove("hidden");
+}
+
+// --------------------------------------------------------- strava tiles
+
+function fmtKm(v) {
+  return (v || 0).toLocaleString(undefined, { maximumFractionDigits: 1 });
+}
+
+function buildGoals() {
+  const goals = [];
+  if (weeklyProgress) {
+    const target = weeklyProgress.targetKm || 0;
+    const cur = weeklyProgress.currentKm || 0;
+    goals.push({
+      name: "Weekly distance",
+      short: "W",
+      current: cur,
+      target,
+      unit: "km",
+      pct: target > 0 ? Math.round((cur / target) * 100) : 0,
+      expectedPct: target > 0 ? Math.round(((weeklyProgress.expectedSoFarKm || 0) / target) * 100) : 0,
+    });
+  }
+  if (runMonthKm != null) {
+    const wt = weeklyProgress ? weeklyProgress.targetKm || 0 : 0;
+    const target = Math.max(Math.round((wt * 4.345) / 10) * 10, 10);
+    const now = new Date();
+    const dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    goals.push({
+      name: "Monthly distance",
+      short: "M",
+      current: runMonthKm,
+      target,
+      unit: "km",
+      pct: target > 0 ? Math.round((runMonthKm / target) * 100) : 0,
+      expectedPct: Math.round((now.getDate() / dim) * 100),
+    });
+  }
+  if (yearProjection) {
+    const now = new Date();
+    const yr = now.getFullYear();
+    const target =
+      stravaYearlyGoal && stravaYearlyGoal > 0
+        ? stravaYearlyGoal
+        : Math.round((yearProjection.projectedKm || 0) / 100) * 100 || 100;
+    const cur = yearProjection.ytdKm || 0;
+    const doy = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
+    const diy = (yr % 4 === 0 && yr % 100 !== 0) || yr % 400 === 0 ? 366 : 365;
+    goals.push({
+      name: `${yr} distance goal`,
+      short: "Y",
+      current: cur,
+      target,
+      unit: "km",
+      pct: target > 0 ? Math.round((cur / target) * 100) : 0,
+      expectedPct: Math.round((doy / diy) * 100),
+    });
+  }
+  return goals;
+}
+
+function openGoalsModal() {
+  const goals = buildGoals();
+  const body = document.getElementById("stat-info-body");
+  if (!goals.length) {
+    body.innerHTML = `<div class="empty">No goal data yet — log a few runs first.</div>`;
+    document.getElementById("stat-info-modal").classList.remove("hidden");
+    return;
+  }
+  const rows = goals
+    .map((g) => {
+      const behind = g.pct < g.expectedPct - 5;
+      const remaining = Math.max(g.target - g.current, 0);
+      return `
+      <div class="goal-row">
+        <div class="goal-head">
+          <span class="goal-name">${g.name}</span>
+          <span class="goal-nums">${fmtKm(g.current)} / ${g.target} ${g.unit}</span>
+        </div>
+        <div class="goal-bar">
+          <span class="goal-fill${behind ? " behind" : ""}" style="width:${Math.min(g.pct, 100)}%"></span>
+          <span class="goal-expected" style="left:${Math.min(g.expectedPct, 100)}%" title="Where you should be by now"></span>
+        </div>
+        <div class="goal-foot">${g.pct}% · ${
+        remaining > 0 ? `${fmtKm(remaining)} ${g.unit} to go` : "achieved 🎉"
+      } · ${behind ? "behind pace" : "on pace"}</div>
+      </div>`;
+    })
+    .join("");
+  body.innerHTML = `
+    <div class="si-head">
+      <span class="si-icon">🏅</span>
+      <div>
+        <div class="si-title">Goals &amp; progress</div>
+        <div class="coach-summary">Auto-set from your combined Garmin + Strava running.</div>
+      </div>
+    </div>
+    <div class="goal-list">${rows}</div>
+    <div class="si-tip">💡 Targets are derived from your recent training. The marker on each bar shows where you should be by today.</div>
+  `;
+  document.getElementById("stat-info-modal").classList.remove("hidden");
+}
+
+function openGearModal() {
+  const gear = stravaGear;
+  const body = document.getElementById("stat-info-body");
+  if (!gear || !gear.shoes || !gear.shoes.length) {
+    body.innerHTML = `<div class="empty">No Strava gear found. Add shoes to your activities in Strava to track mileage.</div>`;
+    document.getElementById("stat-info-modal").classList.remove("hidden");
+    return;
+  }
+  const active = gear.active;
+  const shoeRow = (s) => {
+    const isActive = active && s.id === active.id;
+    return `
+      <div class="coach-signal ${isActive ? "good" : ""}">
+        <div class="cs-lab">${s.name}${isActive ? ' <span class="assess good">Active</span>' : ""}</div>
+        <div class="cs-val">${s.km.toLocaleString()} km</div>
+      </div>`;
+  };
+
+  const activeShoes = gear.shoes.filter((s) => !s.retired);
+  const retiredShoes = gear.shoes.filter((s) => s.retired);
+  // Active/most-used shoe first, then the rest by mileage.
+  activeShoes.sort((a, b) => {
+    if (active) {
+      if (a.id === active.id) return -1;
+      if (b.id === active.id) return 1;
+    }
+    return b.km - a.km;
+  });
+
+  let sections = "";
+  if (activeShoes.length) {
+    sections += `<div class="tr-heading">Active shoes</div><div class="coach-signals">${activeShoes
+      .map(shoeRow)
+      .join("")}</div>`;
+  }
+  if (retiredShoes.length) {
+    sections += `<div class="tr-heading" style="margin-top:16px">Retired shoes</div><div class="coach-signals">${retiredShoes
+      .map(shoeRow)
+      .join("")}</div>`;
+  }
+
+  body.innerHTML = `
+    <div class="si-head">
+      <span class="si-icon">👟</span>
+      <div>
+        <div class="si-title">${active ? active.name : "Gear"}</div>
+        <div class="coach-summary">${active ? `${active.km.toLocaleString()} km on your active shoe` : ""}</div>
+      </div>
+    </div>
+    ${sections}
+    <div class="si-tip">💡 Shoe mileage comes from Strava (active and retired shoes shown). Most running shoes last ~500–800 km — plan a replacement as you approach that.</div>
+  `;
+  document.getElementById("stat-info-modal").classList.remove("hidden");
+}
+
+function openLactateModal() {
+  const lt = lactateThreshold;
+  const body = document.getElementById("stat-info-body");
+  if (!lt || (!lt.hr && !lt.paceMinPerKm)) {
+    body.innerHTML = `<div class="empty">No lactate threshold data from Garmin yet. It's auto-detected during harder guided runs.</div>`;
+    document.getElementById("stat-info-modal").classList.remove("hidden");
+    return;
+  }
+  const rows = `
+    <div class="coach-signal">
+      <div class="cs-lab">Threshold heart rate</div>
+      <div class="cs-val">${lt.hr ? `${lt.hr} bpm` : "—"}</div>
+    </div>
+    <div class="coach-signal">
+      <div class="cs-lab">Threshold pace</div>
+      <div class="cs-val">${lt.paceMinPerKm ? fmtPace(lt.paceMinPerKm) : "—"}</div>
+    </div>`;
+  body.innerHTML = `
+    <div class="si-head">
+      <span class="si-icon">🩸</span>
+      <div>
+        <div class="si-title">Lactate threshold</div>
+        <div class="coach-summary">The intensity where fatigue starts to build rapidly — your tempo/threshold effort.</div>
+      </div>
+    </div>
+    <div class="coach-signals">${rows}</div>
+    <div class="si-tip">💡 Garmin detects this during harder runs. Run tempo intervals around this HR/pace to raise your threshold over time.</div>
+  `;
+  document.getElementById("stat-info-modal").classList.remove("hidden");
+}
+
+function openStreakPopup() {
+  const st = stravaStreak;
+  const body = document.getElementById("stat-info-body");
+  const n = st ? st.weeks : 0;
+  body.innerHTML = `
+    <div class="si-head">
+      <span class="si-icon">🔥</span>
+      <div>
+        <div class="si-title">${n} week${n === 1 ? "" : "s"} streak</div>
+        <div class="coach-summary">${
+          st && st.thisWeekActive
+            ? "You've run this week — your streak is safe."
+            : "No run logged this week yet. Get one in to keep the streak alive."
+        }</div>
+      </div>
+    </div>
+    <div class="si-tip">💡 A "week streak" counts consecutive calendar weeks (Mon–Sun) with at least one Strava run.</div>
   `;
   document.getElementById("stat-info-modal").classList.remove("hidden");
 }
@@ -488,6 +1019,7 @@ function renderRunningReport(r) {
   reportData.weekly = r.weekly || [];
   weeklyProgress = r.weeklyProgress || null;
   yearProjection = r.projection || null;
+  runMonthKm = r.month ? r.month.km : null;
   renderStatCards(); // refresh the "This week" card now that progress is known
   renderMileageChart();
 }
@@ -687,56 +1219,119 @@ function renderStatCardsImpl(sum) {
 
   const defaultCards = [
     (() => {
-      const p = yearProjection;
-      const year = new Date().getFullYear();
+      const rp = racePrediction;
+      const rows = rp && rp.rows ? rp.rows : [];
+      const tenK = rows.find((r) => r.label === "10K");
+      const headVal = tenK ? (tenK.garminSec != null ? tenK.garminSec : tenK.stravaSec) : null;
+      const parts = [];
+      if (rp && rp.hasGarmin) parts.push("Garmin");
+      if (rp && rp.hasStrava) parts.push("Strava");
       return {
-        key: "projection",
-        icon: "🎯",
-        value: p ? `${p.projectedKm.toLocaleString()} km` : "…",
-        label: `Projected ${year}`,
-        sub: p ? `≈ ${p.onPacePerMonth}/mo` : "",
-        special: "projection",
+        key: "race",
+        icon: "🏁",
+        value: headVal ? fmtClock(headVal) : "…",
+        label: "Predicted 10K",
+        sub: parts.join(" · "),
+        special: "race",
       };
     })(),
-    (() => {
-      const g = guidanceData;
-      const icon = !g ? "🧭" : g.level === "good" ? "💪" : g.level === "watch" ? "⚠️" : "🧭";
-      const short = g ? g.status.split(" — ")[0] : "…";
-      const word = !g ? "" : g.level === "good" ? "On track" : g.level === "watch" ? "Needs attention" : "Steady";
-      return { key: "coach", icon, value: short, label: "Training", sub: word, special: "coach", level: g && g.level };
-    })(),
-    (() => {
-      const r = readinessData;
-      const icon = !r ? "🔄" : r.level === "good" ? "🟢" : r.level === "watch" ? "😴" : "🟡";
-      return {
-        key: "readiness",
-        icon,
-        value: r ? r.headline : "…",
-        label: "Readiness",
-        sub: r && r.score != null ? `Score ${r.score}/100` : "",
-        special: "readiness",
-        level: r && r.level,
-      };
-    })(),
-    { key: "distance", icon: "📏", value: km ? `${km} km` : "–", label: "Distance today", sub: calSub },
-    {
-      key: "weekly",
-      icon: "📅",
-      value: wp ? `${wp.currentKm} / ${wp.targetKm} km` : "…",
-      label: "This week",
-      sub: wp ? (wp.remainingKm > 0 ? `${wp.remainingKm} km to go` : "target reached 🎉") : "",
-      special: "weekly",
-    },
+    ...(stravaConnected
+      ? [
+          ...(stravaGear && stravaGear.active
+            ? [
+                (() => {
+                  const g = stravaGear.active;
+                  return {
+                    key: "gear",
+                    icon: "👟",
+                    value: `${g.km.toLocaleString()} km`,
+                    label: "Active shoe",
+                    sub: g.name,
+                    special: "gear",
+                  };
+                })(),
+              ]
+            : []),
+          (() => {
+            const goals = buildGoals();
+            const onTrack = goals.filter((g) => g.pct >= g.expectedPct - 5).length;
+            return {
+              key: "goals",
+              icon: "🏅",
+              label: "Goals",
+              sub: goals.length ? `${onTrack}/${goals.length} on track` : "Set a goal",
+              special: "goals",
+              goals,
+            };
+          })(),
+          (() => {
+            const st = stravaStreak;
+            const n = st ? st.weeks : 0;
+            return {
+              key: "streak",
+              icon: "🔥",
+              value: st ? `${n} wk` : "…",
+              label: "Run streak",
+              sub: st ? (st.thisWeekActive ? "active this week" : "log a run to extend") : "",
+              special: "streak",
+            };
+          })(),
+        ]
+      : []),
     { key: "restingHR", icon: "❤️", value: num(sum.restingHeartRate), label: "Resting HR", sub: sum.maxHeartRate ? `Max ${num(sum.maxHeartRate)}` : "" },
   ];
 
   const extraCards = [
     { key: "intensity", icon: "⚡", value: num(sum.intensityMinutes), label: "Intensity min" },
+    (() => {
+      // Combined Training tile: status + readiness score + lactate threshold.
+      const g = guidanceData;
+      const r = readinessData;
+      const lt = lactateThreshold;
+      const level = (r && r.level) || (g && g.level);
+      const icon = !r ? "🧭" : r.level === "good" ? "💪" : r.level === "watch" ? "⚠️" : "🧭";
+      const short = g ? g.status.split(" — ")[0] : r ? r.headline : "…";
+      const thr = lt && lt.paceMinPerKm ? fmtPace(lt.paceMinPerKm) : lt && lt.hr ? `${lt.hr} bpm` : null;
+      const subParts = [short];
+      if (thr) subParts.push(`LT ${thr}`);
+      return {
+        key: "training",
+        icon,
+        value: r && r.score != null ? `${r.score}/100` : short,
+        label: "Training",
+        sub: subParts.join(" · "),
+        special: "training",
+        level,
+      };
+    })(),
     { key: "bodyBattery", icon: "🔋", value: sum.bodyBatteryHighest != null ? `${num(sum.bodyBatteryLowest)}–${num(sum.bodyBatteryHighest)}` : "–", label: "Body battery" },
     { key: "sleep", icon: "😴", value: sleepH ? `${sleepH} h` : "–", label: "Sleep" },
   ];
 
-  const card = (c, extra = false) => `
+  const card = (c, extra = false) => {
+    if (c.special === "goals") {
+      const bars = (c.goals || [])
+        .map(
+          (g) => `
+          <div class="gm-row">
+            <span class="gm-lab">${g.short}</span>
+            <span class="gm-bar"><span class="gm-fill${g.pct >= g.expectedPct - 5 ? "" : " behind"}" style="width:${Math.min(g.pct, 100)}%"></span></span>
+            <span class="gm-pct">${g.pct}%</span>
+          </div>`
+        )
+        .join("");
+      const inner = c.goals && c.goals.length ? `<div class="goals-mini">${bars}</div>` : `<div class="value">…</div>`;
+      return `
+      <div class="stat clickable" data-key="${c.key}" data-special="goals">
+        <span class="icon">${c.icon}</span>
+        <div class="stat-body">
+          ${inner}
+          <div class="label">${c.label}${c.sub ? ` · ${c.sub}` : ""}</div>
+        </div>
+        <span class="stat-info">ⓘ</span>
+      </div>`;
+    }
+    return `
       <div class="stat clickable${extra ? " stat-extra" : ""}" data-key="${c.key}"${c.special ? ` data-special="${c.special}"` : ""}>
         <span class="icon">${c.icon}</span>
         <div class="stat-body">
@@ -746,27 +1341,49 @@ function renderStatCardsImpl(sum) {
         </div>
         <span class="stat-info">ⓘ</span>
       </div>`;
+  };
 
   const container = document.getElementById("stat-cards");
 
-  // Render all tiles; the extra ones are hidden by CSS until "Show all" is on.
-  container.innerHTML =
-    defaultCards.map((c) => card(c)).join("") +
-    extraCards.map((c) => card(c, true)).join("");
-  container.classList.toggle("show-all", showAllStats);
+  // Render up to two rows; if more tiles remain, offer a "Show more" toggle.
+  const allCards = [...defaultCards, ...extraCards];
+  const width = container.clientWidth || window.innerWidth || 1000;
+  const gap = 8;
+  const minTile = 158;
+  const cols = Math.max(1, Math.floor((width + gap) / (minTile + gap)));
+  const twoRows = cols * 2;
+  const total = allCards.length;
+
+  let visible = total;
+  let showToggle = false;
+  if (total > twoRows) {
+    showToggle = true;
+    visible = showAllStats ? total : twoRows;
+  }
+
+  container.innerHTML = allCards.slice(0, visible).map((c) => card(c)).join("");
 
   container.querySelectorAll(".stat.clickable").forEach((el) => {
     el.addEventListener("click", () => {
       if (el.dataset.special === "weekly") openWeeklyPopup();
       else if (el.dataset.special === "coach") openCoachModal();
       else if (el.dataset.special === "readiness") openReadinessModal();
+      else if (el.dataset.special === "trainreadi") openTrainReadiModal();
+      else if (el.dataset.special === "training") openTrainingModal();
+      else if (el.dataset.special === "race") openRacePredictionPopup();
       else if (el.dataset.special === "projection") openProjectionPopup();
+      else if (el.dataset.special === "lactate") openLactateModal();
+      else if (el.dataset.special === "gear") openGearModal();
+      else if (el.dataset.special === "streak") openStreakPopup();
+      else if (el.dataset.special === "goals") openGoalsModal();
       else openStatInfo(el.dataset.key);
     });
   });
 
-  // Simple text toggle placed below the grid.
+  // Show/hide + label the toggle placed below the grid.
+  const wrap = document.querySelector(".stat-toggle-wrap");
   const toggle = document.getElementById("stat-toggle");
+  if (wrap) wrap.classList.toggle("hidden", !showToggle);
   if (toggle) {
     toggle.textContent = showAllStats ? "Show less" : "Show more";
     toggle.onclick = () => {
@@ -1076,9 +1693,15 @@ function metricInfo(key, s) {
 }
 
 function renderVo2(vo2, training) {
+  const panel = document.getElementById("vo2-panel");
+  if (!garminConnected) {
+    panel.innerHTML = `<div class="empty">VO₂ max, training status and readiness come from Garmin. Connect Garmin (top-right) to see them.</div>`;
+    return;
+  }
+  const v = vo2 || {};
   const items = [
-    { big: vo2.runningVo2Max ?? "–", cap: "Running VO₂ max", metric: "running" },
-    { big: vo2.cyclingVo2Max ?? "–", cap: "Cycling VO₂ max", metric: "cycling" },
+    { big: v.runningVo2Max ?? "–", cap: "Running VO₂ max", metric: "running" },
+    { big: v.cyclingVo2Max ?? "–", cap: "Cycling VO₂ max", metric: "cycling" },
   ];
 
   let html = items
@@ -1134,11 +1757,30 @@ function activityRowHtml(a) {
         minute: "2-digit",
       })
     : "";
+  const isStrava = a.source === "strava";
+  const selectable = compareMode; // both Garmin and Strava can be compared
+  const checked = compareSelection.has(String(a.activityId));
+  const checkbox = compareMode
+    ? `<div class="a-check"><input type="checkbox" class="cmp-check" ${
+        checked ? "checked" : ""
+      } aria-label="Select to compare" /></div>`
+    : "";
   return `
-      <div class="activity clickable" data-id="${a.activityId}">
+      <div class="activity clickable${selectable ? " selectable" : ""}${
+    checked ? " selected" : ""
+  }" data-id="${a.activityId}"${
+    isStrava ? ` data-source="strava" data-strava-id="${a.stravaId}"` : ""
+  }>
+        ${checkbox}
         <div class="a-icon">${sportIcon(a.type)}</div>
         <div>
           <div class="a-name">${a.name || a.type || "Activity"}${
+    isStrava ? ' <span class="list-tag strava">Strava</span>' : ""
+  }${
+    a.tag && TAG_META[a.tag]
+      ? ` <span class="list-tag ${TAG_META[a.tag].cls}">${TAG_META[a.tag].icon} ${TAG_META[a.tag].label}</span>`
+      : ""
+  }${
     a.hasIntervals ? ' <span class="list-tag interval">⚡ Interval</span>' : ""
   }${
     a.benefit
@@ -1157,14 +1799,24 @@ function activityRowHtml(a) {
 function renderActivities(filter) {
   const list = document.getElementById("activities-list");
   const countEl = document.getElementById("activities-count");
-  let acts = allActivities;
+  let acts = mergedActivities();
   if (filter && filter !== "all") {
-    acts = acts.filter((a) => (a.type || "").includes(filter));
+    acts = acts.filter((a) => {
+      const type = (a.type || "").toLowerCase();
+      return filter === "strength"
+        ? type.includes("strength")
+        : type.includes(filter);
+    });
+  }
+  if (currentTagFilter && currentTagFilter !== "all") {
+    acts = acts.filter((a) => a.tag === currentTagFilter);
   }
 
   if (countEl) {
+    const stravaCount = acts.filter((a) => a.source === "strava").length;
     countEl.textContent = acts.length
-      ? `Showing ${acts.length} activit${acts.length === 1 ? "y" : "ies"}`
+      ? `Showing ${acts.length} activit${acts.length === 1 ? "y" : "ies"}` +
+        (stravaCount ? ` · ${stravaCount} from Strava` : "")
       : "";
   }
 
@@ -1174,10 +1826,570 @@ function renderActivities(filter) {
   }
 
   list.innerHTML = acts.map(activityRowHtml).join("");
+  list.classList.toggle("compare-on", compareMode);
 
   document.querySelectorAll(".activity.clickable").forEach((el) => {
-    el.addEventListener("click", () => openActivityModal(el.dataset.id));
+    el.addEventListener("click", () => {
+      if (compareMode) {
+        // In compare mode a click toggles selection (Garmin or Strava).
+        toggleCompareSelection(el.dataset.id, el);
+        return;
+      }
+      if (el.dataset.source === "strava") {
+        if (el.dataset.stravaId) {
+          window.open(`https://www.strava.com/activities/${el.dataset.stravaId}`, "_blank", "noopener");
+        }
+      } else {
+        openActivityModal(el.dataset.id);
+      }
+    });
   });
+}
+
+// Combine Garmin + Strava activities. When a Garmin run matches a Strava one
+// (same rough start time and distance), keep the Garmin row (for full detail)
+// but adopt the Strava name and its activity tag (race / long run / workout),
+// so those tags stay available for badges and filtering. Unmatched Strava
+// activities are added as extras.
+function mergedActivities() {
+  if (!stravaConnected || !stravaActivities.length) return allActivities;
+
+  const ts = (a) => (a.startTime ? new Date(a.startTime.replace(" ", "T")).getTime() : 0);
+  const matchIdx = (a) =>
+    stravaActivities.findIndex(
+      (s) =>
+        Math.abs(ts(s) - ts(a)) <= 30 * 60 * 1000 &&
+        Math.abs((s.distanceKm || 0) - (a.distanceKm || 0)) <= 0.5
+    );
+
+  const usedStrava = new Set();
+  const garmin = allActivities.map((g) => {
+    const i = matchIdx(g);
+    if (i >= 0) {
+      usedStrava.add(i);
+      const s = stravaActivities[i];
+      // Carry over the Strava name + tag onto the (detailed) Garmin row.
+      return { ...g, name: s.name || g.name, tag: g.tag || s.tag || null };
+    }
+    return g;
+  });
+
+  const extras = stravaActivities.filter((_, i) => !usedStrava.has(i));
+  return [...garmin, ...extras].sort((a, b) => ts(b) - ts(a));
+}
+
+// --------------------------------------------------- multi-activity compare
+
+function setCompareMode(on) {
+  compareMode = on;
+  if (!on) compareSelection.clear();
+  // Swap the single "Compare" button for the Compare / Cancel button group.
+  const btn = document.getElementById("compare-mode-btn");
+  const actions = document.getElementById("compare-actions");
+  if (btn) btn.classList.toggle("hidden", on);
+  if (actions) actions.classList.toggle("hidden", !on);
+  renderActivities(currentSportFilter);
+  updateCompareBar();
+}
+
+function toggleCompareSelection(id, rowEl) {
+  const key = String(id);
+  if (compareSelection.has(key)) compareSelection.delete(key);
+  else {
+    if (compareSelection.size >= 6) {
+      toast("You can compare up to 6 activities at once.");
+      return;
+    }
+    compareSelection.add(key);
+  }
+  if (rowEl) {
+    const selected = compareSelection.has(key);
+    rowEl.classList.toggle("selected", selected);
+    const cb = rowEl.querySelector(".cmp-check");
+    if (cb) cb.checked = selected;
+  }
+  updateCompareBar();
+}
+
+function updateCompareBar() {
+  const n = compareSelection.size;
+  const runBtn = document.getElementById("compare-run");
+  if (runBtn) {
+    runBtn.disabled = n < 2;
+    runBtn.textContent =
+      n >= 2 ? `Compare (${n})` : n === 1 ? "Select 1 more" : "Compare";
+  }
+}
+
+function openMultiCompareModal(ids) {
+  const modal = document.getElementById("multi-compare-modal");
+  const body = document.getElementById("multi-compare-body");
+  modal.classList.remove("hidden");
+  body.innerHTML = `<div class="empty">Loading ${ids.length} activities…</div>`;
+
+  // The loaded list rows carry Garmin's best-effort (fastest split) times,
+  // which the per-activity detail endpoint does not return.
+  const listById = new Map(
+    mergedActivities().map((a) => [String(a.activityId), a])
+  );
+
+  Promise.all(
+    ids.map((id) => {
+      const list = listById.get(String(id)) || null;
+      const isStrava = String(id).startsWith("strava-") || (list && list.source === "strava");
+      if (isStrava) {
+        // Strava activities have no Garmin detail/laps endpoint; use list data.
+        return Promise.resolve({ id, detail: null, laps: [], list });
+      }
+      return Promise.all([
+        api(`/api/activities/${id}`).catch(() => null),
+        api(`/api/activities/${id}/laps`).then((d) => d.laps || []).catch(() => []),
+      ]).then(([detail, laps]) => ({ id, detail, laps, list }));
+    })
+  )
+    .then((results) => {
+      const items = results.filter((r) => r.detail || r.list);
+      if (items.length < 2) {
+        body.innerHTML = `<div class="empty">Could not load enough activities to compare.</div>`;
+        return;
+      }
+      renderMultiCompare(items);
+    })
+    .catch((ex) => {
+      body.innerHTML = `<div class="empty">Could not compare: ${ex.message}</div>`;
+    });
+}
+
+function closeMultiCompareModal() {
+  document.getElementById("multi-compare-modal").classList.add("hidden");
+  multiCompareCharts.forEach((c) => c && c.destroy());
+  multiCompareCharts = [];
+}
+
+// Palette for the compared activities (matches column accents & chart lines).
+const COMPARE_COLORS = ["#2dd4bf", "#f59e0b", "#a78bfa", "#f87171", "#38bdf8", "#4ade80"];
+
+// Aggregate lap data over the first `targetKm`, splitting the lap that crosses
+// the mark so time / HR / cadence reflect exactly that distance.
+function croppedLapAgg(laps, targetKm) {
+  let cum = 0, t = 0, hrNum = 0, hrDen = 0, cadNum = 0, cadDen = 0, elev = 0;
+  for (const l of laps) {
+    const d = l.distanceKm || 0;
+    if (!d) continue;
+    const frac = cum + d > targetKm ? (targetKm - cum) / d : 1;
+    if (frac <= 0) break;
+    const dd = d * frac;
+    t += (l.durationSec || 0) * frac;
+    if (l.averageHR) { hrNum += l.averageHR * dd; hrDen += dd; }
+    if (l.averageRunCadence) { cadNum += l.averageRunCadence * dd; cadDen += dd; }
+    elev += (l.elevationGain || 0) * frac;
+    cum += dd;
+    if (cum >= targetKm - 1e-6) break;
+  }
+  const reached = cum >= targetKm - 0.05;
+  return {
+    timeSec: reached ? Math.round(t) : null,
+    avgHR: hrDen ? Math.round(hrNum / hrDen) : null,
+    avgCad: cadDen ? Math.round(cadNum / cadDen) : null,
+    elev: Math.round(elev),
+  };
+}
+
+// Keep only the laps within the first `maxKm` (the crossing lap kept whole) so
+// the comparison charts aren't stretched out by longer activities.
+function cropLapsToDistance(laps, maxKm) {
+  const out = [];
+  let cum = 0;
+  for (const l of laps) {
+    if (cum >= maxKm - 1e-6) break;
+    out.push(l);
+    cum += l.distanceKm || 0;
+  }
+  return out;
+}
+
+function renderMultiCompare(items) {
+  const body = document.getElementById("multi-compare-body");
+
+  // Precompute a normalized shape per activity for table + charts. Data comes
+  // from the loaded list row (available for BOTH Garmin and Strava) enriched
+  // with the Garmin detail summary when it exists (running dynamics, power…).
+  const cols = items.map((it, i) => {
+    const la = it.list || {};
+    const s = (it.detail && it.detail.summary) || {};
+    const type = (it.detail && it.detail.type) || la.type || "";
+    const isStrava = la.source === "strava" || String(it.id).startsWith("strava-");
+    const isFoot = ["running", "walking", "hiking"].some((t) => type.includes(t));
+    const avgSpeed = la.averageSpeed || s.averageSpeed || 0;
+    const startTime = la.startTime || s.startTimeLocal || null;
+    return {
+      color: COMPARE_COLORS[i % COMPARE_COLORS.length],
+      name: la.name || (it.detail && it.detail.name) || prettyLabel(type) || "Activity",
+      type,
+      isFoot,
+      source: isStrava ? "Strava" : "Garmin",
+      date: startTime ? shortDate(startTime) : "",
+      laps: it.laps || [],
+      // Best-effort (fastest split) times in seconds (Garmin list only).
+      best: la.bestEfforts || {},
+      // Unified metrics — present for both sources where the data exists.
+      distanceKm: la.distanceKm != null ? la.distanceKm : s.distance != null ? s.distance / 1000 : null,
+      durationSec: la.durationSec != null ? la.durationSec : s.duration ?? null,
+      avgPace: la.paceMinPerKm != null ? la.paceMinPerKm : avgSpeed ? (1000 / avgSpeed) / 60 : null,
+      avgSpeedKmh: avgSpeed ? avgSpeed * 3.6 : null,
+      avgHR: la.averageHR != null ? la.averageHR : s.averageHR ?? null,
+      maxHR: la.maxHR != null ? la.maxHR : s.maxHR ?? null,
+      avgCadence: la.averageCadence != null ? la.averageCadence : s.averageRunCadence ?? null,
+      elevationGain: la.elevationGain != null ? la.elevationGain : s.elevationGain ?? null,
+      calories: la.calories != null ? la.calories : s.calories ?? null,
+      aerobicTE: la.aerobicTrainingEffect != null ? la.aerobicTrainingEffect : s.trainingEffect ?? null,
+      anaerobicTE: la.anaerobicTrainingEffect != null ? la.anaerobicTrainingEffect : s.anaerobicTrainingEffect ?? null,
+      // Garmin-detail-only metrics (blank for Strava).
+      bestPace: s.maxSpeed ? (1000 / s.maxSpeed) / 60 : null,
+      maxCadence: s.maxRunCadence ?? null,
+      strideLength: s.strideLength ?? null,
+      groundContact: s.groundContactTime ?? null,
+      vertOsc: s.verticalOscillation ?? null,
+      vertRatio: s.verticalRatio ?? null,
+      avgPower: s.averagePower ?? null,
+      trainingLoad: s.activityTrainingLoad ?? null,
+    };
+  });
+
+  const anyFoot = cols.some((c) => c.isFoot);
+
+  // ---- Normalise every activity to a common event distance ----------------
+  // eventKm = the largest whole-km distance ALL selected activities reached
+  // (min of each activity's floored km, e.g. 10.10 & 21.30 -> 10 km). Time,
+  // pace, HR & cadence are then measured over just that first eventKm so
+  // different-length runs compare fairly; the lap charts are cropped to it too.
+  const floored = cols.map((c) => (c.distanceKm != null ? Math.floor(c.distanceKm) : null));
+  const eventKm = floored.length && floored.every((e) => e != null) ? Math.min(...floored) : null;
+  const useEvent = !!(eventKm && eventKm >= 1);
+
+  cols.forEach((c) => {
+    if (useEvent && c.laps.length) {
+      const agg = croppedLapAgg(c.laps, eventKm);
+      c.eventTimeSec = agg.timeSec != null ? agg.timeSec : c.durationSec;
+      c.eventAvgHR = agg.avgHR != null ? agg.avgHR : c.avgHR;
+      c.eventAvgCad = agg.avgCad != null ? agg.avgCad : c.avgCadence;
+      c.eventElev = agg.elev != null ? agg.elev : c.elevationGain;
+      c.eventEstimated = false;
+      c.cropLaps = cropLapsToDistance(c.laps, eventKm);
+    } else if (useEvent) {
+      // No lap data (e.g. Strava): estimate first-eventKm time from average
+      // pace and scale distance-based totals proportionally.
+      const frac = c.distanceKm ? Math.min(1, eventKm / c.distanceKm) : 1;
+      c.eventTimeSec = c.avgPace ? Math.round(c.avgPace * eventKm * 60) : null;
+      c.eventAvgHR = c.avgHR;
+      c.eventAvgCad = c.avgCadence;
+      c.eventElev = c.elevationGain != null ? Math.round(c.elevationGain * frac) : null;
+      c.eventEstimated = true;
+      c.cropLaps = [];
+    } else {
+      // Distances can't be normalised — fall back to full-activity values.
+      c.eventTimeSec = c.durationSec;
+      c.eventAvgHR = c.avgHR;
+      c.eventAvgCad = c.avgCadence;
+      c.eventElev = c.elevationGain;
+      c.eventEstimated = false;
+      c.cropLaps = c.laps;
+    }
+    c.eventPace = c.eventTimeSec && useEvent ? c.eventTimeSec / 60 / eventKm : c.avgPace;
+    c.eventSpeedKmh = c.eventPace ? 60 / c.eventPace : null;
+  });
+
+  const anyEstimated = cols.some((c) => c.eventEstimated);
+  const evSuffix = useEvent ? ` · ${eventKm} km` : "";
+  const eventNote = useEvent
+    ? `Compared over the first <b>${eventKm} km</b> shared by all selected activities — time, pace, HR & cadence are for that distance, and the lap charts are cropped to it.${
+        anyEstimated ? " <em>* estimated from average pace (no lap data).</em>" : ""
+      }`
+    : `Distances can't be lined up to a common event — showing full-activity values.`;
+
+  // Metric definitions. lowerBetter marks metrics where a smaller value wins
+  // (highlighted green). hideIfEmpty rows are dropped when no activity has the
+  // value (e.g. Garmin-only running dynamics when comparing Strava activities).
+  const metrics = [
+    { label: "Source", raw: (c) => null, fmt: (c) => c.source },
+    { label: "Date", raw: (c) => null, fmt: (c) => c.date || "–" },
+    { label: "Full distance", raw: (c) => c.distanceKm, fmt: (c) => (c.distanceKm != null ? `${c.distanceKm.toFixed(2)} km` : "–"), higherBetter: true },
+    { label: `Time${evSuffix}`, raw: (c) => c.eventTimeSec, fmt: (c) => (c.eventTimeSec ? fmtClock(c.eventTimeSec) + (c.eventEstimated ? " *" : "") : "–"), lowerBetter: true },
+    { label: `Pace${evSuffix}`, raw: (c) => c.eventPace, fmt: (c) => (c.eventPace ? fmtPace(c.eventPace) : "–"), lowerBetter: true, footOnly: true },
+    { label: "Avg speed", raw: (c) => c.eventSpeedKmh, fmt: (c) => (c.eventSpeedKmh ? `${c.eventSpeedKmh.toFixed(1)} km/h` : "–"), higherBetter: true },
+    { label: "Best pace", raw: (c) => c.bestPace, fmt: (c) => (c.bestPace ? fmtPace(c.bestPace) : "–"), lowerBetter: true, footOnly: true, hideIfEmpty: true },
+    { label: `Avg HR${evSuffix}`, raw: (c) => c.eventAvgHR, fmt: (c) => (c.eventAvgHR ? `${Math.round(c.eventAvgHR)} bpm` : "–"), lowerBetter: true },
+    { label: "Max HR", raw: (c) => c.maxHR, fmt: (c) => (c.maxHR ? `${Math.round(c.maxHR)} bpm` : "–") },
+    { label: `Avg cadence${evSuffix}`, raw: (c) => c.eventAvgCad, fmt: (c) => (c.eventAvgCad ? `${Math.round(c.eventAvgCad)} spm` : "–"), higherBetter: true, hideIfEmpty: true },
+    { label: "Max cadence", raw: (c) => c.maxCadence, fmt: (c) => (c.maxCadence ? `${Math.round(c.maxCadence)} spm` : "–"), hideIfEmpty: true },
+    { label: "Stride length", raw: (c) => c.strideLength, fmt: (c) => (c.strideLength ? `${Math.round(c.strideLength)} cm` : "–"), higherBetter: true, hideIfEmpty: true },
+    { label: "Ground contact", raw: (c) => c.groundContact, fmt: (c) => (c.groundContact ? `${Math.round(c.groundContact)} ms` : "–"), lowerBetter: true, hideIfEmpty: true },
+    { label: "Vert. oscillation", raw: (c) => c.vertOsc, fmt: (c) => (c.vertOsc ? `${c.vertOsc.toFixed(1)} cm` : "–"), lowerBetter: true, hideIfEmpty: true },
+    { label: "Vert. ratio", raw: (c) => c.vertRatio, fmt: (c) => (c.vertRatio ? `${c.vertRatio.toFixed(1)} %` : "–"), lowerBetter: true, hideIfEmpty: true },
+    { label: `Elevation gain${evSuffix}`, raw: (c) => c.eventElev, fmt: (c) => (c.eventElev != null ? `${Math.round(c.eventElev)} m` : "–"), hideIfEmpty: true },
+    { label: "Avg power", raw: (c) => c.avgPower, fmt: (c) => (c.avgPower ? `${Math.round(c.avgPower)} W` : "–"), higherBetter: true, hideIfEmpty: true },
+    { label: "Aerobic TE", raw: (c) => c.aerobicTE, fmt: (c) => (c.aerobicTE ? c.aerobicTE.toFixed(1) : "–"), higherBetter: true, hideIfEmpty: true },
+    { label: "Anaerobic TE", raw: (c) => c.anaerobicTE, fmt: (c) => (c.anaerobicTE ? c.anaerobicTE.toFixed(1) : "–"), higherBetter: true, hideIfEmpty: true },
+    { label: "Training load", raw: (c) => c.trainingLoad, fmt: (c) => (c.trainingLoad ? Math.round(c.trainingLoad) : "–"), hideIfEmpty: true },
+    { label: "Calories (full)", raw: (c) => c.calories, fmt: (c) => (c.calories ? `${Math.round(c.calories)} kcal` : "–"), hideIfEmpty: true },
+  ];
+
+  // Best-cell index for a metric (green highlight), if a clear direction exists.
+  const bestIdx = (m) => {
+    if (!m.lowerBetter && !m.higherBetter) return -1;
+    let best = -1;
+    let bestVal = null;
+    cols.forEach((c, i) => {
+      const v = m.raw(c);
+      if (v == null || isNaN(v)) return;
+      if (bestVal == null || (m.lowerBetter ? v < bestVal : v > bestVal)) {
+        bestVal = v;
+        best = i;
+      }
+    });
+    // Don't highlight when every value is equal.
+    const distinct = cols.map((c) => m.raw(c)).filter((v) => v != null);
+    if (distinct.length && distinct.every((v) => v === distinct[0])) return -1;
+    return best;
+  };
+
+  const headCells = cols
+    .map(
+      (c) =>
+        `<div class="mc-col-head"><span class="mc-dot" style="background:${c.color}"></span>
+           <div class="mc-col-name" title="${escapeAttr(c.name)}">${c.name}</div>
+           <div class="mc-col-date">${c.date}</div></div>`
+    )
+    .join("");
+
+  const metricRow = (m) => {
+    const best = bestIdx(m);
+    const cells = cols
+      .map(
+        (c, i) =>
+          `<div class="mc-cell${i === best ? " mc-best" : ""}">${m.fmt(c)}</div>`
+      )
+      .join("");
+    return `<div class="mc-row"><div class="mc-metric">${m.label}</div>${cells}</div>`;
+  };
+
+  const rows = metrics
+    .filter((m) => !(m.footOnly && !anyFoot))
+    .filter((m) => !(m.hideIfEmpty && cols.every((c) => m.raw(c) == null)))
+    .map(metricRow)
+    .join("");
+
+  // Best-effort (fastest split) times — Strava/Garmin style event distances.
+  // Only distances that at least one activity actually reached are shown.
+  const bestMetrics = [
+    { label: "Best 1 km", key: "1000" },
+    { label: "Best 1 mile", key: "1609" },
+    { label: "Best 5 km", key: "5000" },
+    { label: "Best 10 km", key: "10000" },
+  ].map((m) => ({
+    label: m.label,
+    raw: (c) => c.best[m.key] || null,
+    fmt: (c) => (c.best[m.key] ? fmtClock(c.best[m.key]) : "–"),
+    lowerBetter: true,
+  }));
+  const shownBest = bestMetrics.filter((m) => cols.some((c) => m.raw(c) != null));
+  const bestRows = shownBest.length
+    ? `<div class="mc-row mc-subhead"><div class="mc-metric">Best efforts</div>${cols
+        .map(() => `<div></div>`)
+        .join("")}</div>${shownBest.map(metricRow).join("")}`
+    : "";
+
+  body.innerHTML = `
+    <p class="mc-intro">Comparing <b>${cols.length}</b> activities. Green marks the best value in each row.</p>
+    <p class="mc-event ${useEvent ? "same" : "mixed"}">📏 ${eventNote}</p>
+
+    <div class="mc-chart-block">
+      <h3>Lap pace &amp; heart rate</h3>
+      <canvas id="mc-combined-chart" height="230"></canvas>
+    </div>
+    <p class="cmp-note">Solid lines = pace (left axis, higher = faster) · dashed lines = heart rate (right axis). Laps are cropped to the shared event distance.</p>
+
+    <div class="mc-table" style="--mc-cols:${cols.length}">
+      <div class="mc-row mc-head">
+        <div class="mc-metric">Metric</div>
+        ${headCells}
+      </div>
+      ${rows}
+      ${bestRows}
+    </div>
+  `;
+
+  renderMultiComboChart(cols);
+}
+
+function renderMultiComboChart(cols) {
+  multiCompareCharts.forEach((c) => c && c.destroy());
+  multiCompareCharts = [];
+
+  // Use the event-cropped laps so a longer run doesn't stretch the x-axis.
+  const lapsOf = (c) => c.cropLaps || c.laps || [];
+  const maxLaps = Math.max(0, ...cols.map((c) => lapsOf(c).length));
+  if (!maxLaps) return;
+  const labels = Array.from({ length: maxLaps }, (_, i) => `Lap ${i + 1}`);
+
+  // One chart, two y-axes: pace (left, reversed) and heart rate (right). Each
+  // activity keeps its colour — solid line for pace, dashed for HR.
+  const datasets = [];
+  cols.forEach((c) => {
+    const laps = lapsOf(c);
+    if (laps.some((l) => l.paceMinPerKm)) {
+      datasets.push({
+        label: `${c.name} · pace`,
+        data: laps.map((l) => (l.paceMinPerKm ? Number(l.paceMinPerKm.toFixed(2)) : null)),
+        borderColor: c.color,
+        backgroundColor: c.color,
+        yAxisID: "yPace",
+        spanGaps: true,
+        tension: 0.25,
+      });
+    }
+    if (laps.some((l) => l.averageHR)) {
+      datasets.push({
+        label: `${c.name} · HR`,
+        data: laps.map((l) => l.averageHR || null),
+        borderColor: c.color,
+        backgroundColor: c.color,
+        borderDash: [5, 4],
+        pointStyle: "rectRot",
+        yAxisID: "yHr",
+        spanGaps: true,
+        tension: 0.25,
+      });
+    }
+  });
+  if (!datasets.length) return;
+
+  const canvas = document.getElementById("mc-combined-chart");
+  if (!canvas) return;
+  multiCompareCharts.push(
+    new Chart(canvas.getContext("2d"), {
+      type: "line",
+      data: { labels, datasets },
+      options: {
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { labels: { color: "#e8eef9", boxWidth: 14, usePointStyle: true } },
+          tooltip: {
+            callbacks: {
+              label: (ctx) =>
+                ctx.dataset.yAxisID === "yPace"
+                  ? `${ctx.dataset.label}: ${fmtPace(ctx.parsed.y)}`
+                  : `${ctx.dataset.label}: ${Math.round(ctx.parsed.y)} bpm`,
+            },
+          },
+        },
+        scales: {
+          x: { ticks: { color: "#9fb0cc" }, grid: { display: false } },
+          yPace: {
+            position: "left",
+            reverse: true, // faster pace (smaller number) shown higher
+            title: { display: true, text: "Pace (min/km)", color: "#9fb0cc" },
+            ticks: { color: "#9fb0cc", callback: (v) => fmtPace(v) },
+            grid: { color: "#243450" },
+          },
+          yHr: {
+            position: "right",
+            title: { display: true, text: "Heart rate (bpm)", color: "#9fb0cc" },
+            ticks: { color: "#9fb0cc" },
+            grid: { drawOnChartArea: false },
+          },
+        },
+      },
+    })
+  );
+}
+
+// --------------------------------------------------------- strava (extra source)
+
+function updateConnectButtons() {
+  const gBtn = document.getElementById("connect-garmin-btn");
+  if (gBtn) gBtn.classList.toggle("hidden", garminConnected);
+  // Analysis is Garmin-only; hide it for Strava-only logins.
+  const aBtn = document.getElementById("open-analysis");
+  if (aBtn) aBtn.classList.toggle("hidden", !garminConnected);
+}
+
+function setAvatar(url) {
+  const img = document.getElementById("user-avatar");
+  if (!img) return;
+  if (url) {
+    img.src = url;
+    img.classList.remove("hidden");
+    img.onerror = () => img.classList.add("hidden");
+  } else {
+    img.classList.add("hidden");
+    img.removeAttribute("src");
+  }
+}
+
+async function loadStravaStatus() {
+  const btn = document.getElementById("strava-btn");
+  try {
+    const st = await api("/api/strava/status");
+    stravaConnected = !!st.connected;
+    stravaYearlyGoal = st.yearlyGoalKm != null ? st.yearlyGoalKm : null;
+    if (st.connected && st.avatar) setAvatar(st.avatar);
+
+    // Topbar button mirrors "Connect Garmin": shown only when Strava is
+    // configured but not yet connected; hidden once connected.
+    if (btn) {
+      const showBtn = !!st.configured && !st.connected;
+      btn.classList.toggle("hidden", !showBtn);
+      btn.textContent = "🔗 Connect Strava";
+    }
+
+    if (st.connected) {
+      await loadStravaActivities();
+      api("/api/strava/extras")
+        .then((e) => {
+          stravaGear = e.gear || null;
+          stravaStreak = e.streak || null;
+          renderStatCards();
+        })
+        .catch(() => {});
+    } else {
+      stravaActivities = [];
+      stravaGear = null;
+      stravaStreak = null;
+    }
+  } catch (_) {
+    if (btn) btn.classList.add("hidden");
+  }
+}
+
+async function loadStravaActivities() {
+  if (!stravaConnected) return;
+  try {
+    const q = currentActivityQuery; // e.g. days=30 or limit=50
+    const res = await api(`/api/strava/activities?${q}`);
+    stravaActivities = res.activities || [];
+    renderActivities(currentSportFilter);
+  } catch (_) {
+    stravaActivities = [];
+  }
+}
+
+function onStravaButton() {
+  if (stravaConnected) {
+    if (!confirm("Disconnect Strava? Your Strava activities will stop showing.")) return;
+    api("/api/strava/disconnect", { method: "POST" })
+      .then(() => {
+        stravaConnected = false;
+        stravaActivities = [];
+        loadStravaStatus();
+        renderActivities(currentSportFilter);
+        toast("Strava disconnected");
+      })
+      .catch(() => toast("Could not disconnect Strava"));
+  } else {
+    // Full-page redirect to Strava's OAuth consent screen.
+    window.location.href = "/api/strava/connect";
+  }
 }
 
 // ----------------------------------------------------------- vo2 modal
@@ -1281,6 +2493,18 @@ document.querySelectorAll("#vo2-periods button").forEach((b) => {
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeVo2Modal();
+});
+
+// Combined Training (status · readiness · threshold) modal.
+document.getElementById("training-close").addEventListener("click", closeTrainingModal);
+document.getElementById("training-modal").addEventListener("click", (e) => {
+  if (e.target.id === "training-modal") closeTrainingModal();
+});
+document.querySelectorAll("#training-periods button").forEach((b) => {
+  b.addEventListener("click", () => loadTrainingHistory(b.dataset.period));
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeTrainingModal();
 });
 
 // ------------------------------------------------- vo2 analysis modal
@@ -1425,24 +2649,101 @@ function closeActivityModal() {
   }
 }
 
+const DETAIL_SECTION_ICONS = {
+  "Pace & Speed": "🏃",
+  "Heart Rate": "❤",
+  "Running Dynamics": "🦿",
+  Power: "⚡",
+  Elevation: "⛰",
+  "Training Effect": "🎯",
+  Other: "📋",
+  Laps: "🔄",
+};
+
 function section(title, rows) {
   const visible = rows.filter((r) => r.value !== null && r.value !== undefined && r.value !== "–");
   if (!visible.length) return "";
+  const icon = DETAIL_SECTION_ICONS[title] || "•";
+  const hasMore = visible.length > 2;
   return `
     <div class="detail-section">
-      <h3>${title}</h3>
+      <h3><span class="detail-section-icon" aria-hidden="true">${icon}</span>${title}</h3>
       <div class="detail-grid">
         ${visible
           .map(
-            (r) => `
-          <div class="detail-item">
+            (r, index) => `
+          <div class="detail-item${index >= 2 ? " detail-extra" : ""}">
             <div class="d-val">${r.value}</div>
             <div class="d-lab">${r.label}</div>
           </div>`
           )
           .join("")}
-      </div>
+      </div>${
+        hasMore
+          ? `<button class="detail-more" type="button" aria-expanded="false">Show more</button>`
+          : ""
+      }
     </div>`;
+}
+
+const MUSCLE_GROUP_RULES = [
+  { id: "chest", label: "Chest", terms: ["bench", "chest", "push up", "pushup", "fly"] },
+  { id: "shoulders", label: "Shoulders", terms: ["shoulder", "overhead", "military press", "lateral raise"] },
+  { id: "back", label: "Back", terms: ["row", "lat", "pulldown", "pull down", "back", "deadlift"] },
+  { id: "arms", label: "Arms", terms: ["curl", "biceps", "triceps", "extension"] },
+  { id: "core", label: "Core", terms: ["abs", "abdominal", "plank", "crunch", "core"] },
+  { id: "glutes", label: "Glutes", terms: ["glute", "hip thrust", "bridge", "deadlift"] },
+  { id: "quads", label: "Quads", terms: ["squat", "leg press", "lunge", "quad", "extension"] },
+  { id: "hamstrings", label: "Hamstrings", terms: ["hamstring", "leg curl", "deadlift"] },
+  { id: "calves", label: "Calves", terms: ["calf", "calves"] },
+];
+
+function renderMuscleFocus(d) {
+  const exercises = Array.isArray(d.exercises) ? d.exercises : [];
+  if (!(d.type || "").includes("strength") && !exercises.length) return "";
+  if (!exercises.length) {
+    return `<div class="muscle-focus detail-section">
+      <h3><span class="detail-section-icon" aria-hidden="true">🏋️</span>Muscle focus</h3>
+      <p class="muscle-empty">Garmin did not provide exercise-level muscle data for this workout.</p>
+    </div>`;
+  }
+
+  const names = exercises.map((exercise) =>
+    String(exercise.name || "").toLowerCase().replace(/[_-]+/g, " ")
+  );
+  const groups = MUSCLE_GROUP_RULES.filter((group) =>
+    names.some((name) => group.terms.some((term) => name.includes(term)))
+  );
+  const activeIds = new Set(groups.map((group) => group.id));
+  const exerciseList = exercises
+    .slice(0, 6)
+    .map((exercise) => `<span class="exercise-chip">${prettyLabel(exercise.name) || exercise.name}</span>`)
+    .join("");
+  const activeParts = ["chest", "shoulders", "back", "arms", "core", "glutes", "quads", "hamstrings", "calves"]
+    .filter((id) => activeIds.has(id))
+    .map((id) => `<span class="body-part ${id} active" aria-hidden="true"></span>`)
+    .join("");
+  const groupList = groups.length
+    ? groups.map((group) => `<span class="muscle-chip">${group.label}</span>`).join("")
+    : `<span class="muscle-muted">Muscle group not identified</span>`;
+
+  return `<div class="muscle-focus detail-section">
+    <h3><span class="detail-section-icon" aria-hidden="true">🏋️</span>Muscle focus</h3>
+    <div class="muscle-focus-layout">
+      <div class="body-map" role="img" aria-label="Highlighted muscle groups: ${groups.map((group) => group.label).join(", ") || "not identified"}">
+        <span class="body-head"></span>
+        <span class="body-neck"></span>
+        <span class="body-torso"></span>
+        <span class="body-arm left"></span><span class="body-arm right"></span>
+        <span class="body-leg left"></span><span class="body-leg right"></span>
+        ${activeParts}
+      </div>
+      <div class="muscle-focus-info">
+        <div class="muscle-chips">${groupList}</div>
+        <div class="exercise-list">${exerciseList}</div>
+      </div>
+    </div>
+  </div>`;
 }
 
 function renderActivityDetail(d) {
@@ -1501,6 +2802,9 @@ function renderActivityDetail(d) {
         .join("")}
     </div>
 
+    ${renderMuscleFocus(d)}
+
+    <div class="activity-detail-sections">
     ${section("Pace & Speed", [
       { label: "Avg pace", value: avgPace ? fmtPace(avgPace) : null },
       { label: "Best pace", value: maxPace ? fmtPace(maxPace) : null },
@@ -1562,9 +2866,19 @@ function renderActivityDetail(d) {
       <h3>Laps</h3>
       <div class="empty">Loading laps…</div>
     </div>
+    </div>
   `;
 
   document.getElementById("activity-modal-body").innerHTML = body;
+
+  document.querySelectorAll("#activity-modal .detail-more").forEach((button) => {
+    button.addEventListener("click", () => {
+      const details = button.closest(".detail-section");
+      const expanded = details.classList.toggle("expanded");
+      button.textContent = expanded ? "Show less" : "Show more";
+      button.setAttribute("aria-expanded", String(expanded));
+    });
+  });
 
   const cmpBtn = document.querySelector("#activity-modal .btn-compare");
   if (cmpBtn) {
@@ -2255,6 +3569,22 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeCompareModal();
 });
 
+// Multi-activity compare controls.
+document.getElementById("compare-mode-btn").addEventListener("click", () => {
+  setCompareMode(!compareMode);
+});
+document.getElementById("compare-cancel").addEventListener("click", () => setCompareMode(false));
+document.getElementById("compare-run").addEventListener("click", () => {
+  if (compareSelection.size >= 2) openMultiCompareModal([...compareSelection]);
+});
+document.getElementById("multi-compare-close").addEventListener("click", closeMultiCompareModal);
+document.getElementById("multi-compare-modal").addEventListener("click", (e) => {
+  if (e.target.id === "multi-compare-modal") closeMultiCompareModal();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeMultiCompareModal();
+});
+
 // ------------------------------------------------------ analysis screen
 
 function analysisBadge(level) {
@@ -2520,6 +3850,19 @@ function renderCadencePaceChart(points) {
 // ----------------------------------------------------------- bootstrap
 
 (async function init() {
+  // Feedback after returning from the Strava OAuth redirect.
+  const params = new URLSearchParams(window.location.search);
+  const strava = params.get("strava");
+  if (strava) {
+    const msgs = {
+      connected: "✓ Strava connected",
+      denied: "Strava connection was cancelled",
+      error: "Strava connection failed",
+    };
+    toast(msgs[strava] || "");
+    history.replaceState(null, "", window.location.pathname);
+  }
+
   try {
     const s = await api("/api/session");
     if (s.authenticated) {
