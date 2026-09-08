@@ -2719,10 +2719,7 @@ function renderMuscleFocus(d) {
     .slice(0, 6)
     .map((exercise) => `<span class="exercise-chip">${prettyLabel(exercise.name) || exercise.name}</span>`)
     .join("");
-  const activeParts = ["chest", "shoulders", "back", "arms", "core", "glutes", "quads", "hamstrings", "calves"]
-    .filter((id) => activeIds.has(id))
-    .map((id) => `<span class="body-part ${id} active" aria-hidden="true"></span>`)
-    .join("");
+  const muscleClass = (id) => `muscle-zone ${id}${activeIds.has(id) ? " active" : ""}`;
   const groupList = groups.length
     ? groups.map((group) => `<span class="muscle-chip">${group.label}</span>`).join("")
     : `<span class="muscle-muted">Muscle group not identified</span>`;
@@ -2731,12 +2728,23 @@ function renderMuscleFocus(d) {
     <h3><span class="detail-section-icon" aria-hidden="true">🏋️</span>Muscle focus</h3>
     <div class="muscle-focus-layout">
       <div class="body-map" role="img" aria-label="Highlighted muscle groups: ${groups.map((group) => group.label).join(", ") || "not identified"}">
-        <span class="body-head"></span>
-        <span class="body-neck"></span>
-        <span class="body-torso"></span>
-        <span class="body-arm left"></span><span class="body-arm right"></span>
-        <span class="body-leg left"></span><span class="body-leg right"></span>
-        ${activeParts}
+        <svg viewBox="0 0 220 360" aria-hidden="true" focusable="false">
+          <circle class="body-base head" cx="110" cy="24" r="17" />
+          <path class="body-base neck" d="M99 38h22v22H99z" />
+          <path class="body-base torso" d="M78 55c8-7 17-10 32-10s24 3 32 10l14 79c-10 10-27 15-46 15s-36-5-46-15z" />
+          <path class="body-base arm" d="M79 58c-8 1-13 7-16 16l-18 65c-2 8 3 13 10 14 6 1 10-3 12-9l22-57z" />
+          <path class="body-base arm" d="M141 58c8 1 13 7 16 16l18 65c2 8-3 13-10 14-6 1-10-3-12-9l-22-57z" />
+          <path class="body-base leg" d="M79 137c8 3 19 5 31 5s23-2 31-5l-4 91-12 108c-2 8-9 11-16 8l-5-103-5 103c-7 3-14 0-16-8L83 228z" />
+          <path class="${muscleClass("shoulders")}" d="M78 59c7-9 18-13 32-13v25c-12 4-23 2-33-4zM142 59c-7-9-18-13-32-13v25c12 4 23 2 33-4z" />
+          <path class="${muscleClass("back")}" d="M88 72c7-5 15-7 22-7s15 2 22 7l-4 35c-6 5-12 7-18 7s-12-2-18-7z" />
+          <path class="${muscleClass("chest")}" d="M82 78c8-7 18-9 28-5v25c-10 3-20 1-28-5zM138 78c-8-7-18-9-28-5v25c10 3 20 1 28-5z" />
+          <path class="${muscleClass("arms")}" d="M75 78l-22 62c-2 5 1 9 6 10l8-4 22-57zM145 78l22 62c2 5-1 9-6 10l-8-4-22-57z" />
+          <path class="${muscleClass("core")}" d="M92 103h36l3 38c-7 7-14 10-21 10s-14-3-21-10z" />
+          <path class="${muscleClass("glutes")}" d="M84 137c8 4 17 6 26 6s18-2 26-6l-3 30c-8 7-16 10-23 10s-15-3-23-10z" />
+          <path class="${muscleClass("quads")}" d="M84 164c8 5 17 7 26 7l-3 63-18 1zM136 164c-8 5-17 7-26 7l3 63 18 1z" />
+          <path class="${muscleClass("hamstrings")}" d="M89 228l18-1-5 104c-4 6-9 7-14 3zM131 228l-18-1 5 104c4 6 9 7 14 3z" />
+          <path class="${muscleClass("calves")}" d="M88 327l14 1-4 20c-2 7-8 8-13 5zM132 327l-14 1 4 20c2 7 8 8 13 5z" />
+        </svg>
       </div>
       <div class="muscle-focus-info">
         <div class="muscle-chips">${groupList}</div>
