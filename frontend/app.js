@@ -2729,12 +2729,18 @@ function renderMuscleFocus(d) {
     <div class="muscle-focus-layout">
       <div class="body-map" role="img" aria-label="Highlighted muscle groups: ${groups.map((group) => group.label).join(", ") || "not identified"}">
         <svg viewBox="0 0 220 360" aria-hidden="true" focusable="false">
-          <circle class="body-base head" cx="110" cy="24" r="17" />
-          <path class="body-base neck" d="M99 38h22v22H99z" />
-          <path class="body-base torso" d="M78 55c8-7 17-10 32-10s24 3 32 10l14 79c-10 10-27 15-46 15s-36-5-46-15z" />
-          <path class="body-base arm" d="M79 58c-8 1-13 7-16 16l-18 65c-2 8 3 13 10 14 6 1 10-3 12-9l22-57z" />
-          <path class="body-base arm" d="M141 58c8 1 13 7 16 16l18 65c2 8-3 13-10 14-6 1-10-3-12-9l-22-57z" />
-          <path class="body-base leg" d="M79 137c8 3 19 5 31 5s23-2 31-5l-4 91-12 108c-2 8-9 11-16 8l-5-103-5 103c-7 3-14 0-16-8L83 228z" />
+          <circle class="body-base head" cx="110" cy="25" r="18" />
+          <path class="body-base neck" d="M99 41c3-3 7-4 11-4s8 1 11 4v22H99z" />
+          <path class="body-base torso" d="M79 61c8-8 18-12 31-12s23 4 31 12l13 75c-7 12-22 19-44 19s-37-7-44-19z" />
+          <path class="body-base arm" d="M80 63c-8 1-13 7-17 17l-18 65c-2 8 2 14 9 16 7 1 12-3 14-10l23-64z" />
+          <path class="body-base arm" d="M140 63c8 1 13 7 17 17l18 65c2 8-2 14-9 16-7 1-12-3-14-10l-23-64z" />
+          <path class="body-base pelvis" d="M84 135c8 6 17 9 26 9s18-3 26-9l6 39c-8 9-18 14-32 14s-24-5-32-14z" />
+          <path class="body-base thigh" d="M84 168c8 5 17 7 26 7l-3 82c-4 10-11 14-20 10l-11-77z" />
+          <path class="body-base thigh" d="M136 168c-8 5-17 7-26 7l3 82c4 10 11 14 20 10l11-77z" />
+          <path class="body-base calf" d="M87 250c7 2 14 1 20-3l-4 103c-2 9-8 13-16 10l-9-94z" />
+          <path class="body-base calf" d="M133 250c-7 2-14 1-20-3l4 103c2 9 8 13 16 10l9-94z" />
+          <path class="body-base foot" d="M87 348c6 2 11 1 16 0l-2 10c-7 5-16 5-24 1 1-5 4-9 10-11z" />
+          <path class="body-base foot" d="M133 348c-6 2-11 1-16 0l2 10c7 5 16 5 24 1-1-5-4-9-10-11z" />
           <path class="${muscleClass("shoulders")}" d="M78 59c7-9 18-13 32-13v25c-12 4-23 2-33-4zM142 59c-7-9-18-13-32-13v25c12 4 23 2 33-4z" />
           <path class="${muscleClass("back")}" d="M88 72c7-5 15-7 22-7s15 2 22 7l-4 35c-6 5-12 7-18 7s-12-2-18-7z" />
           <path class="${muscleClass("chest")}" d="M82 78c8-7 18-9 28-5v25c-10 3-20 1-28-5zM138 78c-8-7-18-9-28-5v25c10 3 20 1 28-5z" />
