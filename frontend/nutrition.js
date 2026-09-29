@@ -130,7 +130,7 @@ function renderNutritionSummary(day) {
   el.innerHTML = `
     <table class="nutri-table">
       <thead><tr><th><span class="nutri-status ${st.cls}" title="${escapeAttr(tips)}">${st.label}${tips ? " ⓘ" : ""}</span>
-        <small class="nutri-prog">${escapeAttr(day.programLabel || "")}</small></th>
+        <small class="nutri-prog">${escapeAttr(day.programLabel || "")} · ${day.weightKg} kg${day.weightSource === "default" ? "?" : ""}</small></th>
         <th>Today</th><th>Target</th></tr></thead>
       <tbody>
         ${rows
@@ -231,8 +231,10 @@ async function openNutritionHistory() {
     .querySelectorAll("#nutri-history-periods button")
     .forEach((b) => b.classList.toggle("active", Number(b.dataset.days) === nutriHistoryDays));
   api("/api/nutrition/program").then(renderNutritionProgram).catch(() => {});
+  api("/api/nutrition/weight").then(renderNutritionWeight).catch(() => {});
   try {
-    const { days } = await api(`/api/nutrition/history?days=${nutriHistoryDays}`);
+    const { days, progress } = await api(`/api/nutrition/history?days=${nutriHistoryDays}`);
+    renderNutritionProgress(progress);
     renderNutritionHistory(days);
   } catch (ex) {
     document.getElementById("nutri-history-table").innerHTML =
@@ -251,6 +253,58 @@ function renderNutritionProgram(p) {
   const since = (p.history || []).find((h) => h.program === p.current);
   document.getElementById("nutri-program-note").textContent =
     `${NUTRI_PROGRAM_NOTE[p.current] || ""}${since ? ` · since ${since.from}` : ""}`;
+}
+
+function renderNutritionWeight(w) {
+  const cur = w.current;
+  const prev = (w.history || [])[1];
+  document.getElementById("nutri-weight").value = cur ? cur.kg : "";
+  let note = cur ? `last logged ${cur.date}` : "Not set — using Garmin weight or 70 kg";
+  if (cur && prev) {
+    const d = Math.round((cur.kg - prev.kg) * 10) / 10;
+    note += ` · ${d > 0 ? "+" : ""}${d} kg since ${prev.date}`;
+  }
+  document.getElementById("nutri-weight-note").textContent = note;
+}
+
+async function saveNutritionWeight(e) {
+  e.preventDefault();
+  const kg = parseFloat(document.getElementById("nutri-weight").value);
+  if (!(kg >= 25 && kg <= 350)) {
+    toast("Enter a weight between 25 and 350 kg");
+    return;
+  }
+  try {
+    renderNutritionWeight(
+      await api("/api/nutrition/weight", { method: "POST", body: JSON.stringify({ kg }) })
+    );
+    toast(`Weight saved: ${kg} kg`);
+    loadNutrition();
+    openNutritionHistory();
+  } catch (ex) {
+    toast(`Could not save weight: ${ex.message}`);
+  }
+}
+
+function renderNutritionProgress(p) {
+  const el = document.getElementById("nutri-progress");
+  if (!p || !p.days) {
+    el.innerHTML = "";
+    return;
+  }
+  const sign = (v, u) => `${v > 0 ? "+" : ""}${v}${u}`;
+  const actual = p.actualKg != null
+    ? `actual <b>${sign(p.actualKg, " kg")}</b> (${p.fromKg} → ${p.toKg} kg)`
+    : "log your weight at least twice in this period to compare";
+  let verdict = "";
+  if (p.actualKg != null) {
+    const diff = p.actualKg - p.expectedKg;
+    verdict = Math.abs(diff) < 0.5
+      ? `<span class="nutri-status ok">On track</span>`
+      : `<span class="nutri-status high" title="Weight is changing ${diff > 0 ? "more upward" : "more downward"} than your logged food and workouts predict — intake may be under-logged or burn over-estimated (or water weight).">Deviation ${sign(Math.round(diff * 10) / 10, " kg")}</span>`;
+  }
+  el.innerHTML = `📊 Last ${p.days} logged day(s): intake − burn = <b>${sign(p.balanceKcal, " kcal")}</b>
+    (${sign(p.vsTargetKcal, " kcal")} vs program target) → expected <b>${sign(p.expectedKg, " kg")}</b>, ${actual} ${verdict}`;
 }
 
 async function saveNutritionProgram(e) {
@@ -318,6 +372,8 @@ function renderNutritionHistory(days) {
             <span title="${d.burn?.total ? `Burned ${nutriFmt(d.burn.total)} kcal` : ""}">${nutriFmt(d.intake.kcal)}${d.targetKcal ? ` / ${nutriFmt(d.targetKcal)}` : ""} kcal</span>
             <span class="dim">P ${nutriFmt(d.intake.protein)} · C ${nutriFmt(d.intake.carbs)} · F ${nutriFmt(d.intake.fat)} · Fib ${nutriFmt(d.intake.fiber)}</span>
             ${st ? `<span class="nutri-status ${st.cls}">${st.label}</span>` : ""}
+            ${d.deviationKcal != null ? `<span class="nh-dev ${d.deviationKcal > 0 ? "over" : "under"}" title="Intake vs program target">${d.deviationKcal > 0 ? "+" : ""}${nutriFmt(d.deviationKcal)} kcal</span>` : ""}
+            ${d.weightKg ? `<span class="dim">⚖️ ${d.weightKg} kg</span>` : ""}
             <small class="nutri-prog">${escapeAttr(NUTRI_PROGRAM_LABEL[d.program] || "")}</small>
           </div>
           <div class="nh-items">${items || '<span class="dim">No items</span>'}</div>
@@ -383,6 +439,7 @@ document.getElementById("nutri-history-modal").addEventListener("click", (e) => 
   if (e.target.id === "nutri-history-modal") closeNutritionHistory();
 });
 document.getElementById("nutri-program").addEventListener("change", saveNutritionProgram);
+document.getElementById("nutri-weight-form").addEventListener("submit", saveNutritionWeight);
 document.getElementById("nutri-history-periods").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-days]");
   if (!b) return;

@@ -68,6 +68,11 @@ class NutritionProgramRequest(BaseModel):
     date: dt.date | None = None
 
 
+class NutritionWeightRequest(BaseModel):
+    kg: float = Field(ge=25, le=350)
+    date: dt.date | None = None
+
+
 # ------------------------------------------------------------------- helpers
 
 
@@ -600,10 +605,23 @@ def nutrition_set_program(req: NutritionProgramRequest, garmin_session: str | No
     return nutrition_service.programs(user)
 
 
+@app.get("/api/nutrition/weight")
+def nutrition_weight(garmin_session: str | None = Cookie(default=None)):
+    return nutrition_service.weights(_nutrition_user(garmin_session))
+
+
+@app.post("/api/nutrition/weight")
+def nutrition_set_weight(req: NutritionWeightRequest, garmin_session: str | None = Cookie(default=None)):
+    user = _nutrition_user(garmin_session)
+    nutrition_service.set_weight(user, req.kg, (req.date or dt.date.today()).isoformat())
+    return nutrition_service.weights(user)
+
+
 @app.get("/api/nutrition/history")
 def nutrition_history(days: int = 30, garmin_session: str | None = Cookie(default=None)):
     user = _nutrition_user(garmin_session)
-    return {"days": nutrition_service.history(user, max(1, min(days, 365)))}
+    days = max(1, min(days, 365))
+    return {"days": nutrition_service.history(user, days), "progress": nutrition_service.progress(user, days)}
 
 
 # ----------------------------------------------------------- static frontend

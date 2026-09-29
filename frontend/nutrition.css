@@ -219,6 +219,12 @@
 .nh-chart { position: relative; height: 150px; }
 .nh-program { display: flex; align-items: center; gap: 8px; padding: 0 20px 8px; flex-wrap: wrap; font-size: 0.85rem; }
 .nh-program select { width: auto; margin: 0; padding: 4px 8px; }
+.nh-program input[type="number"] { width: 80px; margin: 0; padding: 4px 8px; }
+.nh-program .btn-primary { width: auto; margin: 0; }
+.nh-progress { padding: 0 20px 8px; font-size: 0.8rem; line-height: 1.6; color: var(--text); }
+.nh-dev { font-size: 0.78rem; font-weight: 600; }
+.nh-dev.over { color: #f87171; }
+.nh-dev.under { color: #60a5fa; }
 .nutri-prog { display: block; color: var(--text-dim); font-size: 0.68rem; font-weight: 400; margin-top: 2px; }
 .nh-head .nutri-prog { display: inline; margin: 0; }
 .nh-day { border-top: 1px solid var(--border); padding-top: 8px; }

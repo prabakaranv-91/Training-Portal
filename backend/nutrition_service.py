@@ -736,7 +736,66 @@ def sync_all_to_sheets(user: str) -> dict[str, int]:
         sheets_sync.push_day(user, date, snap)
     for p in data.get("programs", []):
         sheets_sync.push_program(user, p)
-    return {"entries": len(data["entries"]), "days": len(data["days"]), "programs": len(data.get("programs", []))}
+    for w in data.get("weights", []):
+        sheets_sync.push_weight(user, w)
+    return {"entries": len(data["entries"]), "days": len(data["days"]), "programs": len(data.get("programs", [])),
+            "weights": len(data.get("weights", []))}
+
+
+# ------------------------------------------------------------------ weight
+
+KCAL_PER_KG = 7700  # energy in ~1 kg of body weight change
+
+
+def weight_for(user: str, date: str, data: dict[str, Any] | None = None) -> float | None:
+    """Latest weight logged on or before `date`."""
+    kg = None
+    for w in sorted((data or _load(user)).get("weights", []), key=lambda w: w["date"]):
+        if w["date"] <= date:
+            kg = w["kg"]
+    return kg
+
+
+def set_weight(user: str, kg: float, date: str) -> dict[str, Any]:
+    entry = {"date": date, "kg": round(kg, 1), "setAt": dt.datetime.now().isoformat(timespec="seconds")}
+    with _LOCK:
+        data = _load(user)
+        data["weights"] = [w for w in data.get("weights", []) if w["date"] != date] + [entry]
+        _save(user, data)
+    sheets_sync.push_weight(user, entry)
+    return entry
+
+
+def weights(user: str) -> dict[str, Any]:
+    data = _load(user)
+    hist = sorted(data.get("weights", []), key=lambda w: w["date"], reverse=True)
+    return {"current": hist[0] if hist else None, "history": hist}
+
+
+def progress(user: str, days: int) -> dict[str, Any]:
+    """Actual weight change vs. the change expected from logged intake − burn over the window."""
+    data = _load(user)
+    start = (dt.date.today() - dt.timedelta(days=days - 1)).isoformat()
+    ws = sorted((w for w in data.get("weights", []) if w["date"] >= start), key=lambda w: w["date"])
+    balance = 0.0
+    target_gap = 0.0
+    counted = 0
+    for date, snap in data["days"].items():
+        burn = (snap.get("burn") or {}).get("total")
+        target = (snap.get("targets") or {}).get("kcal")
+        if date >= start and burn and (snap.get("intake") or {}).get("kcal") is not None:
+            balance += snap["intake"]["kcal"] - burn
+            target_gap += snap["intake"]["kcal"] - (target or burn)
+            counted += 1
+    return {
+        "days": counted,
+        "balanceKcal": round(balance),
+        "vsTargetKcal": round(target_gap),
+        "expectedKg": round(balance / KCAL_PER_KG, 2),
+        "actualKg": round(ws[-1]["kg"] - ws[0]["kg"], 1) if len(ws) >= 2 else None,
+        "fromKg": ws[0]["kg"] if ws else None,
+        "toKg": ws[-1]["kg"] if ws else None,
+    }
 
 
 # ---------------------------------------------------------------- programs
@@ -817,6 +876,8 @@ def history(user: str, days: int) -> list[dict[str, Any]]:
             "items": sorted(foods.values(), key=lambda f: -f["kcal"]),
             "burn": snap.get("burn"),
             "targetKcal": (snap.get("targets") or {}).get("kcal"),
+            "deviationKcal": round(_sum([e["totals"] for e in by_day[date]])["kcal"] - snap["targets"]["kcal"]) if (snap.get("targets") or {}).get("kcal") else None,
+            "weightKg": weight_for(user, date, data),
             "program": snap.get("program") or program_for(user, date, data),
             "status": snap.get("status"),
         })
@@ -841,7 +902,9 @@ def assess(user: str, date: str, energy: dict[str, Any]) -> dict[str, Any]:
     """Compare the day's intake with burn/workout and give suggestions."""
     entries = entries_for(user, date)
     intake = _sum([e["totals"] for e in _active(entries)])
-    weight = energy.get("weightKg") or DEFAULT_WEIGHT_KG
+    logged_kg = weight_for(user, date)
+    weight = logged_kg or energy.get("weightKg") or DEFAULT_WEIGHT_KG
+    weight_source = "logged" if logged_kg else "garmin" if energy.get("weightKg") else "default"
     workouts = [
         {**w, "kcal": round(_estimate_workout_kcal(w, weight)), "estimated": not w.get("kcal")}
         for w in energy.get("workouts") or []
@@ -849,7 +912,8 @@ def assess(user: str, date: str, energy: dict[str, Any]) -> dict[str, Any]:
     workout_kcal = sum(w["kcal"] for w in workouts)
     workout_min = sum(w.get("minutes") or 0 for w in workouts)
 
-    bmr = energy.get("bmr") or DEFAULT_BMR
+    # Without Garmin BMR, estimate ~23.5 kcal per kg of body weight per day.
+    bmr = energy.get("bmr") or round(23.5 * weight)
     active = energy.get("active")
     # Garmin active kcal already includes workouts + steps; otherwise add a
     # light-lifestyle allowance (~20% of BMR) on top of workouts.
@@ -896,7 +960,9 @@ def assess(user: str, date: str, energy: dict[str, Any]) -> dict[str, Any]:
                  "workoutMin": workout_min, "total": burn, "source": energy.get("source") or "estimate"},
         "workouts": workouts,
         "weightKg": weight,
+        "weightSource": weight_source,
         "balance": round(intake["kcal"] - burn),
+        "deviation": round(intake["kcal"] - target_kcal),
         "status": status,
         "suggestions": tips,
         "inProgress": is_today,
