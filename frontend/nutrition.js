@@ -51,105 +51,58 @@ function renderNutritionDay(day) {
 function renderNutritionMessages(day) {
   const box = document.getElementById("nutri-messages");
   if (!day.entries.length) {
-    box.innerHTML = `<div class="nutri-bot nutri-hint">Tell me what you ate — I'll pick out each food and quantity,
-      look up its nutrition and compare the day with your workouts.<br>
-      <span class="dim">Try: "i had 2 idli with 1 cup sambar", "1 scoop of iso whey", "4 whole eggs", "rice 200g and dal 1 bowl".</span></div>`;
+    box.innerHTML = `<div class="nutri-bot dim">Tell me what you ate — e.g. "2 idli with 1 cup sambar", "1 scoop iso whey".</div>`;
     return;
   }
   box.innerHTML = day.entries
     .map((e) => {
       const id = escapeAttr(e.id);
       if (e.revoked) {
-        return `
-        <div class="nutri-user revoked"><span>${escapeAttr(e.text)}</span><small>${escapeAttr(e.time)} · revoked</small></div>
-        <button class="nutri-act nutri-restore" data-id="${id}">↩ Restore entry</button>`;
+        return `<div class="nutri-user revoked">${escapeAttr(e.text)}
+          <button class="nutri-act nutri-restore" data-id="${id}" title="Restore entry">↩</button></div>`;
       }
-      const rows = e.items
+      const items = e.items
         .map((i, idx) => {
+          if (!i.found) {
+            return `<span class="nutri-chip miss">❓ ${escapeAttr(i.input)}
+              <button class="nutri-act nutri-retry" data-id="${id}" title="Analyse again">↻</button></span>`;
+          }
+          const tip = `${i.qty} ${i.unit} · ${nutriFmt(i.grams)} g · P ${i.protein} · C ${i.carbs} · F ${i.fat} · Fib ${i.fiber}`;
           const act = i.revoked
-            ? `<button class="nutri-act nutri-restore" data-id="${id}" data-item="${idx}" title="Restore item">↩</button>`
-            : `<button class="nutri-act nutri-revoke" data-id="${id}" data-item="${idx}" title="Revoke item">×</button>`;
-          return i.found
-            ? `<tr class="${i.revoked ? "revoked" : ""}">
-                <td>${escapeAttr(i.name)}<div class="nutri-src">${i.readAs ? `read “${escapeAttr(i.input)}” as “${escapeAttr(i.readAs)}” · ` : ""}${escapeAttr(i.qty)} ${escapeAttr(i.unit)} · ${nutriFmt(i.grams, " g")} · ${escapeAttr(i.source)}</div></td>
-                <td>${nutriFmt(i.kcal)}</td><td>${i.protein}</td><td>${i.carbs}</td><td>${i.fat}</td><td>${i.fiber}</td><td>${act}</td>
-              </tr>`
-            : `<tr class="nutri-miss"><td colspan="6">❓ Couldn't find “${escapeAttr(i.input)}” — try a more common name or add grams.</td>
-                <td><button class="nutri-act nutri-retry" data-id="${id}" title="Analyse again">↻</button></td></tr>`;
+            ? `<button class="nutri-act nutri-restore" data-id="${id}" data-item="${idx}" title="Restore">↩</button>`
+            : `<button class="nutri-act nutri-revoke" data-id="${id}" data-item="${idx}" title="Remove">×</button>`;
+          return `<span class="nutri-chip${i.revoked ? " revoked" : ""}" title="${escapeAttr(tip)}">${escapeAttr(i.name)} ×${i.qty}
+            <b>${nutriFmt(i.kcal)}</b>${act}</span>`;
         })
         .join("");
       return `
-        <div class="nutri-user"><span>${escapeAttr(e.text)}</span><small>${escapeAttr(e.time)}</small></div>
-        <div class="nutri-bot">
-          <table class="nutri-items">
-            <thead><tr><th>Item</th><th>kcal</th><th>P</th><th>C</th><th>F</th><th>Fib</th><th></th></tr></thead>
-            <tbody>${rows}</tbody>
-            <tfoot><tr><td>Total</td><td>${nutriFmt(e.totals.kcal)}</td><td>${e.totals.protein}</td>
-              <td>${e.totals.carbs}</td><td>${e.totals.fat}</td><td>${e.totals.fiber}</td><td></td></tr></tfoot>
-          </table>
-          <button class="nutri-act nutri-revoke nutri-del" data-id="${id}" title="Revoke this whole entry">🗑 Revoke entry</button>
-        </div>`;
+        <div class="nutri-user">${escapeAttr(e.text)}</div>
+        <div class="nutri-bot">${items}<span class="nutri-total">= ${nutriFmt(e.totals.kcal)} kcal</span>
+          <button class="nutri-act nutri-revoke" data-id="${id}" title="Remove entry">🗑</button></div>`;
     })
     .join("");
   box.scrollTop = box.scrollHeight;
 }
 
-function nutriBar(value, target, limit) {
-  const pct = target ? Math.min(100, (value / target) * 100) : 0;
-  let cls = "ok";
-  if (limit) cls = value > target ? "high" : "ok";
-  else if (value < target * 0.85) cls = "low";
-  else if (value > target * 1.25) cls = "high";
-  return `<div class="nutri-bar"><div class="nutri-fill ${cls}" style="width:${pct.toFixed(0)}%"></div></div>`;
-}
-
 function renderNutritionSummary(day) {
   const el = document.getElementById("nutri-summary");
   const st = NUTRI_STATUS[day.status] || NUTRI_STATUS.in_limit;
-  const { intake, targets, burn } = day;
-  const balance = day.balance > 0 ? `+${nutriFmt(day.balance)}` : nutriFmt(day.balance);
-  const srcNote = {
-    garmin: "Burn from Garmin (BMR + active calories)",
-    strava: "Workouts from Strava; BMR estimated",
-    estimate: "Burn estimated — connect Garmin for accurate numbers",
-  }[burn.source] || "";
-  const workouts = day.workouts.length
-    ? day.workouts
-        .map((w) => `<li>${escapeAttr(w.name || w.type)} · ${w.minutes} min · ${w.estimated ? "~" : ""}${nutriFmt(w.kcal, " kcal")}</li>`)
-        .join("")
-    : `<li class="dim">No workout recorded${day.inProgress ? " yet" : ""}.</li>`;
-
+  const { intake, targets } = day;
+  const cell = (key) => {
+    const v = intake[key], t = targets[key];
+    const bad = key === "sugar" || key === "sodium" ? v > t : v > t * 1.25;
+    return `<td class="${bad ? "over" : ""}">${nutriFmt(v)}</td>`;
+  };
+  const tips = day.entries.length ? day.suggestions.join("\n\n") : "";
   el.innerHTML = `
-    <div class="nutri-head">
-      <div>
-        <div class="nutri-kcal">${nutriFmt(intake.kcal)} <small>/ ${nutriFmt(targets.kcal)} kcal</small></div>
-        <div class="dim">Balance ${balance} kcal${day.inProgress ? " · day in progress" : ""}</div>
-      </div>
-      <span class="nutri-status ${st.cls}">${st.label}</span>
-    </div>
-    ${nutriBar(intake.kcal, targets.kcal)}
-    <div class="nutri-macros">
-      ${NUTRI_ROWS.map(
-        (r) => `
-        <div class="nutri-macro">
-          <div class="nm-lab"><span>${r.label}</span>
-            <span>${nutriFmt(intake[r.key])} / ${r.limit ? "≤ " : ""}${nutriFmt(targets[r.key], " " + r.unit)}</span></div>
-          ${nutriBar(intake[r.key], targets[r.key], r.limit)}
-        </div>`
-      ).join("")}
-    </div>
-    <div class="nutri-burn">
-      <div class="dim">${srcNote}</div>
-      <div>🔥 BMR ${nutriFmt(burn.bmr)} + active ${nutriFmt(burn.active)} = <b>${nutriFmt(burn.total)} kcal</b>
-        · ⚖️ ${day.weightKg} kg</div>
-      <ul class="nutri-workouts">${workouts}</ul>
-    </div>
-    ${
-      day.entries.length
-        ? `<h3 class="nutri-sub">Suggestions</h3>
-           <ul class="nutri-tips">${day.suggestions.map((t) => `<li>${escapeAttr(t)}</li>`).join("")}</ul>`
-        : ""
-    }`;
+    <table class="nutri-table">
+      <thead><tr><th></th><th>kcal</th>${NUTRI_ROWS.map((r) => `<th>${r.label} <small>${r.unit}</small></th>`).join("")}<th></th></tr></thead>
+      <tbody>
+        <tr><td>Today</td>${cell("kcal")}${NUTRI_ROWS.map((r) => cell(r.key)).join("")}
+          <td rowspan="2"><span class="nutri-status ${st.cls}" title="${escapeAttr(tips)}">${st.label}${tips ? " ⓘ" : ""}</span></td></tr>
+        <tr class="dim"><td>Target</td><td>${nutriFmt(targets.kcal)}</td>${NUTRI_ROWS.map((r) => `<td>${r.limit ? "≤" : ""}${nutriFmt(targets[r.key])}</td>`).join("")}</tr>
+      </tbody>
+    </table>`;
 }
 
 async function submitNutrition(e) {

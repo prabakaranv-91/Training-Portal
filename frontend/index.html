@@ -89,16 +89,14 @@
               <button id="nutri-history-btn" class="btn-link" type="button">📈 History →</button>
             </div>
           </div>
-          <div class="nutri-grid">
-            <div class="nutri-chat">
-              <div id="nutri-messages" class="nutri-messages"></div>
-              <form id="nutri-form" class="nutri-form">
-                <textarea id="nutri-input" rows="2" maxlength="1000"
-                  placeholder='What did you eat? e.g. "2 idli with 1 cup sambar", "1 scoop iso whey", "4 whole eggs"'></textarea>
-                <button type="submit" class="btn-primary" id="nutri-send">Log</button>
-              </form>
-            </div>
+          <div class="nutri-chat">
             <div id="nutri-summary" class="nutri-summary"></div>
+            <div id="nutri-messages" class="nutri-messages"></div>
+            <form id="nutri-form" class="nutri-form">
+              <input id="nutri-input" type="text" maxlength="1000" autocomplete="off"
+                placeholder='e.g. "2 idli with 1 cup sambar, 4 whole eggs"' />
+              <button type="submit" class="btn-primary" id="nutri-send">Log</button>
+            </form>
           </div>
         </section>
 
