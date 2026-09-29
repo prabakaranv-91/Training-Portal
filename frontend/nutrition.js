@@ -89,6 +89,9 @@ function renderNutritionMessages(day) {
           ${nutriFoodTable(e.items, `e-${e.id}`)}</div>`;
     })
     .join("");
+  if ((day.cutTips || []).length) {
+    box.innerHTML += `<div class="nutri-bot nutri-tip">${day.cutTips.map((t) => `<div>${escapeAttr(t)}</div>`).join("")}</div>`;
+  }
   box.scrollTop = box.scrollHeight;
 }
 
@@ -140,7 +143,20 @@ function renderNutritionSummary(day) {
           )
           .join("")}
       </tbody>
-    </table>`;
+    </table>
+    ${nutriCutsHtml(day)}`;
+}
+
+function nutriCutsHtml(day) {
+  const cuts = day.cuts || [];
+  if (!cuts.length) return "";
+  const lines = cuts
+    .map((c) => {
+      const what = c.cut >= c.of ? `Skip ${escapeAttr(c.name)}` : `−${c.cut} ${escapeAttr(c.name)}`;
+      return `<li title="${escapeAttr(c.swap ? `Swap for ${c.swap}` : "")}">${what} <b>−${nutriFmt(c.kcal)}</b></li>`;
+    })
+    .join("");
+  return `<div class="nutri-cuts"><div class="dim">✂️ To hit your target</div><ul>${lines}</ul></div>`;
 }
 
 async function submitNutrition(e) {
@@ -304,7 +320,22 @@ function renderNutritionProgress(p) {
       : `<span class="nutri-status high" title="Weight is changing ${diff > 0 ? "more upward" : "more downward"} than your logged food and workouts predict — intake may be under-logged or burn over-estimated (or water weight).">Deviation ${sign(Math.round(diff * 10) / 10, " kg")}</span>`;
   }
   el.innerHTML = `📊 Last ${p.days} logged day(s): intake − burn = <b>${sign(p.balanceKcal, " kcal")}</b>
-    (${sign(p.vsTargetKcal, " kcal")} vs program target) → expected <b>${sign(p.expectedKg, " kg")}</b>, ${actual} ${verdict}`;
+    (${sign(p.vsTargetKcal, " kcal")} vs program target) → expected <b>${sign(p.expectedKg, " kg")}</b>, ${actual} ${verdict}
+    ${nutriContributorsHtml(p)}`;
+}
+
+function nutriContributorsHtml(p) {
+  const top = p.contributors || [];
+  if (!top.length) return "";
+  const list = top
+    .map((c) => `${escapeAttr(c.name)} <b>${nutriFmt(c.kcal)}</b> kcal <span class="dim">(${c.times}× on ${c.days} day${c.days > 1 ? "s" : ""})</span>`)
+    .join(" · ");
+  let advice = "";
+  if (p.vsTargetKcal > 0) {
+    const first = top.find((c) => c.swap) || top[0];
+    advice = `<div>✂️ You're <b>${nutriFmt(p.vsTargetKcal)} kcal</b> over target in this period. ${escapeAttr(first.name)} alone was ${nutriFmt(first.kcal)} kcal${first.swap ? ` — swap it for ${escapeAttr(first.swap)}` : " — cut its portion"}.</div>`;
+  }
+  return `<div>🍽️ Biggest contributors: ${list}</div>${advice}`;
 }
 
 async function saveNutritionProgram(e) {

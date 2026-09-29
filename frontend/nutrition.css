@@ -159,8 +159,12 @@
 .dash-row > .panel { margin: 0; }
 .dash-row .nutrition-panel { display: flex; flex-direction: column; order: 2; }
 .dash-row .nutrition-panel .nutri-chat { flex: 1; display: flex; }
-.dash-row .nutrition-panel .nutri-summary { flex: 1; display: flex; }
-.dash-row .nutrition-panel .nutri-table { height: 100%; }
+.dash-row .nutrition-panel .nutri-summary { flex: 1; display: flex; flex-direction: column; }
+.dash-row .nutrition-panel .nutri-table { flex: 1; }
+.nutri-cuts { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border); font-size: 0.75rem; }
+.nutri-cuts ul { margin: 2px 0 0; padding-left: 16px; }
+.nutri-cuts b { color: #f87171; font-weight: 600; }
+.nutri-tip { background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 12px 12px 12px 4px; padding: 6px 10px; display: block; line-height: 1.45; }
 @media (max-width: 900px) {
   .dash-row { grid-template-columns: 1fr; }
 }

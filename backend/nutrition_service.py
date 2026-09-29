@@ -19,6 +19,7 @@ import datetime as dt
 import difflib
 import json
 import logging
+import math
 import os
 import re
 import threading
@@ -787,6 +788,19 @@ def progress(user: str, days: int) -> dict[str, Any]:
             balance += snap["intake"]["kcal"] - burn
             target_gap += snap["intake"]["kcal"] - (target or burn)
             counted += 1
+    foods: dict[str, dict[str, Any]] = {}
+    for e in _active(data["entries"]):
+        if e.get("date", "") < start:
+            continue
+        for i in e["items"]:
+            if i.get("found") and not i.get("revoked"):
+                f = foods.setdefault(i["name"], {"name": i["name"], "kcal": 0.0, "times": 0, "days": set()})
+                f["kcal"] += i.get("kcal") or 0
+                f["times"] += 1
+                f["days"].add(e["date"])
+    top = sorted(foods.values(), key=lambda f: -f["kcal"])[:3]
+    contributors = [{"name": f["name"], "kcal": round(f["kcal"]), "times": f["times"], "days": len(f["days"]),
+                     "swap": _swap_hint(f["name"])} for f in top]
     return {
         "days": counted,
         "balanceKcal": round(balance),
@@ -795,6 +809,7 @@ def progress(user: str, days: int) -> dict[str, Any]:
         "actualKg": round(ws[-1]["kg"] - ws[0]["kg"], 1) if len(ws) >= 2 else None,
         "fromKg": ws[0]["kg"] if ws else None,
         "toKg": ws[-1]["kg"] if ws else None,
+        "contributors": contributors,
     }
 
 
@@ -886,6 +901,76 @@ def history(user: str, days: int) -> list[dict[str, Any]]:
 
 # --------------------------------------------------------------- assessment
 
+# (keywords in food name, lighter alternative)
+_SWAPS: list[tuple[tuple[str, ...], str]] = [
+    (("jamun", "jalebi", "laddu", "halwa", "kesari", "payasam", "kheer", "barfi", "mysore", "rasgulla",
+      "biscuit", "sugar", "honey", "juice", "sugarcane", "lassi", "badam milk", "malt"), "fruit or unsweetened curd"),
+    (("parotta", "puri", "bhatura", "samosa", "pakora", "bonda", "vada", "murukku", "chips", "65", "fry",
+      "manchurian", "maggi"), "a steamed or grilled option (idli, phulka, grilled chicken)"),
+    (("biryani", "fried rice", "pulao", "kothu", "noodles", "lemon", "tamarind"), "half the portion with extra salad or raita"),
+    (("naan",), "phulka or chapati"),
+    (("sandwich", "roll", "shawarma", "pizza", "pav"), "a smaller portion or an open sandwich with more veg"),
+    (("butter chicken", "butter masala", "makhani", "kurma", "korma", "dal makhani", "paneer"),
+     "a tomato or dal-based curry with less cream, or grilled paneer/chicken"),
+    (("ghee", "butter"), "half the quantity"),
+    (("pickle", "papad", "podi"), "a smaller amount (very high sodium)"),
+]
+
+
+def _swap_hint(name: str) -> str | None:
+    n = name.lower()
+    return next((alt for keys, alt in _SWAPS if any(k in n for k in keys)), None)
+
+
+def _fmt_qty(q: float) -> str:
+    return str(int(q)) if float(q).is_integer() else str(q)
+
+
+def _eliminations(entries: list[dict[str, Any]], intake: dict[str, float], targets: dict[str, float],
+                  program: str) -> dict[str, Any]:
+    """What to drop/reduce to get back to the program target, protein-light foods first."""
+    items = [i for e in _active(entries) for i in e["items"]
+             if i.get("found") and not i.get("revoked") and (i.get("kcal") or 0) > 0]
+    cuts: list[dict[str, Any]] = []
+    tips: list[str] = []
+    excess = intake["kcal"] - targets["kcal"]
+    if excess > 50 and items:
+        # Cut foods with the least protein per calorie first, biggest first.
+        ranked = sorted(items, key=lambda i: ((i.get("protein") or 0) * 4 / i["kcal"], -i["kcal"]))
+        remaining = excess
+        for it in ranked:
+            if remaining <= 0 or len(cuts) >= 3:
+                break
+            qty = it.get("qty") or 1
+            per = it["kcal"] / qty
+            n = min(qty, math.ceil(remaining / per)) if qty >= 1 else qty
+            saved = round(per * n)
+            cuts.append({"name": it["name"], "cut": n, "of": qty, "unit": it.get("unit"), "kcal": saved,
+                         "swap": _swap_hint(it["name"])})
+            remaining -= saved
+        parts = [f"{'skip' if c['cut'] >= c['of'] else 'drop ' + _fmt_qty(c['cut']) + ' of ' + _fmt_qty(c['of'])} "
+                 f"{c['name']} (−{c['kcal']} kcal)" for c in cuts]
+        tips.append(f"✂️ To get back to your target (−{round(excess)} kcal): " + "; ".join(parts) + ".")
+        swap = next((c for c in cuts if c["swap"]), None)
+        if swap:
+            tips.append(f"🔁 Next time, swap {swap['name']} for {swap['swap']}.")
+    elif program == "loss" and items:
+        top = max(items, key=lambda i: i["kcal"])
+        hint = _swap_hint(top["name"])
+        if hint and top["kcal"] >= 250:
+            tips.append(f"🔁 Biggest calorie item today: {top['name']} ({round(top['kcal'])} kcal). "
+                        f"Swapping it for {hint} makes the deficit easier.")
+
+    for key, unit, over in (("fat", "g", intake["fat"] > targets["fat"] * 1.2),
+                            ("sugar", "g", intake["sugar"] > targets["sugar"]),
+                            ("sodium", "mg", intake["sodium"] > targets["sodium"])):
+        if over and items:
+            top = max(items, key=lambda i: i.get(key) or 0)
+            hint = _swap_hint(top["name"])
+            tips.append(f"Biggest {key} source: {top['name']} ({round(top.get(key) or 0)} {unit})"
+                        + (f" — try {hint}." if hint else " — reduce the portion."))
+    return {"cuts": cuts, "tips": tips}
+
 DEFAULT_WEIGHT_KG = float(os.environ.get("NUTRITION_BODY_WEIGHT_KG", "70"))
 DEFAULT_BMR = float(os.environ.get("NUTRITION_BMR_KCAL", "1650"))
 
@@ -948,6 +1033,8 @@ def assess(user: str, date: str, energy: dict[str, Any]) -> dict[str, Any]:
         status = "in_limit"
 
     tips = _suggestions(intake, targets, status, workout_kcal, workout_min, is_today, program, burn)
+    cut = _eliminations(entries, intake, targets, program)
+    tips[1:1] = cut["tips"]
 
     result = {
         "date": date,
@@ -965,6 +1052,8 @@ def assess(user: str, date: str, energy: dict[str, Any]) -> dict[str, Any]:
         "deviation": round(intake["kcal"] - target_kcal),
         "status": status,
         "suggestions": tips,
+        "cuts": cut["cuts"],
+        "cutTips": cut["tips"],
         "inProgress": is_today,
     }
     if entries:
