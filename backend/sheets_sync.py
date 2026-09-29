@@ -156,3 +156,7 @@ def push_entry(user: str, entry: dict[str, Any]) -> None:
 
 def push_day(user: str, date: str, day: dict[str, Any]) -> None:
     _enqueue({"action": "upsertDay", "user": _sheet_user(user), "date": date, "day": day})
+
+
+def push_program(user: str, program: dict[str, Any]) -> None:
+    _enqueue({"action": "upsertProgram", "user": _sheet_user(user), "program": program})

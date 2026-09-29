@@ -6,7 +6,7 @@
     <title>Training Lab — Running Portal</title>
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="analysis.css" />
-    <link rel="stylesheet" href="nutrition.css?v=2026092901" />
+    <link rel="stylesheet" href="nutrition.css?v=2026092902" />
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   </head>
@@ -311,6 +311,15 @@
           <h2>🍽️ Nutrition history</h2>
           <button id="nutri-history-close" class="modal-close" title="Close">×</button>
         </div>
+        <div class="nh-program">
+          <label for="nutri-program">🎯 Program</label>
+          <select id="nutri-program">
+            <option value="loss">Weight loss</option>
+            <option value="maintain">Maintain weight</option>
+            <option value="gain">Weight gain</option>
+          </select>
+          <span id="nutri-program-note" class="dim"></span>
+        </div>
         <div class="period-tabs" id="nutri-history-periods">
           <button data-days="7">7 days</button>
           <button data-days="30" class="active">30 days</button>
@@ -358,6 +367,6 @@
     </div>
 
     <script src="app.js"></script>
-    <script src="nutrition.js?v=2026092901"></script>
+    <script src="nutrition.js?v=2026092902"></script>
   </body>
 </html>

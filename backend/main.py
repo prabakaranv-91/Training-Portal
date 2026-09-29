@@ -13,6 +13,7 @@ import datetime as dt
 import os
 import secrets
 from pathlib import Path
+from typing import Literal
 
 from fastapi import Cookie, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -60,6 +61,11 @@ class NutritionLogRequest(BaseModel):
 
 class NutritionQtyRequest(BaseModel):
     qty: float = Field(gt=0, le=10000)
+
+
+class NutritionProgramRequest(BaseModel):
+    program: Literal["loss", "maintain", "gain"]
+    date: dt.date | None = None
 
 
 # ------------------------------------------------------------------- helpers
@@ -580,6 +586,18 @@ def nutrition_restore(
     if not nutrition_service.set_revoked(user, entry_id, False, item):
         raise HTTPException(status_code=404, detail="Entry not found")
     return {"status": "restored"}
+
+
+@app.get("/api/nutrition/program")
+def nutrition_program(garmin_session: str | None = Cookie(default=None)):
+    return nutrition_service.programs(_nutrition_user(garmin_session))
+
+
+@app.post("/api/nutrition/program")
+def nutrition_set_program(req: NutritionProgramRequest, garmin_session: str | None = Cookie(default=None)):
+    user = _nutrition_user(garmin_session)
+    nutrition_service.set_program(user, req.program, (req.date or dt.date.today()).isoformat())
+    return nutrition_service.programs(user)
 
 
 @app.get("/api/nutrition/history")

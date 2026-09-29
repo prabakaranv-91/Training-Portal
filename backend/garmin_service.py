@@ -77,6 +77,7 @@ class GarminService:
     def __init__(self) -> None:
         self.client: Garmin | None = None
         self.email: str | None = None
+        self.nutrition_user: str | None = None
 
         # The garminconnect login is synchronous and asks for the MFA code via a
         # `prompt_mfa` callback. To make that work in a web flow we run login in a

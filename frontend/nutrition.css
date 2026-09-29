@@ -217,6 +217,10 @@
 .nutri-chatbox .nutri-messages { flex: 1; max-height: none; }
 .nutri-chatbox .dim { color: var(--text-dim); }
 .nh-chart { position: relative; height: 150px; }
+.nh-program { display: flex; align-items: center; gap: 8px; padding: 0 20px 8px; flex-wrap: wrap; font-size: 0.85rem; }
+.nh-program select { width: auto; margin: 0; padding: 4px 8px; }
+.nutri-prog { display: block; color: var(--text-dim); font-size: 0.68rem; font-weight: 400; margin-top: 2px; }
+.nh-head .nutri-prog { display: inline; margin: 0; }
 .nh-day { border-top: 1px solid var(--border); padding-top: 8px; }
 .nh-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-bottom: 6px; }
 .nh-items { display: flex; flex-wrap: wrap; gap: 4px; }

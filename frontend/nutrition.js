@@ -13,10 +13,11 @@ const NUTRI_ROWS = [
   { key: "sugar", label: "Sugar", unit: "g", limit: true },
   { key: "sodium", label: "Sodium", unit: "mg", limit: true },
 ];
+const NUTRI_PROGRAM_LABEL = { loss: "Weight loss", maintain: "Maintain", gain: "Weight gain" };
 const NUTRI_STATUS = {
   low: { label: "Low", cls: "low" },
   in_limit: { label: "In limit", cls: "ok" },
-  high: { label: "High", cls: "high" },
+  high: { label: "Exceeds", cls: "high" },
 };
 
 function nutriLocalDate(d = new Date()) {
@@ -128,7 +129,8 @@ function renderNutritionSummary(day) {
   const rows = [{ key: "kcal", label: "Calories", unit: "kcal" }, ...NUTRI_ROWS];
   el.innerHTML = `
     <table class="nutri-table">
-      <thead><tr><th><span class="nutri-status ${st.cls}" title="${escapeAttr(tips)}">${st.label}${tips ? " ⓘ" : ""}</span></th>
+      <thead><tr><th><span class="nutri-status ${st.cls}" title="${escapeAttr(tips)}">${st.label}${tips ? " ⓘ" : ""}</span>
+        <small class="nutri-prog">${escapeAttr(day.programLabel || "")}</small></th>
         <th>Today</th><th>Target</th></tr></thead>
       <tbody>
         ${rows
@@ -228,12 +230,43 @@ async function openNutritionHistory() {
   document
     .querySelectorAll("#nutri-history-periods button")
     .forEach((b) => b.classList.toggle("active", Number(b.dataset.days) === nutriHistoryDays));
+  api("/api/nutrition/program").then(renderNutritionProgram).catch(() => {});
   try {
     const { days } = await api(`/api/nutrition/history?days=${nutriHistoryDays}`);
     renderNutritionHistory(days);
   } catch (ex) {
     document.getElementById("nutri-history-table").innerHTML =
       `<div class="empty">Could not load history: ${escapeAttr(ex.message)}</div>`;
+  }
+}
+
+const NUTRI_PROGRAM_NOTE = {
+  loss: "Target = burn − up to 500 kcal · higher protein",
+  maintain: "Target = calories burned",
+  gain: "Target = burn + 300 kcal",
+};
+
+function renderNutritionProgram(p) {
+  document.getElementById("nutri-program").value = p.current;
+  const since = (p.history || []).find((h) => h.program === p.current);
+  document.getElementById("nutri-program-note").textContent =
+    `${NUTRI_PROGRAM_NOTE[p.current] || ""}${since ? ` · since ${since.from}` : ""}`;
+}
+
+async function saveNutritionProgram(e) {
+  const select = e.target;
+  select.disabled = true;
+  try {
+    renderNutritionProgram(
+      await api("/api/nutrition/program", { method: "POST", body: JSON.stringify({ program: select.value }) })
+    );
+    toast(`Program set to ${select.options[select.selectedIndex].text}`);
+    loadNutrition();
+    openNutritionHistory();
+  } catch (ex) {
+    toast(`Could not save program: ${ex.message}`);
+  } finally {
+    select.disabled = false;
   }
 }
 
@@ -255,6 +288,7 @@ function renderNutritionHistory(days) {
       datasets: [
         { type: "bar", label: "Intake kcal", data: days.map((d) => d.intake.kcal), backgroundColor: "rgba(45,212,191,0.6)", maxBarThickness: 24 },
         { type: "line", label: "Burn kcal", data: days.map((d) => d.burn?.total ?? null), borderColor: "#f59e0b", tension: 0.3, spanGaps: true, pointRadius: 2 },
+        { type: "line", label: "Target kcal", data: days.map((d) => d.targetKcal ?? null), borderColor: "#a78bfa", borderDash: [5, 4], tension: 0.3, spanGaps: true, pointRadius: 2 },
         { type: "line", label: "Protein g", data: days.map((d) => d.intake.protein), borderColor: "#60a5fa", yAxisID: "y1", tension: 0.3, pointRadius: 2 },
       ],
     },
@@ -281,9 +315,10 @@ function renderNutritionHistory(days) {
         <div class="nh-day">
           <div class="nh-head">
             <b>${escapeAttr(label)}</b>
-            <span>${nutriFmt(d.intake.kcal)}${d.burn?.total ? ` / ${nutriFmt(d.burn.total)}` : ""} kcal</span>
+            <span title="${d.burn?.total ? `Burned ${nutriFmt(d.burn.total)} kcal` : ""}">${nutriFmt(d.intake.kcal)}${d.targetKcal ? ` / ${nutriFmt(d.targetKcal)}` : ""} kcal</span>
             <span class="dim">P ${nutriFmt(d.intake.protein)} · C ${nutriFmt(d.intake.carbs)} · F ${nutriFmt(d.intake.fat)} · Fib ${nutriFmt(d.intake.fiber)}</span>
             ${st ? `<span class="nutri-status ${st.cls}">${st.label}</span>` : ""}
+            <small class="nutri-prog">${escapeAttr(NUTRI_PROGRAM_LABEL[d.program] || "")}</small>
           </div>
           <div class="nh-items">${items || '<span class="dim">No items</span>'}</div>
           ${nutriFoodTable(d.items || [], `d-${d.date}`)}
@@ -347,6 +382,7 @@ document.getElementById("nutri-history-close").addEventListener("click", closeNu
 document.getElementById("nutri-history-modal").addEventListener("click", (e) => {
   if (e.target.id === "nutri-history-modal") closeNutritionHistory();
 });
+document.getElementById("nutri-program").addEventListener("change", saveNutritionProgram);
 document.getElementById("nutri-history-periods").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-days]");
   if (!b) return;
