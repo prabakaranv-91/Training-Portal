@@ -71,10 +71,11 @@ function renderNutritionMessages(day) {
             : `<button class="nutri-act nutri-revoke" data-id="${id}" data-item="${idx}" title="Revoke item">×</button>`;
           return i.found
             ? `<tr class="${i.revoked ? "revoked" : ""}">
-                <td>${escapeAttr(i.name)}<div class="nutri-src">${escapeAttr(i.qty)} ${escapeAttr(i.unit)} · ${nutriFmt(i.grams, " g")} · ${escapeAttr(i.source)}</div></td>
+                <td>${escapeAttr(i.name)}<div class="nutri-src">${i.readAs ? `read “${escapeAttr(i.input)}” as “${escapeAttr(i.readAs)}” · ` : ""}${escapeAttr(i.qty)} ${escapeAttr(i.unit)} · ${nutriFmt(i.grams, " g")} · ${escapeAttr(i.source)}</div></td>
                 <td>${nutriFmt(i.kcal)}</td><td>${i.protein}</td><td>${i.carbs}</td><td>${i.fat}</td><td>${i.fiber}</td><td>${act}</td>
               </tr>`
-            : `<tr class="nutri-miss"><td colspan="7">❓ Couldn't find “${escapeAttr(i.input)}” — try a more common name or add grams.</td></tr>`;
+            : `<tr class="nutri-miss"><td colspan="6">❓ Couldn't find “${escapeAttr(i.input)}” — try a more common name or add grams.</td>
+                <td><button class="nutri-act nutri-retry" data-id="${id}" title="Analyse again">↻</button></td></tr>`;
         })
         .join("");
       return `
@@ -185,6 +186,15 @@ async function setNutritionRevoked(id, item, revoke) {
   }
 }
 
+async function reanalyseNutritionEntry(id) {
+  try {
+    await api(`/api/nutrition/entries/${encodeURIComponent(id)}/reanalyse`, { method: "POST" });
+    loadNutrition();
+  } catch (ex) {
+    toast(`Could not re-analyse: ${ex.message}`);
+  }
+}
+
 // ------------------------------------------------------------- history
 
 async function openNutritionHistory() {
@@ -263,7 +273,9 @@ document.getElementById("nutri-input").addEventListener("keydown", (e) => {
 document.getElementById("nutri-date").addEventListener("change", loadNutrition);
 document.getElementById("nutri-messages").addEventListener("click", (e) => {
   const btn = e.target.closest(".nutri-act");
-  if (btn) setNutritionRevoked(btn.dataset.id, btn.dataset.item, btn.classList.contains("nutri-revoke"));
+  if (!btn) return;
+  if (btn.classList.contains("nutri-retry")) reanalyseNutritionEntry(btn.dataset.id);
+  else setNutritionRevoked(btn.dataset.id, btn.dataset.item, btn.classList.contains("nutri-revoke"));
 });
 document.getElementById("nutri-history-btn").addEventListener("click", openNutritionHistory);
 document.getElementById("nutri-history-close").addEventListener("click", closeNutritionHistory);

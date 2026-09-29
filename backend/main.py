@@ -514,6 +514,14 @@ def nutrition_revoke(
     return {"status": "revoked"}
 
 
+@app.post("/api/nutrition/entries/{entry_id}/reanalyse")
+def nutrition_reanalyse(entry_id: str, garmin_session: str | None = Cookie(default=None)):
+    _valid_session(garmin_session)
+    if not nutrition_service.reanalyse_entry(entry_id):
+        raise HTTPException(status_code=404, detail="Entry not found")
+    return {"status": "reanalysed"}
+
+
 @app.post("/api/nutrition/entries/{entry_id}/restore")
 def nutrition_restore(
     entry_id: str, item: int | None = None, garmin_session: str | None = Cookie(default=None)

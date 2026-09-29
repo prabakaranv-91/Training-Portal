@@ -16,6 +16,7 @@ Nutrition log: parse free-text food intake, look up nutrition, keep history.
 from __future__ import annotations
 
 import datetime as dt
+import difflib
 import json
 import logging
 import os
@@ -75,7 +76,7 @@ FOODS: dict[str, dict[str, Any]] = {
     "Curd rice": _f(["curd rice", "thayir sadam"], 115, 3.5, 17, 3.5, 0.4, 2.0, 250, {"cup": 200, "bowl": 250, "plate": 300}, "cup"),
     "Chicken biryani": _f(["biryani", "chicken biryani"], 170, 8.0, 22, 6.0, 1.0, 1.0, 400, {"cup": 200, "bowl": 250, "plate": 350}, "plate"),
     "Dal (cooked)": _f(["dal", "dhal", "paruppu", "lentil", "lentil curry"], 100, 5.0, 14, 2.5, 3.0, 1.0, 300, {"cup": 200, "bowl": 200}, "cup"),
-    "Chickpeas (cooked)": _f(["chana", "chickpea", "channa", "chole", "sundal"], 164, 8.9, 27, 2.6, 7.6, 4.8, 7, {"cup": 160, "bowl": 200}, "cup"),
+    "Chickpeas (cooked)": _f(["chana", "chickpea", "channa", "sundal", "boiled chana"], 164, 8.9, 27, 2.6, 7.6, 4.8, 7, {"cup": 160, "bowl": 200}, "cup"),
     "Rajma (cooked)": _f(["rajma", "kidney bean"], 127, 8.7, 22.8, 0.5, 6.4, 0.3, 2, {"cup": 180, "bowl": 200}, "cup"),
     "Moong sprouts": _f(["sprout", "moong sprout", "sprouted moong"], 30, 3.0, 6.0, 0.2, 1.8, 4.1, 6, {"cup": 100, "bowl": 150}, "cup"),
     "Soya chunks (dry)": _f(["soya chunk", "soya", "soy chunk", "meal maker"], 345, 52, 33, 0.5, 13, 3.0, 20, {"cup": 50}, "cup"),
@@ -105,7 +106,12 @@ FOODS: dict[str, dict[str, Any]] = {
     "Almonds": _f(["almond", "badam"], 579, 21, 22, 50, 12.5, 4.4, 1, {"piece": 1.2, "handful": 28}),
     "Potato (boiled)": _f(["potato", "aloo"], 87, 1.9, 20, 0.1, 1.8, 0.9, 5, {"piece": 150, "cup": 150}),
     "Sweet potato": _f(["sweet potato", "sakkaravalli"], 90, 2.0, 20.7, 0.2, 3.3, 6.5, 36, {"piece": 130, "cup": 200}),
-    "Vegetable salad": _f(["salad", "vegetable salad", "veg salad", "cucumber"], 20, 1.0, 4.0, 0.2, 1.8, 2.0, 10, {"cup": 100, "bowl": 150, "plate": 200}, "bowl"),
+    "Vegetable salad": _f(["salad", "vegetable salad", "veg salad"], 20, 1.0, 4.0, 0.2, 1.8, 2.0, 10, {"cup": 100, "bowl": 150, "plate": 200}, "bowl"),
+    "Carrot": _f(["carrot", "gajar"], 41, 0.9, 9.6, 0.2, 2.8, 4.7, 69, {"piece": 60, "cup": 120}),
+    "Cucumber": _f(["cucumber", "kheera", "vellarikkai"], 15, 0.7, 3.6, 0.1, 0.5, 1.7, 2, {"piece": 200, "cup": 120, "slice": 10}),
+    "Tomato": _f(["tomato", "tamatar", "thakkali"], 18, 0.9, 3.9, 0.2, 1.2, 2.6, 5, {"piece": 120, "cup": 180, "slice": 20}),
+    "Onion": _f(["onion", "pyaz", "vengayam"], 40, 1.1, 9.3, 0.1, 1.7, 4.2, 4, {"piece": 110, "cup": 160, "slice": 10}),
+    "Beetroot": _f(["beetroot", "beet", "chukandar"], 43, 1.6, 10, 0.2, 2.8, 6.8, 78, {"piece": 80, "cup": 135}),
     "Vegetable curry": _f(["poriyal", "vegetable curry", "veg curry", "sabzi", "subzi", "kootu"], 90, 2.5, 9.0, 5.0, 3.0, 3.0, 300, {"cup": 150, "bowl": 150}, "cup"),
     "Coffee (milk + sugar)": _f(["coffee", "filter coffee", "cappuccino", "latte"], 45, 1.5, 6.5, 1.5, 0, 6.0, 20, {"cup": 150, "glass": 200}, "cup"),
     "Black coffee": _f(["black coffee", "americano", "espresso"], 2, 0.1, 0, 0, 0, 0, 2, {"cup": 200}, "cup"),
@@ -118,7 +124,101 @@ FOODS: dict[str, dict[str, Any]] = {
     "Coconut water": _f(["coconut water", "tender coconut", "elaneer"], 19, 0.7, 3.7, 0.2, 1.1, 2.6, 105, {"glass": 240, "piece": 300}, "glass"),
     "Buttermilk": _f(["buttermilk", "chaas", "moru"], 25, 1.5, 2.5, 1.0, 0, 2.5, 150, {"glass": 250, "cup": 200}, "glass"),
     "Ragi (finger millet)": _f(["ragi", "ragi malt", "ragi kanji", "ragi mudde"], 100, 2.5, 21, 0.6, 2.5, 0.5, 5, {"cup": 200, "glass": 250, "bowl": 250}, "cup"),
+    # --- Indian dishes (approx. home/restaurant recipes, IFCT-style values)
+    "Veg sandwich": _f(["sandwich", "veg sandwich", "vegetable sandwich", "bread sandwich"], 200, 5.5, 28, 7.5, 3.0, 4.0, 450, {"piece": 150}),
+    "Paneer sandwich": _f(["paneer sandwich", "paneer grilled sandwich"], 240, 10, 25, 11, 2.5, 3.5, 450, {"piece": 170}),
+    "Chicken sandwich": _f(["chicken sandwich"], 230, 14, 24, 8.5, 2.0, 3.5, 500, {"piece": 170}),
+    "Egg sandwich": _f(["egg sandwich", "omelette sandwich"], 220, 10, 23, 10, 2.0, 3.0, 450, {"piece": 160}),
+    "Cheese sandwich": _f(["cheese sandwich", "grilled cheese", "cheese toast"], 300, 11, 28, 16, 2.0, 4.0, 700, {"piece": 130}),
+    "Paneer butter masala": _f(["paneer butter masala", "paneer makhani", "shahi paneer", "paneer masala", "paneer curry", "paneer gravy"], 230, 8.0, 8.0, 19, 1.5, 4.0, 400, {"cup": 200, "bowl": 200}, "cup"),
+    "Palak paneer": _f(["palak paneer", "saag paneer"], 150, 7.0, 6.0, 11, 2.0, 2.0, 350, {"cup": 200, "bowl": 200}, "cup"),
+    "Matar / kadai paneer": _f(["matar paneer", "mutter paneer", "kadai paneer", "kadhai paneer"], 160, 7.0, 9.0, 11, 3.0, 3.0, 380, {"cup": 200, "bowl": 200}, "cup"),
+    "Paneer tikka": _f(["paneer tikka"], 250, 16, 6.0, 18, 1.0, 2.0, 400, {"piece": 30, "plate": 200}, "serving"),
+    "Paneer bhurji": _f(["paneer bhurji", "paneer burji"], 220, 13, 5.0, 16, 1.0, 2.0, 350, {"cup": 150, "bowl": 150}, "cup"),
+    "Paneer roll": _f(["paneer roll", "paneer wrap", "paneer kathi roll", "paneer frankie"], 260, 10, 28, 12, 2.0, 3.0, 500, {"piece": 180}),
+    "Paneer paratha": _f(["paneer paratha"], 260, 9.0, 30, 12, 3.0, 1.5, 400, {"piece": 120}),
+    "Aloo paratha": _f(["aloo paratha", "alu paratha", "potato paratha", "gobi paratha", "stuffed paratha"], 230, 5.0, 32, 9.0, 3.0, 1.5, 400, {"piece": 130}),
+    "Naan": _f(["naan", "nan", "kulcha", "tandoori roti"], 290, 9.0, 50, 5.5, 2.0, 3.0, 450, {"piece": 90}),
+    "Butter naan": _f(["butter naan", "garlic naan", "cheese naan"], 320, 8.5, 48, 10, 2.0, 3.0, 500, {"piece": 100}),
+    "Puri": _f(["puri", "poori"], 330, 6.0, 40, 17, 2.0, 1.0, 300, {"piece": 30}),
+    "Bhatura": _f(["bhatura", "bhature"], 330, 7.0, 42, 15, 1.5, 2.0, 400, {"piece": 80}),
+    "Thepla": _f(["thepla", "methi thepla"], 290, 8.0, 40, 11, 5.0, 1.0, 350, {"piece": 40}),
+    "Appam": _f(["appam", "aappam"], 150, 2.5, 30, 2.0, 1.0, 2.0, 200, {"piece": 60}),
+    "Idiyappam": _f(["idiyappam", "string hopper", "noolappam"], 130, 2.0, 28, 0.5, 1.0, 0.2, 150, {"piece": 40}),
+    "Puttu": _f(["puttu"], 160, 3.0, 33, 1.5, 2.0, 0.5, 150, {"cup": 150, "piece": 150}, "cup"),
+    "Pesarattu": _f(["pesarattu", "moong dal dosa", "green gram dosa"], 170, 8.0, 24, 5.0, 4.0, 1.0, 300, {"piece": 100}),
+    "Rava dosa": _f(["rava dosa", "rava dosai", "onion rava dosa"], 190, 4.0, 28, 7.0, 1.5, 1.0, 350, {"piece": 100}),
+    "Egg dosa": _f(["egg dosa", "egg dosai", "muttai dosai"], 190, 7.5, 22, 8.0, 1.0, 0.5, 350, {"piece": 120}),
+    "Ghee roast dosa": _f(["ghee roast", "ghee dosa", "ghee roast dosa", "paper roast"], 230, 4.0, 30, 10, 1.0, 0.5, 300, {"piece": 110}),
+    "Kothu parotta": _f(["kothu parotta", "kottu parotta", "kothu"], 230, 8.0, 25, 11, 1.5, 1.5, 500, {"plate": 300, "cup": 200}, "plate"),
+    "Lemon / tomato rice": _f(["lemon rice", "tomato rice", "chitranna", "coconut rice"], 170, 3.0, 30, 4.5, 1.0, 1.0, 350, {"cup": 200, "bowl": 250, "plate": 300}, "cup"),
+    "Tamarind rice": _f(["tamarind rice", "puliyodarai", "puliyogare", "puli sadam"], 180, 3.0, 30, 5.5, 1.5, 2.0, 400, {"cup": 200, "bowl": 250, "plate": 300}, "cup"),
+    "Jeera rice / pulao": _f(["jeera rice", "pulao", "pulav", "veg pulao", "ghee rice"], 155, 3.0, 26, 4.0, 1.5, 1.0, 300, {"cup": 200, "bowl": 250, "plate": 300}, "cup"),
+    "Khichdi": _f(["khichdi", "khichri", "kichadi"], 120, 4.5, 20, 2.5, 2.0, 0.5, 300, {"cup": 200, "bowl": 250, "plate": 300}, "cup"),
+    "Bisi bele bath": _f(["bisi bele bath", "bisibelebath", "sambar rice", "sambar sadam"], 140, 4.0, 22, 4.0, 2.5, 1.5, 400, {"cup": 200, "bowl": 250, "plate": 300}, "cup"),
+    "Veg biryani": _f(["veg biryani", "vegetable biryani", "veg briyani"], 150, 3.5, 24, 4.5, 2.0, 1.5, 400, {"cup": 200, "bowl": 250, "plate": 300}, "plate"),
+    "Mutton biryani": _f(["mutton biryani", "mutton briyani"], 190, 9.0, 21, 8.0, 1.0, 1.0, 450, {"cup": 200, "bowl": 250, "plate": 350}, "plate"),
+    "Egg biryani": _f(["egg biryani", "egg briyani"], 170, 6.5, 23, 6.0, 1.0, 1.0, 400, {"cup": 200, "bowl": 250, "plate": 350}, "plate"),
+    "Fried rice": _f(["fried rice", "veg fried rice", "chicken fried rice", "egg fried rice"], 170, 5.0, 25, 5.5, 1.0, 1.0, 500, {"cup": 200, "bowl": 250, "plate": 300}, "plate"),
+    "Hakka noodles": _f(["noodle", "hakka noodle", "chowmein", "chow mein", "chicken noodle"], 170, 5.5, 25, 5.5, 1.5, 2.0, 550, {"cup": 200, "bowl": 250, "plate": 300}, "plate"),
+    "Instant noodles (Maggi)": _f(["maggi", "instant noodle", "top ramen", "yippee"], 440, 9.0, 62, 17, 3.0, 2.0, 1300, {"piece": 70}),
+    "Sabudana khichdi": _f(["sabudana", "sabudana khichdi", "javvarisi"], 200, 1.5, 35, 6.5, 1.0, 1.0, 250, {"cup": 200, "bowl": 200}, "cup"),
+    "Sweet pongal": _f(["sweet pongal", "sakkarai pongal", "chakkara pongal"], 230, 3.0, 40, 7.0, 1.0, 22, 30, {"cup": 150, "bowl": 200}, "cup"),
+    "Butter chicken": _f(["butter chicken", "chicken makhani", "chicken tikka masala"], 180, 13, 6.0, 12, 1.0, 3.0, 450, {"cup": 200, "bowl": 200}, "cup"),
+    "Chicken tikka / tandoori": _f(["chicken tikka", "tandoori chicken", "chicken tandoori", "grilled chicken tikka"], 150, 22, 3.0, 5.5, 0.5, 1.0, 450, {"piece": 150, "plate": 250}, "serving"),
+    "Chicken 65 / fry": _f(["chicken sixtyfive", "chicken fry", "chilli chicken", "pepper chicken", "fried chicken", "chicken lollipop"], 250, 18, 12, 14, 0.5, 2.0, 550, {"piece": 30, "plate": 200, "cup": 150}, "serving"),
+    "Chicken shawarma": _f(["shawarma", "chicken shawarma", "chicken roll", "chicken wrap", "chicken frankie", "kathi roll"], 230, 13, 22, 10, 1.5, 2.5, 550, {"piece": 220}),
+    "Mutton curry": _f(["mutton curry", "mutton gravy", "goat curry", "lamb curry", "mutton"], 180, 14, 4.0, 12, 1.0, 1.5, 450, {"cup": 200, "bowl": 200}, "cup"),
+    "Egg curry": _f(["egg curry", "egg masala", "egg gravy", "muttai kuzhambu"], 150, 8.0, 5.0, 11, 1.0, 2.0, 400, {"cup": 200, "bowl": 200}, "cup"),
+    "Egg bhurji": _f(["egg bhurji", "egg burji", "scrambled egg", "egg podimas"], 190, 11, 3.0, 15, 0.5, 1.0, 350, {"cup": 150, "plate": 150}, "cup"),
+    "Prawn curry": _f(["prawn curry", "prawn masala", "shrimp curry", "eral"], 120, 13, 4.0, 6.0, 0.5, 1.0, 450, {"cup": 200, "bowl": 200}, "cup"),
+    "Dal makhani": _f(["dal makhani", "dal makhni"], 150, 6.0, 14, 8.0, 4.0, 1.5, 350, {"cup": 200, "bowl": 200}, "cup"),
+    "Chole masala": _f(["chole", "chana masala", "chole masala", "chole bhature gravy"], 150, 6.5, 20, 5.5, 6.0, 3.0, 400, {"cup": 200, "bowl": 200}, "cup"),
+    "Aloo gobi / sabzi": _f(["aloo gobi", "aloo sabzi", "potato curry", "potato fry", "urulai", "aloo matar"], 110, 2.5, 13, 5.5, 3.0, 2.0, 350, {"cup": 150, "bowl": 150}, "cup"),
+    "Avial": _f(["avial", "aviyal"], 110, 2.5, 9.0, 7.5, 3.0, 2.5, 250, {"cup": 150, "bowl": 150}, "cup"),
+    "Veg kurma": _f(["kurma", "korma", "veg kurma", "veg korma", "navratan korma"], 130, 3.0, 10, 9.0, 2.5, 3.0, 350, {"cup": 150, "bowl": 200}, "cup"),
+    "Kuzhambu": _f(["kuzhambu", "kara kuzhambu", "vatha kuzhambu", "mor kuzhambu", "kulambu"], 80, 1.5, 8.0, 5.0, 1.5, 2.0, 450, {"cup": 150, "bowl": 200}, "cup"),
+    "Raita": _f(["raita", "pachadi", "thayir pachadi"], 70, 3.0, 5.0, 4.0, 0.5, 4.0, 200, {"cup": 150, "bowl": 150, "tbsp": 15}, "cup"),
+    "Pickle": _f(["pickle", "achar", "oorugai", "mango pickle", "lemon pickle"], 190, 1.0, 5.0, 18, 2.0, 2.0, 2500, {"tsp": 5, "tbsp": 15}, "tsp"),
+    "Papad": _f(["papad", "appalam", "pappadam", "papadum"], 370, 25, 60, 3.0, 10, 1.0, 1500, {"piece": 12}),
+    "Idli podi": _f(["podi", "idli podi", "gunpowder", "milagai podi"], 400, 18, 45, 15, 12, 2.0, 800, {"tsp": 5, "tbsp": 12}, "tbsp"),
+    "Samosa": _f(["samosa", "samsa"], 310, 5.0, 32, 18, 3.0, 2.0, 450, {"piece": 80}),
+    "Pakora / bajji": _f(["pakora", "pakoda", "bajji", "bhajji", "bhaji", "onion pakoda"], 290, 6.0, 28, 17, 3.0, 2.0, 400, {"piece": 25, "plate": 150, "cup": 100}),
+    "Bonda": _f(["bonda", "aloo bonda", "mysore bonda"], 280, 5.0, 32, 15, 2.0, 1.5, 400, {"piece": 45}),
+    "Masala vada": _f(["masala vada", "paruppu vadai", "dal vada"], 300, 11, 30, 16, 5.0, 1.0, 400, {"piece": 40}),
+    "Pani puri": _f(["pani puri", "golgappa", "puchka", "gol gappa"], 180, 3.5, 30, 5.0, 2.5, 3.0, 450, {"piece": 20, "plate": 120}, "piece"),
+    "Bhel / sev puri": _f(["bhel", "bhel puri", "sev puri", "masala puri", "chaat", "dahi puri"], 180, 4.0, 28, 6.0, 2.5, 4.0, 500, {"cup": 100, "plate": 150}, "plate"),
+    "Pav bhaji": _f(["pav bhaji", "pao bhaji"], 180, 4.5, 25, 7.0, 3.0, 3.0, 500, {"plate": 300, "piece": 150}, "plate"),
+    "Vada pav": _f(["vada pav", "vada pao", "wada pav"], 290, 6.5, 40, 12, 2.5, 3.0, 550, {"piece": 140}),
+    "Dhokla": _f(["dhokla", "khaman"], 160, 6.0, 25, 4.0, 2.0, 5.0, 450, {"piece": 30, "plate": 150}),
+    "Veg momos": _f(["momo", "veg momo", "dumpling"], 160, 6.0, 25, 4.0, 2.0, 1.5, 400, {"piece": 30, "plate": 180}),
+    "Chicken momos": _f(["chicken momo", "chicken dumpling"], 190, 10, 22, 7.0, 1.0, 1.0, 450, {"piece": 30, "plate": 180}),
+    "Gobi manchurian": _f(["gobi manchurian", "manchurian", "cauliflower fry", "gobi fry", "gobi sixtyfive", "paneer sixtyfive", "mushroom sixtyfive"], 190, 4.0, 22, 10, 3.0, 5.0, 600, {"plate": 200, "cup": 150}, "serving"),
+    "Murukku / mixture": _f(["murukku", "chakli", "mixture", "namkeen", "bhujia", "chips", "banana chips"], 530, 9.0, 52, 32, 4.0, 3.0, 700, {"piece": 15, "handful": 30, "cup": 60}, "handful"),
+    "Biscuits": _f(["biscuit", "cookie", "marie", "marie biscuit", "good day"], 460, 7.0, 70, 16, 2.0, 22, 350, {"piece": 8}),
+    "Gulab jamun": _f(["gulab jamun", "jamun"], 330, 5.0, 50, 13, 0.5, 40, 50, {"piece": 40}),
+    "Rasgulla": _f(["rasgulla", "rasagolla", "rosogolla", "rasmalai"], 186, 4.0, 40, 1.8, 0, 37, 30, {"piece": 45}),
+    "Jalebi": _f(["jalebi", "jilebi", "jangiri"], 380, 3.0, 60, 15, 0.5, 45, 20, {"piece": 30}),
+    "Laddu": _f(["laddu", "ladoo", "besan laddu", "boondi laddu", "rava laddu"], 450, 7.0, 55, 23, 2.0, 38, 50, {"piece": 40}),
+    "Mysore pak / barfi": _f(["mysore pak", "barfi", "burfi", "kaju katli", "peda"], 480, 8.0, 52, 27, 1.0, 38, 50, {"piece": 25}),
+    "Kheer / payasam": _f(["kheer", "payasam", "payasa", "semiya payasam", "pal payasam"], 150, 4.0, 22, 5.0, 0.5, 16, 50, {"cup": 150, "bowl": 150}, "cup"),
+    "Kesari / halwa": _f(["kesari", "rava kesari", "halwa", "sooji halwa", "sheera", "gajar halwa"], 330, 3.5, 48, 14, 1.0, 30, 50, {"cup": 150, "bowl": 150, "piece": 60}, "serving"),
+    "Lassi": _f(["lassi", "sweet lassi", "mango lassi"], 90, 3.0, 14, 2.5, 0, 13, 50, {"glass": 250, "cup": 200}, "glass"),
+    "Badam milk": _f(["badam milk", "almond milk shake", "rose milk", "milkshake", "milk shake"], 110, 4.0, 14, 4.5, 0.3, 12, 50, {"glass": 250, "cup": 200}, "glass"),
+    "Malt drink with milk": _f(["horlicks", "boost", "bournvita", "complan", "malt"], 80, 3.5, 11, 2.5, 0.3, 9.0, 60, {"glass": 250, "cup": 200}, "glass"),
+    "Fresh fruit juice": _f(["juice", "orange juice", "mosambi juice", "sweet lime juice", "fruit juice", "watermelon juice"], 45, 0.6, 10.5, 0.2, 0.2, 9.0, 2, {"glass": 250, "cup": 200}, "glass"),
+    "Sugarcane juice": _f(["sugarcane juice", "ganne ka ras", "karumbu juice"], 70, 0.2, 17, 0, 0, 16, 10, {"glass": 250}, "glass"),
+    "Sweet corn": _f(["corn", "sweet corn", "bhutta", "corn cob"], 96, 3.4, 21, 1.5, 2.4, 4.5, 15, {"cup": 150, "piece": 100}, "cup"),
+    "Guava": _f(["guava", "koyya", "amrood"], 68, 2.6, 14, 1.0, 5.4, 9.0, 2, {"piece": 100}),
+    "Papaya": _f(["papaya"], 43, 0.5, 11, 0.3, 1.7, 8.0, 8, {"cup": 145, "piece": 150, "bowl": 200}, "cup"),
+    "Mango": _f(["mango"], 60, 0.8, 15, 0.4, 1.6, 14, 1, {"piece": 200, "cup": 165}),
+    "Watermelon": _f(["watermelon"], 30, 0.6, 7.6, 0.2, 0.4, 6.2, 1, {"cup": 150, "slice": 280, "bowl": 200}, "cup"),
+    "Grapes": _f(["grape"], 69, 0.7, 18, 0.2, 0.9, 15.5, 2, {"cup": 150, "handful": 50}, "cup"),
+    "Pomegranate": _f(["pomegranate", "anar", "mathulai"], 83, 1.7, 19, 1.2, 4.0, 14, 3, {"cup": 175, "piece": 280}, "cup"),
 }
+
+# Extra dictionary words used for typo correction (not food names on their own).
+_EXTRA_VOCAB = {"sandwich", "masala", "curry", "gravy", "fry", "roast", "tikka", "grilled", "boiled", "fried", "roll", "rice", "chicken", "paneer"}
 
 # Grams per unit when the food doesn't define its own.
 DEFAULT_UNIT_G = {
@@ -154,6 +254,15 @@ FILLERS = re.compile(
 )
 SPLITTER = re.compile(r"\s*(,|;|\n|\+|&|\balong\s+with\b|\band\b|\bwith\b|\bplus\b|\bthen\b)\s*")
 QTY_RE = r"(\d+(?:\.\d+)?(?:/\d+)?)"
+# Common regional spellings, applied to both aliases and input.
+_SPELLINGS = {
+    "dosai": "dosa", "dose": "dosa", "vadai": "vada", "wada": "vada", "idly": "idli",
+    "briyani": "biryani", "biriyani": "biryani", "biriani": "biryani", "chapathi": "chapati",
+    "chappathi": "chapati", "chapatti": "chapati", "poori": "puri", "parota": "parotta",
+    "porotta": "parotta", "barotta": "parotta", "sambhar": "sambar", "sambaar": "sambar",
+    "pakoda": "pakora", "bajji": "bhajji", "ladoo": "laddu", "burfi": "barfi", "dhal": "dal",
+    "daal": "dal", "panir": "paneer", "omlet": "omelette", "omelet": "omelette",
+}
 # "coffee with milk" — an un-quantified add-in is already part of the drink.
 ADD_INS = {"milk", "sugar", "jaggery", "ice", "water", "no sugar", "less sugar", "without sugar"}
 
@@ -173,13 +282,30 @@ def _singular(word: str) -> str:
 
 
 def _norm(text: str) -> str:
-    return " ".join(_singular(w) for w in re.findall(r"[a-z]+", text.lower()))
+    words = (_singular(w) for w in re.findall(r"[a-z]+", text.lower()))
+    return " ".join(_SPELLINGS.get(w, w) for w in words)
 
 
 _ALIAS_INDEX = sorted(
     ((_norm(a), name) for name, food in FOODS.items() for a in food["aliases"]),
     key=lambda x: -len(x[0]),
 )
+_VOCAB = sorted({w for a, _ in _ALIAS_INDEX for w in a.split()} | _EXTRA_VOCAB)
+_INGREDIENTS = {
+    "Carrot", "Cucumber", "Tomato", "Onion", "Beetroot", "Potato (boiled)", "Sweet potato",
+    "Paneer", "Chicken breast (cooked)", "Whole egg", "Milk", "Sugar", "Ghee", "Butter",
+}
+
+
+def _correct(item: str) -> str:
+    """Fix spelling against known food words: "panner sanwitch" -> "paneer sandwich"."""
+    out = []
+    for w in _norm(item).split():
+        if len(w) >= 4 and w not in _VOCAB:
+            close = difflib.get_close_matches(w, _VOCAB, n=1, cutoff=0.75)
+            w = close[0] if close else w
+        out.append(w)
+    return " ".join(out)
 
 
 def _to_number(tok: str) -> float:
@@ -201,6 +327,7 @@ def parse_text(text: str) -> list[dict[str, Any]]:
         t,
     )
     t = re.sub(r"\b(\d+)\s*-\s*(\d+)\b", r"\2", t)  # "2-3 idli" -> upper bound
+    t = re.sub(r"\b(chicken|gobi|paneer|mushroom)\s*-?\s*65\b", r"\1 sixtyfive", t)
 
     parts_ = SPLITTER.split(t)
     chunks = [(parts_[0], None)] + [
@@ -252,10 +379,10 @@ def parse_text(text: str) -> list[dict[str, Any]]:
 
 def _local_match(item: str) -> str | None:
     n = f" {_norm(item)} "
-    for alias, name in _ALIAS_INDEX:
-        if f" {alias} " in n:
-            return name
-    return None
+    matches = [name for alias, name in _ALIAS_INDEX if f" {alias} " in n]
+    # A dish word ("poriyal", "halwa") beats a raw ingredient ("beetroot", "carrot").
+    dishes = [m for m in matches if m not in _INGREDIENTS]
+    return (dishes or matches or [None])[0]
 
 
 def _rank(query: str, name: str) -> tuple:
@@ -311,16 +438,20 @@ def _usda_lookup(query: str) -> dict[str, Any] | None:
         if not found_kcal:
             continue
         measures = {}
+        piece_rank = 99
         for m in food.get("foodMeasures") or []:
             text = (m.get("disseminationText") or "").lower()
             grams = m.get("gramWeight")
             if not grams:
                 continue
-            for word in re.findall(r"[a-z]+", text):
+            words = re.findall(r"[a-z]+", text)
+            # Whole-item portions beat "1 slice or piece" style fragments.
+            rank = next((r for r, w in enumerate(("medium", "whole", "fruit", "each", "item", "large", "small", "piece")) if w in words), None)
+            if rank is not None and rank < piece_rank:
+                measures["piece"], piece_rank = grams, rank
+            for word in words:
                 unit = UNIT_ALIASES.get(_singular(word))
-                if word in ("medium", "fruit", "item", "each", "whole"):
-                    unit = "piece"
-                if unit and unit not in measures:
+                if unit and unit != "piece" and unit not in measures:
                     measures[unit] = grams
             if "not specified" in text:
                 measures["_first"] = grams
@@ -335,24 +466,31 @@ def _usda_lookup(query: str) -> dict[str, Any] | None:
 
 
 def _off_lookup(query: str) -> dict[str, Any] | None:
-    try:
-        r = requests.get(
-            OFF_URL,
-            params={
-                "search_terms": query,
-                "search_simple": "1",
-                "action": "process",
-                "json": "1",
-                "page_size": "10",
-                "fields": "product_name,nutriments,serving_quantity",
-            },
-            headers=HTTP_HEADERS,
-            timeout=8,
-        )
-        r.raise_for_status()
-        products = r.json().get("products") or []
-    except Exception as exc:  # noqa: BLE001
-        logger.info("Open Food Facts lookup failed for %r: %s", query, exc)
+    products: list[dict[str, Any]] = []
+    # Indian products first, then worldwide.
+    for country in ({"tagtype_0": "countries", "tag_contains_0": "contains", "tag_0": "india"}, {}):
+        try:
+            r = requests.get(
+                OFF_URL,
+                params={
+                    "search_terms": query,
+                    "search_simple": "1",
+                    "action": "process",
+                    "json": "1",
+                    "page_size": "10",
+                    "fields": "product_name,nutriments,serving_quantity",
+                    **country,
+                },
+                headers=HTTP_HEADERS,
+                timeout=8,
+            )
+            r.raise_for_status()
+            products = [p for p in r.json().get("products") or [] if (p.get("nutriments") or {}).get("energy-kcal_100g") is not None]
+        except Exception as exc:  # noqa: BLE001
+            logger.info("Open Food Facts lookup failed for %r: %s", query, exc)
+        if products:
+            break
+    if not products:
         return None
 
     for p in sorted(products, key=lambda p: _rank(query, p.get("product_name") or "")):
@@ -381,11 +519,13 @@ def _off_lookup(query: str) -> dict[str, Any] | None:
 
 
 def _lookup(item: str) -> dict[str, Any] | None:
-    local = _local_match(item)
+    corrected = _correct(item)
+    local = _local_match(corrected)
     if local:
         food = FOODS[local]
         return {"name": local, "source": "Built-in table", "per100": food["per100"],
-                "units": food["units"], "default": food["default"]}
+                "units": food["units"], "default": food["default"], "query": corrected}
+    item = corrected
     key = _norm(item)
     with _LOCK:
         if not _LOOKUP_CACHE and CACHE_FILE.exists():
@@ -397,6 +537,7 @@ def _lookup(item: str) -> dict[str, Any] | None:
             return _LOOKUP_CACHE[key]
     found = _usda_lookup(item) or _off_lookup(item)
     if found:  # misses aren't cached so they can be retried later
+        found["query"] = item
         with _LOCK:
             _LOOKUP_CACHE[key] = found
             DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -434,8 +575,10 @@ def analyse(text: str) -> list[dict[str, Any]]:
         grams = _grams(p["qty"], p["unit"], food)
         factor = grams / 100
         unit = p["unit"] or food.get("default") or ("piece" if "piece" in food["units"] else "serving")
+        query = food.get("query") or ""
         out.append({
             "input": p["item"],
+            "readAs": query if query and query != _norm(p["item"]) else None,
             "name": food["name"],
             "qty": p["qty"],
             "unit": unit,
@@ -506,6 +649,23 @@ def set_revoked(entry_id: str, revoked: bool, item: int | None = None) -> dict[s
             entry["items"][item]["revoked"] = revoked
             entry["totals"] = _sum([i for i in entry["items"] if not i.get("revoked")])
         entry["revokedAt" if revoked else "restoredAt"] = dt.datetime.now().isoformat(timespec="seconds")
+        _save(data)
+    return entry
+
+
+def reanalyse_entry(entry_id: str) -> dict[str, Any] | None:
+    with _LOCK:
+        entry = next((e for e in _load()["entries"] if e.get("id") == entry_id), None)
+    if entry is None:
+        return None
+    items = analyse(entry["text"])  # network lookups happen outside the lock
+    with _LOCK:
+        data = _load()
+        entry = next((e for e in data["entries"] if e.get("id") == entry_id), None)
+        if entry is None:
+            return None
+        entry["items"] = items
+        entry["totals"] = _sum(items)
         _save(data)
     return entry
 
