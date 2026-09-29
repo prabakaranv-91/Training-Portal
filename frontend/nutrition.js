@@ -46,6 +46,11 @@ function renderNutritionDay(day) {
   nutriDay = day;
   renderNutritionMessages(day);
   renderNutritionSummary(day);
+  const label = day.inProgress
+    ? "Today"
+    : new Date(`${day.date}T00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  document.getElementById("nutri-chat-sub").textContent =
+    `${label} · ${nutriFmt(day.intake.kcal)} / ${nutriFmt(day.targets.kcal)} kcal`;
 }
 
 function renderNutritionMessages(day) {
@@ -120,13 +125,18 @@ function renderNutritionSummary(day) {
     return `<td class="${bad ? "over" : ""}">${nutriFmt(v)}</td>`;
   };
   const tips = day.entries.length ? day.suggestions.join("\n\n") : "";
+  const rows = [{ key: "kcal", label: "Calories", unit: "kcal" }, ...NUTRI_ROWS];
   el.innerHTML = `
     <table class="nutri-table">
-      <thead><tr><th></th><th>kcal</th>${NUTRI_ROWS.map((r) => `<th>${r.label} <small>${r.unit}</small></th>`).join("")}<th></th></tr></thead>
+      <thead><tr><th><span class="nutri-status ${st.cls}" title="${escapeAttr(tips)}">${st.label}${tips ? " ⓘ" : ""}</span></th>
+        <th>Today</th><th>Target</th></tr></thead>
       <tbody>
-        <tr><td>Today</td>${cell("kcal")}${NUTRI_ROWS.map((r) => cell(r.key)).join("")}
-          <td rowspan="2"><span class="nutri-status ${st.cls}" title="${escapeAttr(tips)}">${st.label}${tips ? " ⓘ" : ""}</span></td></tr>
-        <tr class="dim"><td>Target</td><td>${nutriFmt(targets.kcal)}</td>${NUTRI_ROWS.map((r) => `<td>${r.limit ? "≤" : ""}${nutriFmt(targets[r.key])}</td>`).join("")}</tr>
+        ${rows
+          .map(
+            (r) => `<tr><td>${r.label} <small>${r.unit}</small></td>${cell(r.key)}
+              <td class="dim">${r.limit ? "≤" : ""}${nutriFmt(targets[r.key])}</td></tr>`
+          )
+          .join("")}
       </tbody>
     </table>`;
 }
@@ -299,6 +309,20 @@ document.addEventListener(
   },
   true
 );
+function toggleNutritionChat(open) {
+  const box = document.getElementById("nutri-chatbox");
+  const show = open ?? box.classList.contains("hidden");
+  box.classList.toggle("hidden", !show);
+  document.getElementById("nutri-fab").classList.toggle("open", show);
+  if (show) {
+    const msgs = document.getElementById("nutri-messages");
+    msgs.scrollTop = msgs.scrollHeight;
+    document.getElementById("nutri-input").focus();
+  }
+}
+
+document.getElementById("nutri-fab").addEventListener("click", () => toggleNutritionChat());
+document.getElementById("nutri-chat-close").addEventListener("click", () => toggleNutritionChat(false));
 document.getElementById("nutri-form").addEventListener("submit", submitNutrition);
 document.getElementById("nutri-input").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
@@ -330,5 +354,8 @@ document.getElementById("nutri-history-periods").addEventListener("click", (e) =
   openNutritionHistory();
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") closeNutritionHistory();
+  if (e.key === "Escape") {
+    closeNutritionHistory();
+    toggleNutritionChat(false);
+  }
 });
