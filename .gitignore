@@ -13,6 +13,9 @@ env/
 .strava_portal_tokens.json
 backend/strava_config.json
 
+# Google Sheets Apps Script token (never commit!)
+backend/nutrition_secrets.json
+
 # Env / secrets
 .env
 

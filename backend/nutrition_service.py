@@ -28,6 +28,8 @@ from typing import Any
 
 import requests
 
+import sheets_sync
+
 logger = logging.getLogger("nutrition.service")
 
 NUTRIENTS = ("kcal", "protein", "carbs", "fat", "fiber", "sugar", "sodium")
@@ -597,11 +599,21 @@ def _sum(items: list[dict[str, Any]]) -> dict[str, float]:
 # ------------------------------------------------------------------ storage
 
 
-def _load() -> dict[str, Any]:
-    if not LOG_FILE.exists():
+def _log_file(user: str) -> Path:
+    slug = re.sub(r"[^a-z0-9]+", "_", user.lower()).strip("_") or "default"
+    path = DATA_DIR / f"nutrition_log_{slug}.json"
+    # One-time migration: the pre multi-user log goes to the first user who opens it.
+    if not path.exists() and LOG_FILE.exists():
+        LOG_FILE.replace(path)
+    return path
+
+
+def _load(user: str) -> dict[str, Any]:
+    path = _log_file(user)
+    if not path.exists():
         return {"entries": [], "days": {}}
     try:
-        data = json.loads(LOG_FILE.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except Exception as exc:  # noqa: BLE001
         logger.warning("Could not read nutrition log: %s", exc)
         return {"entries": [], "days": {}}
@@ -610,14 +622,15 @@ def _load() -> dict[str, Any]:
     return data
 
 
-def _save(data: dict[str, Any]) -> None:
+def _save(user: str, data: dict[str, Any]) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = LOG_FILE.with_suffix(".tmp")
+    path = _log_file(user)
+    tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
-    tmp.replace(LOG_FILE)
+    tmp.replace(path)
 
 
-def add_entry(text: str, date: str) -> dict[str, Any]:
+def add_entry(user: str, text: str, date: str) -> dict[str, Any]:
     items = analyse(text)
     entry = {
         "id": uuid.uuid4().hex,
@@ -628,16 +641,17 @@ def add_entry(text: str, date: str) -> dict[str, Any]:
         "totals": _sum(items),
     }
     with _LOCK:
-        data = _load()
+        data = _load(user)
         data["entries"].append(entry)
-        _save(data)
+        _save(user, data)
+    sheets_sync.push_entry(user, entry)
     return entry
 
 
-def set_revoked(entry_id: str, revoked: bool, item: int | None = None) -> dict[str, Any] | None:
+def set_revoked(user: str, entry_id: str, revoked: bool, item: int | None = None) -> dict[str, Any] | None:
     """Revoke/restore a whole entry or one of its items; kept on disk for history."""
     with _LOCK:
-        data = _load()
+        data = _load(user)
         entry = next((e for e in data["entries"] if e.get("id") == entry_id), None)
         if entry is None:
             return None
@@ -649,14 +663,15 @@ def set_revoked(entry_id: str, revoked: bool, item: int | None = None) -> dict[s
             entry["items"][item]["revoked"] = revoked
             entry["totals"] = _sum([i for i in entry["items"] if not i.get("revoked")])
         entry["revokedAt" if revoked else "restoredAt"] = dt.datetime.now().isoformat(timespec="seconds")
-        _save(data)
+        _save(user, data)
+    sheets_sync.push_entry(user, entry)
     return entry
 
 
-def set_item_qty(entry_id: str, item: int, qty: float) -> dict[str, Any] | None:
+def set_item_qty(user: str, entry_id: str, item: int, qty: float) -> dict[str, Any] | None:
     """Change one item's quantity, scaling its grams and nutrients proportionally."""
     with _LOCK:
-        data = _load()
+        data = _load(user)
         entry = next((e for e in data["entries"] if e.get("id") == entry_id), None)
         if entry is None or not 0 <= item < len(entry["items"]):
             return None
@@ -672,44 +687,58 @@ def set_item_qty(entry_id: str, item: int, qty: float) -> dict[str, Any] | None:
             it[k] = round((it.get(k) or 0) * factor, 1)
         entry["totals"] = _sum([i for i in entry["items"] if not i.get("revoked")])
         entry["editedAt"] = dt.datetime.now().isoformat(timespec="seconds")
-        _save(data)
+        _save(user, data)
+    sheets_sync.push_entry(user, entry)
     return entry
 
 
-def reanalyse_entry(entry_id: str) -> dict[str, Any] | None:
+def reanalyse_entry(user: str, entry_id: str) -> dict[str, Any] | None:
     with _LOCK:
-        entry = next((e for e in _load()["entries"] if e.get("id") == entry_id), None)
+        entry = next((e for e in _load(user)["entries"] if e.get("id") == entry_id), None)
     if entry is None:
         return None
     items = analyse(entry["text"])  # network lookups happen outside the lock
     with _LOCK:
-        data = _load()
+        data = _load(user)
         entry = next((e for e in data["entries"] if e.get("id") == entry_id), None)
         if entry is None:
             return None
         entry["items"] = items
         entry["totals"] = _sum(items)
-        _save(data)
+        _save(user, data)
+    sheets_sync.push_entry(user, entry)
     return entry
 
 
-def entries_for(date: str) -> list[dict[str, Any]]:
-    return [e for e in _load()["entries"] if e.get("date") == date]
+def entries_for(user: str, date: str) -> list[dict[str, Any]]:
+    return [e for e in _load(user)["entries"] if e.get("date") == date]
 
 
 def _active(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [e for e in entries if not e.get("revoked")]
 
 
-def save_day_snapshot(date: str, snapshot: dict[str, Any]) -> None:
+def save_day_snapshot(user: str, date: str, snapshot: dict[str, Any]) -> None:
     with _LOCK:
-        data = _load()
+        data = _load(user)
+        changed = data["days"].get(date) != snapshot
         data["days"][date] = snapshot
-        _save(data)
+        _save(user, data)
+    if changed:  # avoid a sheet write on every page refresh
+        sheets_sync.push_day(user, date, snapshot)
 
 
-def history(days: int) -> list[dict[str, Any]]:
-    data = _load()
+def sync_all_to_sheets(user: str) -> dict[str, int]:
+    data = _load(user)
+    for e in data["entries"]:
+        sheets_sync.push_entry(user, e)
+    for date, snap in data["days"].items():
+        sheets_sync.push_day(user, date, snap)
+    return {"entries": len(data["entries"]), "days": len(data["days"])}
+
+
+def history(user: str, days: int) -> list[dict[str, Any]]:
+    data = _load(user)
     start = (dt.date.today() - dt.timedelta(days=days - 1)).isoformat()
     by_day: dict[str, list[dict[str, Any]]] = {}
     for e in _active(data["entries"]):
@@ -754,9 +783,9 @@ def _estimate_workout_kcal(w: dict[str, Any], weight: float) -> float:
     return (w.get("minutes") or 0) * 7
 
 
-def assess(date: str, energy: dict[str, Any]) -> dict[str, Any]:
+def assess(user: str, date: str, energy: dict[str, Any]) -> dict[str, Any]:
     """Compare the day's intake with burn/workout and give suggestions."""
-    entries = entries_for(date)
+    entries = entries_for(user, date)
     intake = _sum([e["totals"] for e in _active(entries)])
     weight = energy.get("weightKg") or DEFAULT_WEIGHT_KG
     workouts = [
@@ -811,7 +840,7 @@ def assess(date: str, energy: dict[str, Any]) -> dict[str, Any]:
         "inProgress": is_today,
     }
     if entries:
-        save_day_snapshot(date, {k: result[k] for k in ("intake", "targets", "burn", "status", "weightKg")})
+        save_day_snapshot(user, date, {k: result[k] for k in ("intake", "targets", "burn", "status", "weightKg")})
     return result
 
 

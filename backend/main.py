@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import nutrition_service
+import sheets_sync
 import strava_service
 from garmin_service import GarminService
 
@@ -493,27 +494,45 @@ def _energy_for(garmin_session: str | None, day: str) -> dict:
     return {"source": "estimate", "bmr": None, "active": None, "workouts": [], "weightKg": None}
 
 
+def _nutrition_user(garmin_session: str | None) -> str:
+    """Name of the logged-in user (Garmin first, else Strava); keys their nutrition log and sheet tabs."""
+    _valid_session(garmin_session)
+    service = _garmin(garmin_session)
+    if service:
+        name = getattr(service, "nutrition_user", None)
+        if not name:
+            try:
+                prof = service.profile()
+                name = prof.get("fullName") or prof.get("email")
+            except Exception:  # noqa: BLE001
+                name = service.email
+            service.nutrition_user = name  # cache: profile() is a network call
+        if name:
+            return name
+    return strava_service.athlete_name() or "default"
+
+
 @app.post("/api/nutrition/log")
 def nutrition_log(req: NutritionLogRequest, garmin_session: str | None = Cookie(default=None)):
-    _valid_session(garmin_session)
+    user = _nutrition_user(garmin_session)
     day = (req.date or dt.date.today()).isoformat()
-    entry = nutrition_service.add_entry(req.text, day)
-    return {"entry": entry, "day": nutrition_service.assess(day, _energy_for(garmin_session, day))}
+    entry = nutrition_service.add_entry(user, req.text, day)
+    return {"entry": entry, "day": nutrition_service.assess(user, day, _energy_for(garmin_session, day))}
 
 
 @app.get("/api/nutrition/day")
 def nutrition_day(date: dt.date | None = None, garmin_session: str | None = Cookie(default=None)):
-    _valid_session(garmin_session)
+    user = _nutrition_user(garmin_session)
     day = (date or dt.date.today()).isoformat()
-    return nutrition_service.assess(day, _energy_for(garmin_session, day))
+    return {**nutrition_service.assess(user, day, _energy_for(garmin_session, day)), "user": user}
 
 
 @app.delete("/api/nutrition/entries/{entry_id}")
 def nutrition_revoke(
     entry_id: str, item: int | None = None, garmin_session: str | None = Cookie(default=None)
 ):
-    _valid_session(garmin_session)
-    if not nutrition_service.set_revoked(entry_id, True, item):
+    user = _nutrition_user(garmin_session)
+    if not nutrition_service.set_revoked(user, entry_id, True, item):
         raise HTTPException(status_code=404, detail="Entry not found")
     return {"status": "revoked"}
 
@@ -522,16 +541,30 @@ def nutrition_revoke(
 def nutrition_item_qty(
     entry_id: str, item: int, req: NutritionQtyRequest, garmin_session: str | None = Cookie(default=None)
 ):
-    _valid_session(garmin_session)
-    if not nutrition_service.set_item_qty(entry_id, item, req.qty):
+    user = _nutrition_user(garmin_session)
+    if not nutrition_service.set_item_qty(user, entry_id, item, req.qty):
         raise HTTPException(status_code=404, detail="Item not found")
     return {"status": "updated"}
 
 
+@app.get("/api/nutrition/sheets")
+def nutrition_sheets_status(garmin_session: str | None = Cookie(default=None)):
+    user = _nutrition_user(garmin_session)
+    return {**sheets_sync.status(), "user": user}
+
+
+@app.post("/api/nutrition/sheets/sync")
+def nutrition_sheets_sync(garmin_session: str | None = Cookie(default=None)):
+    user = _nutrition_user(garmin_session)
+    if not sheets_sync.is_configured():
+        raise HTTPException(status_code=400, detail="Google Sheets sync is not configured.")
+    return {"user": user, "queued": nutrition_service.sync_all_to_sheets(user)}
+
+
 @app.post("/api/nutrition/entries/{entry_id}/reanalyse")
 def nutrition_reanalyse(entry_id: str, garmin_session: str | None = Cookie(default=None)):
-    _valid_session(garmin_session)
-    if not nutrition_service.reanalyse_entry(entry_id):
+    user = _nutrition_user(garmin_session)
+    if not nutrition_service.reanalyse_entry(user, entry_id):
         raise HTTPException(status_code=404, detail="Entry not found")
     return {"status": "reanalysed"}
 
@@ -540,16 +573,16 @@ def nutrition_reanalyse(entry_id: str, garmin_session: str | None = Cookie(defau
 def nutrition_restore(
     entry_id: str, item: int | None = None, garmin_session: str | None = Cookie(default=None)
 ):
-    _valid_session(garmin_session)
-    if not nutrition_service.set_revoked(entry_id, False, item):
+    user = _nutrition_user(garmin_session)
+    if not nutrition_service.set_revoked(user, entry_id, False, item):
         raise HTTPException(status_code=404, detail="Entry not found")
     return {"status": "restored"}
 
 
 @app.get("/api/nutrition/history")
 def nutrition_history(days: int = 30, garmin_session: str | None = Cookie(default=None)):
-    _valid_session(garmin_session)
-    return {"days": nutrition_service.history(max(1, min(days, 365)))}
+    user = _nutrition_user(garmin_session)
+    return {"days": nutrition_service.history(user, max(1, min(days, 365)))}
 
 
 # ----------------------------------------------------------- static frontend
