@@ -151,11 +151,16 @@
 /* Nutrition log beside Running report */
 .dash-row {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 300px;
   gap: 18px;
   margin-bottom: 18px;
-  align-items: start;
+  align-items: stretch;
 }
+.dash-row > .panel { margin: 0; }
+.dash-row .nutrition-panel { display: flex; flex-direction: column; order: 2; }
+.dash-row .nutrition-panel .nutri-chat { flex: 1; display: flex; }
+.dash-row .nutrition-panel .nutri-summary { flex: 1; display: flex; }
+.dash-row .nutrition-panel .nutri-table { height: 100%; }
 @media (max-width: 900px) {
   .dash-row { grid-template-columns: 1fr; }
 }
