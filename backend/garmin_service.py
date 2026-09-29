@@ -32,6 +32,45 @@ TOKEN_STORE = os.environ.get(
 )
 
 
+def _strength_exercises(raw: Any) -> list[dict[str, Any]]:
+    """Find exercise records across Garmin's varying strength DTO shapes."""
+    exercises: list[dict[str, Any]] = []
+    seen: set[tuple[str, Any, Any]] = set()
+    name_keys = ("exerciseName", "exerciseNameKey", "exerciseCategory", "exerciseType")
+
+    def text(value: Any) -> str | None:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict):
+            return value.get("displayName") or value.get("name") or value.get("key")
+        return None
+
+    def visit(value: Any, parent_key: str = "") -> None:
+        if isinstance(value, list):
+            for item in value:
+                visit(item, parent_key)
+            return
+        if not isinstance(value, dict):
+            return
+
+        name = next((text(value.get(key)) for key in name_keys if value.get(key)), None)
+        if not name and ("exercise" in parent_key.lower() or "strength" in parent_key.lower()):
+            name = text(value.get("name") or value.get("category"))
+        if name:
+            reps = value.get("reps") or value.get("repetitionCount")
+            weight = value.get("weight") or value.get("weightValue")
+            identity = (str(name), reps, weight)
+            if identity not in seen:
+                seen.add(identity)
+                exercises.append({"name": str(name), "reps": reps, "weight": weight})
+
+        for key, child in value.items():
+            visit(child, key)
+
+    visit(raw)
+    return exercises[:100]
+
+
 class GarminService:
     """Holds an authenticated Garmin client and exposes data helpers."""
 
@@ -155,6 +194,51 @@ class GarminService:
         client = self._require_client()
         return _safe(client.get_stats, date) or {}
 
+    def energy_day(self, date: str) -> dict[str, Any]:
+        """Calories burned + workouts on `date`, and body weight, for nutrition."""
+        client = self._require_client()
+        stats = _safe(client.get_stats, date) or {}
+        day = dt.date.fromisoformat(date)
+        bmr = stats.get("bmrKilocalories")
+        if day >= dt.date.today():
+            # Today's BMR is only accrued so far; yesterday's is a full day.
+            prev = _safe(client.get_stats, (day - dt.timedelta(days=1)).isoformat()) or {}
+            bmr = prev.get("bmrKilocalories") or bmr
+
+        workouts = [
+            {
+                "name": a.get("name"),
+                "type": a.get("type"),
+                "kcal": a.get("calories") or 0,
+                "minutes": round((a.get("durationSec") or 0) / 60),
+                "distanceKm": a.get("distanceKm"),
+            }
+            for a in self.activities(start=date, end=date)
+        ]
+
+        weight = None
+        info = _safe(
+            client.connectapi,
+            "/userprofile-service/userprofile/personal-information",
+        )
+        if isinstance(info, dict):
+            weight = (info.get("biometricProfile") or {}).get("weight")
+        if not weight:
+            prof = _safe(client.get_user_profile)
+            if isinstance(prof, dict):
+                weight = (prof.get("userData") or {}).get("weight")
+        if weight and weight > 1000:  # Garmin stores grams
+            weight = weight / 1000
+
+        return {
+            "source": "garmin",
+            "bmr": bmr,
+            "active": stats.get("activeKilocalories"),
+            "total": stats.get("totalKilocalories"),
+            "workouts": workouts,
+            "weightKg": round(weight, 1) if weight else None,
+        }
+
     def vo2max(self, date: str) -> dict[str, Any]:
         """Return running & cycling VO2 max for the given date."""
         client = self._require_client()
@@ -269,6 +353,11 @@ class GarminService:
             if rc:
                 summary["averageRunCadence"] = rc
 
+        exercises = _strength_exercises(raw)
+        if not exercises and "strength" in type_key:
+            exercise_sets = _safe(client.get_activity_exercise_sets, activity_id) or {}
+            exercises = _strength_exercises(exercise_sets)
+
         return {
             "activityId": raw.get("activityId"),
             "name": raw.get("activityName"),
@@ -280,6 +369,7 @@ class GarminService:
             "personalRecord": metadata.get("personalRecord"),
             "favorite": metadata.get("favorite"),
             "summary": summary,
+            "exercises": exercises,
         }
 
     def compare_activity(self, activity_id: str) -> dict[str, Any]:
@@ -481,13 +571,17 @@ class GarminService:
             "laps": laps,
         }
 
-    def running_report(self) -> dict[str, Any]:
+    def running_report(self, extra_runs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         """Total running distance for the current year and month.
 
         Includes a per-month breakdown for the year so the dashboard can chart
         it. Covers the whole running family (road, treadmill, trail, indoor).
+
+        ``extra_runs`` is an optional list of {date, meters} efforts from another
+        source (e.g. Strava). Each is folded in unless it duplicates a Garmin run
+        on the same day at a similar distance.
         """
-        client = self._require_client()
+        client = self.client  # may be None for a Strava-only login
         today = dt.date.today()
         year_start = dt.date(today.year, 1, 1)
         month_start = dt.date(today.year, today.month, 1)
@@ -501,8 +595,9 @@ class GarminService:
                 fetch_start.isoformat(),
                 today.isoformat(),
             )
-            or []
-        )
+            if client is not None
+            else None
+        ) or []
 
         from collections import defaultdict
 
@@ -513,6 +608,7 @@ class GarminService:
         month_m = 0.0
         month_count = 0
         recent60_m = 0.0
+        garmin_runs: list[tuple[dt.date, float]] = []
 
         for a in acts:
             type_key = (a.get("activityType") or {}).get("typeKey", "")
@@ -525,6 +621,7 @@ class GarminService:
             except ValueError:
                 continue
 
+            garmin_runs.append((a_date, distance))
             week_start = a_date - dt.timedelta(days=a_date.weekday())
             week_m[week_start] += distance
             if a_date >= today - dt.timedelta(days=60):
@@ -538,6 +635,35 @@ class GarminService:
             monthly_m[a_date.month - 1] += distance
             if a_date >= month_start:
                 month_m += distance
+                month_count += 1
+
+        # Fold in extra runs (e.g. Strava), skipping likely duplicates of a
+        # Garmin run on the same day within 500 m.
+        for run in extra_runs or []:
+            try:
+                r_date = dt.date.fromisoformat(str(run.get("date"))[:10])
+            except (ValueError, TypeError):
+                continue
+            r_m = run.get("meters") or 0
+            if r_m <= 0:
+                continue
+            if any(
+                g_date == r_date and abs(g_m - r_m) <= 500
+                for g_date, g_m in garmin_runs
+            ):
+                continue
+
+            week_start = r_date - dt.timedelta(days=r_date.weekday())
+            week_m[week_start] += r_m
+            if r_date >= today - dt.timedelta(days=60):
+                recent60_m += r_m
+            if r_date < year_start:
+                continue
+            year_m += r_m
+            year_count += 1
+            monthly_m[r_date.month - 1] += r_m
+            if r_date >= month_start:
+                month_m += r_m
                 month_count += 1
 
         month_names = [
@@ -643,6 +769,122 @@ class GarminService:
             "remainingDays": remaining,
             "recentPacePerWeek": round(recent_daily * 7, 1),
             "onPacePerMonth": round(blended_daily * 30, 1),
+        }
+
+    def race_prediction(
+        self, strava_efforts: list[dict[str, Any]] | None = None
+    ) -> dict[str, Any]:
+        """Return race predictions from Garmin and Strava, shown separately.
+
+        - Garmin: uses Garmin Connect's own race-time predictions directly (no
+          recalculation).
+        - Strava: uses the athlete's fastest *actual* efforts at each standard
+          race distance (pace-adjusted to the exact distance, not extrapolated
+          across distances).
+        """
+        client = self.client  # may be None for a Strava-only login
+
+        # --- Garmin native predictions (used as-is) ---
+        garmin: dict[str, int] = {}
+        rp = _safe(client.get_race_predictions) if client is not None else None
+        if isinstance(rp, dict):
+            mapping = {
+                "5K": "time5K",
+                "10K": "time10K",
+                "Half Marathon": "timeHalfMarathon",
+                "Marathon": "timeMarathon",
+            }
+            for label, field in mapping.items():
+                v = rp.get(field)
+                if v:
+                    garmin[label] = round(v)
+
+        # --- Strava predictions (projected from the athlete's best efforts) ---
+        # Strava does not expose a prediction API, so we project race times from
+        # the fastest reliable effort using the Riegel model — filling every
+        # distance, not only ones actually raced.
+        strava: dict[str, int] = {}
+        std_pool = [1000.0, 1609.0, 5000.0, 10000.0, 21097.5]
+        best_by_dist: dict[float, float] = {}
+        for eff in strava_efforts or []:
+            meters = eff.get("meters") or 0
+            seconds = eff.get("seconds") or 0
+            if meters <= 0 or seconds <= 0:
+                continue
+            for std in std_pool:
+                if abs(meters - std) <= std * 0.08:
+                    scaled = seconds * (std / meters)
+                    if std not in best_by_dist or scaled < best_by_dist[std]:
+                        best_by_dist[std] = scaled
+
+        if best_by_dist:
+            basis_dist = max(best_by_dist)  # longest reliable effort
+            basis_sec = best_by_dist[basis_dist]
+            for label, d2 in [
+                ("5K", 5000.0),
+                ("10K", 10000.0),
+                ("Half Marathon", 21097.5),
+                ("Marathon", 42195.0),
+            ]:
+                strava[label] = round(basis_sec * (d2 / basis_dist) ** 1.06)
+
+        rows = [
+            {
+                "label": label,
+                "garminSec": garmin.get(label),
+                "stravaSec": strava.get(label),
+            }
+            for label in ["5K", "10K", "Half Marathon", "Marathon"]
+        ]
+
+        return {
+            "rows": rows,
+            "hasGarmin": bool(garmin),
+            "hasStrava": bool(strava),
+        }
+
+    def lactate_threshold(self) -> dict[str, Any]:
+        """Garmin lactate-threshold heart rate and pace (running).
+
+        LTHR lives in the user's biometric/personal profile; the LT running
+        speed (when Garmin has auto-detected it) is in the user profile.
+        """
+        client = self._require_client()
+
+        hr = None
+        speed = None  # meters/second
+
+        info = _safe(
+            client.connectapi,
+            "/userprofile-service/userprofile/personal-information",
+        )
+        if isinstance(info, dict):
+            bp = info.get("biometricProfile") or {}
+            hr = bp.get("lactateThresholdHeartRate") or info.get(
+                "lactateThresholdHeartRate"
+            )
+
+        prof = _safe(client.get_user_profile)
+        if isinstance(prof, dict):
+            ud = prof.get("userData") or {}
+            hr = hr or ud.get("lactateThresholdHeartRate") or prof.get(
+                "lactateThresholdHeartRate"
+            )
+            speed = ud.get("lactateThresholdSpeed") or prof.get(
+                "lactateThresholdSpeed"
+            )
+
+        pace_min_per_km = None
+        if speed and speed > 0:
+            # Garmin stores this in decametres/second for some accounts; a value
+            # below ~1.5 would be an impossibly slow run, so scale it up.
+            if speed < 1.5:
+                speed *= 10
+            pace_min_per_km = (1000 / speed) / 60
+
+        return {
+            "hr": round(hr) if hr else None,
+            "paceMinPerKm": round(pace_min_per_km, 2) if pace_min_per_km else None,
         }
 
     def training_guidance(self) -> dict[str, Any]:
@@ -887,6 +1129,46 @@ class GarminService:
             "score": score,
             "factors": factors,
         }
+
+    def readiness_history(self, days: int) -> list[dict[str, Any]]:
+        """Training-readiness score trend over the last `days`.
+
+        Garmin only exposes readiness per single date, so the range is sampled
+        (~20 points max) to keep the number of API calls bounded regardless of
+        the window length.
+        """
+        client = self._require_client()
+        end = dt.date.today()
+        start = end - dt.timedelta(days=days)
+        step = max(1, (days + 19) // 20)  # ceil(days / 20)
+
+        sample_dates: list[dt.date] = []
+        d = start
+        while d < end:
+            sample_dates.append(d)
+            d += dt.timedelta(days=step)
+        sample_dates.append(end)
+
+        points: list[dict[str, Any]] = []
+        for day in sample_dates:
+            tr = _safe(client.get_training_readiness, day.isoformat())
+            tr0: dict[str, Any] = {}
+            if isinstance(tr, list) and tr:
+                tr0 = tr[0]
+            elif isinstance(tr, dict):
+                tr0 = tr
+            score = tr0.get("score")
+            if score is None:
+                continue
+            recovery_min = tr0.get("recoveryTime")
+            points.append(
+                {
+                    "date": day.isoformat(),
+                    "score": score,
+                    "recoveryHours": round(recovery_min / 60, 1) if recovery_min else None,
+                }
+            )
+        return points
 
     def weekly_report(self) -> dict[str, Any]:
         """Auto-generated summary of this week vs last week with a coaching note."""
@@ -1497,6 +1779,14 @@ def _normalize_activity(a: dict[str, Any]) -> dict[str, Any]:
         "anaerobicTrainingEffect": a.get("anaerobicTrainingEffect"),
         "hasIntervals": bool(a.get("hasIntensityIntervals")),
         "benefit": a.get("trainingEffectLabel"),
+        # Garmin's fastest-effort times (seconds) for standard distances, used
+        # by the multi-activity comparison to line up race/event performances.
+        "bestEfforts": {
+            "1000": a.get("fastestSplit_1000"),
+            "1609": a.get("fastestSplit_1609"),
+            "5000": a.get("fastestSplit_5000"),
+            "10000": a.get("fastestSplit_10000"),
+        },
     }
 
 

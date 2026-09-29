@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="tlGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2dd4bf" />
+      <stop offset="1" stop-color="#3b82f6" />
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="16" fill="url(#tlGrad)" />
+  <!-- pulse / pace line -->
+  <path d="M11 36 H21 L25 24 L31 45 L36 30 L39 36 H53"
+        fill="none" stroke="#ffffff" stroke-width="3.6"
+        stroke-linecap="round" stroke-linejoin="round" />
+  <!-- lab flask droplet accent -->
+  <circle cx="47" cy="19" r="4" fill="#ffffff" opacity="0.9" />
+</svg>

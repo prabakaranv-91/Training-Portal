@@ -3,3 +3,4 @@ uvicorn[standard]==0.34.0
 garminconnect==0.2.25
 itsdangerous==2.2.0
 python-dateutil==2.9.0.post0
+requests==2.34.2

@@ -6,6 +6,7 @@
     <title>Training Lab — Running Portal</title>
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="analysis.css" />
+    <link rel="stylesheet" href="nutrition.css" />
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   </head>
@@ -79,6 +80,27 @@
         <div class="stat-toggle-wrap">
           <button class="stat-toggle" id="stat-toggle" type="button">Show more</button>
         </div>
+
+        <section class="panel nutrition-panel">
+          <div class="panel-head">
+            <h2>🍽️ Nutrition log</h2>
+            <div class="panel-controls">
+              <input type="date" id="nutri-date" />
+              <button id="nutri-history-btn" class="btn-link" type="button">📈 History →</button>
+            </div>
+          </div>
+          <div class="nutri-grid">
+            <div class="nutri-chat">
+              <div id="nutri-messages" class="nutri-messages"></div>
+              <form id="nutri-form" class="nutri-form">
+                <textarea id="nutri-input" rows="2" maxlength="1000"
+                  placeholder='What did you eat? e.g. "2 idli with 1 cup sambar", "1 scoop iso whey", "4 whole eggs"'></textarea>
+                <button type="submit" class="btn-primary" id="nutri-send">Log</button>
+              </form>
+            </div>
+            <div id="nutri-summary" class="nutri-summary"></div>
+          </div>
+        </section>
 
         <section class="panel run-report">
           <div class="panel-head">
@@ -265,6 +287,26 @@
       </div>
     </div>
 
+    <!-- ===================== NUTRITION HISTORY MODAL ================== -->
+    <div id="nutri-history-modal" class="modal-overlay hidden">
+      <div class="modal modal-lg">
+        <div class="modal-head">
+          <h2>🍽️ Nutrition history</h2>
+          <button id="nutri-history-close" class="modal-close" title="Close">×</button>
+        </div>
+        <div class="period-tabs" id="nutri-history-periods">
+          <button data-days="7">7 days</button>
+          <button data-days="30" class="active">30 days</button>
+          <button data-days="90">90 days</button>
+        </div>
+        <div class="modal-body">
+          <canvas id="nutri-history-chart" height="220"></canvas>
+          <p id="nutri-history-empty" class="empty hidden">No meals logged in this period.</p>
+          <div id="nutri-history-table"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- ======================== ACTIVITY MODAL ======================== -->
     <div id="activity-modal" class="modal-overlay hidden">
       <div class="modal modal-lg">
@@ -299,5 +341,6 @@
     </div>
 
     <script src="app.js"></script>
+    <script src="nutrition.js"></script>
   </body>
 </html>

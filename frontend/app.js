@@ -467,6 +467,7 @@ async function loadDashboard() {
 
     // Strava (extra activity source) loads independently.
     loadStravaStatus();
+    if (typeof loadNutrition === "function") loadNutrition();
 
     // Running report loads independently (it scans the year's activities).
     api("/api/running-report")

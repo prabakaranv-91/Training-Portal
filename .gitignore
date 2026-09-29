@@ -9,6 +9,10 @@ env/
 .garmin_portal_tokens/
 *.token
 
+# Strava OAuth tokens + API credentials (never commit!)
+.strava_portal_tokens.json
+backend/strava_config.json
+
 # Env / secrets
 .env
 
