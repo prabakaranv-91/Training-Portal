@@ -78,10 +78,35 @@ function renderNutritionMessages(day) {
       return `
         <div class="nutri-user">${escapeAttr(e.text)}</div>
         <div class="nutri-bot">${items}<span class="nutri-total">= ${nutriFmt(e.totals.kcal)} kcal</span>
-          <button class="nutri-act nutri-revoke" data-id="${id}" title="Remove entry">🗑</button></div>`;
+          <button class="nutri-act nutri-revoke" data-id="${id}" title="Remove entry">🗑</button>
+          ${nutriFoodTable(e.items, `e-${e.id}`)}</div>`;
     })
     .join("");
   box.scrollTop = box.scrollHeight;
+}
+
+const nutriOpen = new Set(); // keeps expanded nutrient tables open across re-renders
+
+function nutriNum(v) {
+  if (v == null) return "–";
+  return Math.abs(v) < 10 ? (Math.round(v * 10) / 10).toString() : Math.round(v).toLocaleString();
+}
+
+function nutriFoodTable(items, key) {
+  const rows = items
+    .filter((i) => i.found !== false && !i.revoked)
+    .map(
+      (i) => `<tr><td>${escapeAttr(i.name)} <small class="dim">${i.qty} ${escapeAttr(i.unit)}${i.grams ? ` · ${nutriFmt(i.grams)} g` : ""}</small></td>
+        <td>${nutriFmt(i.kcal)}</td>${NUTRI_ROWS.map((r) => `<td>${nutriNum(i[r.key])}</td>`).join("")}</tr>`
+    )
+    .join("");
+  if (!rows) return "";
+  return `<details class="nutri-details" data-key="${escapeAttr(key)}"${nutriOpen.has(key) ? " open" : ""}>
+    <summary>Nutrients per food</summary>
+    <table class="nutri-items nutri-food">
+      <thead><tr><th>Food</th><th>kcal</th>${NUTRI_ROWS.map((r) => `<th>${r.label} <small>${r.unit}</small></th>`).join("")}</tr></thead>
+      <tbody>${rows}</tbody>
+    </table></details>`;
 }
 
 function renderNutritionSummary(day) {
@@ -213,6 +238,7 @@ function renderNutritionHistory(days) {
             ${st ? `<span class="nutri-status ${st.cls}">${st.label}</span>` : ""}
           </div>
           <div class="nh-items">${items || '<span class="dim">No items</span>'}</div>
+          ${nutriFoodTable(d.items || [], `d-${d.date}`)}
         </div>`;
     })
     .join("");
@@ -225,6 +251,16 @@ function closeNutritionHistory() {
 
 // ------------------------------------------------------------- wiring
 
+document.addEventListener(
+  "toggle",
+  (e) => {
+    const d = e.target;
+    if (!d.classList || !d.classList.contains("nutri-details")) return;
+    if (d.open) nutriOpen.add(d.dataset.key);
+    else nutriOpen.delete(d.dataset.key);
+  },
+  true
+);
 document.getElementById("nutri-form").addEventListener("submit", submitNutrition);
 document.getElementById("nutri-input").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {

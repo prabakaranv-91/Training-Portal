@@ -382,7 +382,7 @@ def _local_match(item: str) -> str | None:
     matches = [name for alias, name in _ALIAS_INDEX if f" {alias} " in n]
     # A dish word ("poriyal", "halwa") beats a raw ingredient ("beetroot", "carrot").
     dishes = [m for m in matches if m not in _INGREDIENTS]
-    return (dishes or matches or [None])[0]
+    return next(iter(dishes or matches), None)
 
 
 def _rank(query: str, name: str) -> tuple:
@@ -700,9 +700,11 @@ def history(days: int) -> list[dict[str, Any]]:
             for i in e["items"]:
                 if not i.get("found") or i.get("revoked"):
                     continue
-                f = foods.setdefault((i["name"], i["unit"]), {"name": i["name"], "unit": i["unit"], "qty": 0, "kcal": 0})
+                f = foods.setdefault((i["name"], i["unit"]), {"name": i["name"], "unit": i["unit"], "qty": 0, "grams": 0, **{k: 0 for k in NUTRIENTS}})
                 f["qty"] = round(f["qty"] + (i.get("qty") or 0), 2)
-                f["kcal"] = round(f["kcal"] + (i.get("kcal") or 0), 1)
+                f["grams"] = round(f["grams"] + (i.get("grams") or 0))
+                for k in NUTRIENTS:
+                    f[k] = round(f[k] + (i.get(k) or 0), 1)
         out.append({
             "date": date,
             "intake": _sum([e["totals"] for e in by_day[date]]),
