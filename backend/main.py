@@ -505,11 +505,23 @@ def nutrition_day(date: dt.date | None = None, garmin_session: str | None = Cook
 
 
 @app.delete("/api/nutrition/entries/{entry_id}")
-def nutrition_delete(entry_id: str, garmin_session: str | None = Cookie(default=None)):
+def nutrition_revoke(
+    entry_id: str, item: int | None = None, garmin_session: str | None = Cookie(default=None)
+):
     _valid_session(garmin_session)
-    if not nutrition_service.delete_entry(entry_id):
+    if not nutrition_service.set_revoked(entry_id, True, item):
         raise HTTPException(status_code=404, detail="Entry not found")
-    return {"status": "deleted"}
+    return {"status": "revoked"}
+
+
+@app.post("/api/nutrition/entries/{entry_id}/restore")
+def nutrition_restore(
+    entry_id: str, item: int | None = None, garmin_session: str | None = Cookie(default=None)
+):
+    _valid_session(garmin_session)
+    if not nutrition_service.set_revoked(entry_id, False, item):
+        raise HTTPException(status_code=404, detail="Entry not found")
+    return {"status": "restored"}
 
 
 @app.get("/api/nutrition/history")

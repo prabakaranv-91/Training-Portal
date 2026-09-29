@@ -70,6 +70,19 @@
   font-size: 0.75rem;
 }
 .nutri-del:hover { color: var(--danger); }
+.nutri-act {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0 4px;
+}
+.nutri-revoke:hover { color: var(--danger); }
+.nutri-restore { color: var(--accent); }
+button.nutri-restore:not([data-item]) { align-self: flex-end; }
+.nutri-items tr.revoked td:not(:last-child) { text-decoration: line-through; opacity: 0.45; }
+.nutri-user.revoked { opacity: 0.45; text-decoration: line-through; }
 
 .nutri-form {
   display: flex;

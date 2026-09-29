@@ -58,26 +58,35 @@ function renderNutritionMessages(day) {
   }
   box.innerHTML = day.entries
     .map((e) => {
+      const id = escapeAttr(e.id);
+      if (e.revoked) {
+        return `
+        <div class="nutri-user revoked"><span>${escapeAttr(e.text)}</span><small>${escapeAttr(e.time)} · revoked</small></div>
+        <button class="nutri-act nutri-restore" data-id="${id}">↩ Restore entry</button>`;
+      }
       const rows = e.items
-        .map((i) =>
-          i.found
-            ? `<tr>
+        .map((i, idx) => {
+          const act = i.revoked
+            ? `<button class="nutri-act nutri-restore" data-id="${id}" data-item="${idx}" title="Restore item">↩</button>`
+            : `<button class="nutri-act nutri-revoke" data-id="${id}" data-item="${idx}" title="Revoke item">×</button>`;
+          return i.found
+            ? `<tr class="${i.revoked ? "revoked" : ""}">
                 <td>${escapeAttr(i.name)}<div class="nutri-src">${escapeAttr(i.qty)} ${escapeAttr(i.unit)} · ${nutriFmt(i.grams, " g")} · ${escapeAttr(i.source)}</div></td>
-                <td>${nutriFmt(i.kcal)}</td><td>${i.protein}</td><td>${i.carbs}</td><td>${i.fat}</td><td>${i.fiber}</td>
+                <td>${nutriFmt(i.kcal)}</td><td>${i.protein}</td><td>${i.carbs}</td><td>${i.fat}</td><td>${i.fiber}</td><td>${act}</td>
               </tr>`
-            : `<tr class="nutri-miss"><td colspan="6">❓ Couldn't find “${escapeAttr(i.input)}” — try a more common name or add grams.</td></tr>`
-        )
+            : `<tr class="nutri-miss"><td colspan="7">❓ Couldn't find “${escapeAttr(i.input)}” — try a more common name or add grams.</td></tr>`;
+        })
         .join("");
       return `
         <div class="nutri-user"><span>${escapeAttr(e.text)}</span><small>${escapeAttr(e.time)}</small></div>
         <div class="nutri-bot">
           <table class="nutri-items">
-            <thead><tr><th>Item</th><th>kcal</th><th>P</th><th>C</th><th>F</th><th>Fib</th></tr></thead>
+            <thead><tr><th>Item</th><th>kcal</th><th>P</th><th>C</th><th>F</th><th>Fib</th><th></th></tr></thead>
             <tbody>${rows}</tbody>
             <tfoot><tr><td>Total</td><td>${nutriFmt(e.totals.kcal)}</td><td>${e.totals.protein}</td>
-              <td>${e.totals.carbs}</td><td>${e.totals.fat}</td><td>${e.totals.fiber}</td></tr></tfoot>
+              <td>${e.totals.carbs}</td><td>${e.totals.fat}</td><td>${e.totals.fiber}</td><td></td></tr></tfoot>
           </table>
-          <button class="nutri-del" data-id="${escapeAttr(e.id)}" title="Delete this entry">🗑 Remove</button>
+          <button class="nutri-act nutri-revoke nutri-del" data-id="${id}" title="Revoke this whole entry">🗑 Revoke entry</button>
         </div>`;
     })
     .join("");
@@ -165,12 +174,14 @@ async function submitNutrition(e) {
   }
 }
 
-async function deleteNutritionEntry(id) {
+async function setNutritionRevoked(id, item, revoke) {
+  const q = item != null && item !== "" ? `?item=${encodeURIComponent(item)}` : "";
+  const path = `/api/nutrition/entries/${encodeURIComponent(id)}${revoke ? "" : "/restore"}${q}`;
   try {
-    await api(`/api/nutrition/entries/${encodeURIComponent(id)}`, { method: "DELETE" });
+    await api(path, { method: revoke ? "DELETE" : "POST" });
     loadNutrition();
   } catch (ex) {
-    toast(`Could not delete: ${ex.message}`);
+    toast(`Could not ${revoke ? "revoke" : "restore"}: ${ex.message}`);
   }
 }
 
@@ -251,8 +262,8 @@ document.getElementById("nutri-input").addEventListener("keydown", (e) => {
 });
 document.getElementById("nutri-date").addEventListener("change", loadNutrition);
 document.getElementById("nutri-messages").addEventListener("click", (e) => {
-  const btn = e.target.closest(".nutri-del");
-  if (btn) deleteNutritionEntry(btn.dataset.id);
+  const btn = e.target.closest(".nutri-act");
+  if (btn) setNutritionRevoked(btn.dataset.id, btn.dataset.item, btn.classList.contains("nutri-revoke"));
 });
 document.getElementById("nutri-history-btn").addEventListener("click", openNutritionHistory);
 document.getElementById("nutri-history-close").addEventListener("click", closeNutritionHistory);

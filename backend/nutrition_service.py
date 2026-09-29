@@ -491,19 +491,31 @@ def add_entry(text: str, date: str) -> dict[str, Any]:
     return entry
 
 
-def delete_entry(entry_id: str) -> bool:
+def set_revoked(entry_id: str, revoked: bool, item: int | None = None) -> dict[str, Any] | None:
+    """Revoke/restore a whole entry or one of its items; kept on disk for history."""
     with _LOCK:
         data = _load()
-        before = len(data["entries"])
-        data["entries"] = [e for e in data["entries"] if e.get("id") != entry_id]
-        if len(data["entries"]) == before:
-            return False
+        entry = next((e for e in data["entries"] if e.get("id") == entry_id), None)
+        if entry is None:
+            return None
+        if item is None:
+            entry["revoked"] = revoked
+        else:
+            if not 0 <= item < len(entry["items"]):
+                return None
+            entry["items"][item]["revoked"] = revoked
+            entry["totals"] = _sum([i for i in entry["items"] if not i.get("revoked")])
+        entry["revokedAt" if revoked else "restoredAt"] = dt.datetime.now().isoformat(timespec="seconds")
         _save(data)
-    return True
+    return entry
 
 
 def entries_for(date: str) -> list[dict[str, Any]]:
     return [e for e in _load()["entries"] if e.get("date") == date]
+
+
+def _active(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [e for e in entries if not e.get("revoked")]
 
 
 def save_day_snapshot(date: str, snapshot: dict[str, Any]) -> None:
@@ -517,7 +529,7 @@ def history(days: int) -> list[dict[str, Any]]:
     data = _load()
     start = (dt.date.today() - dt.timedelta(days=days - 1)).isoformat()
     by_day: dict[str, list[dict[str, Any]]] = {}
-    for e in data["entries"]:
+    for e in _active(data["entries"]):
         if e.get("date", "") >= start:
             by_day.setdefault(e["date"], []).append(e)
     out = []
@@ -551,7 +563,7 @@ def _estimate_workout_kcal(w: dict[str, Any], weight: float) -> float:
 def assess(date: str, energy: dict[str, Any]) -> dict[str, Any]:
     """Compare the day's intake with burn/workout and give suggestions."""
     entries = entries_for(date)
-    intake = _sum([e["totals"] for e in entries])
+    intake = _sum([e["totals"] for e in _active(entries)])
     weight = energy.get("weightKg") or DEFAULT_WEIGHT_KG
     workouts = [
         {**w, "kcal": round(_estimate_workout_kcal(w, weight)), "estimated": not w.get("kcal")}
