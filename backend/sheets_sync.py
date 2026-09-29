@@ -83,7 +83,7 @@ def _save_pending(items: list[dict[str, Any]]) -> None:
         PENDING_FILE.write_text(json.dumps(items), encoding="utf-8")
 
 
-def _post(payload: dict[str, Any]) -> None:
+def _post(payload: dict[str, Any]) -> dict[str, Any]:
     # Apps Script answers POST with a 302 to the result; requests follows it as GET.
     # That result page sporadically 404s, so retry (upserts are idempotent).
     last: Exception | None = None
@@ -102,8 +102,19 @@ def _post(payload: dict[str, Any]) -> None:
             continue
         if not body.get("ok"):
             raise RuntimeError(body.get("error") or "Apps Script returned ok=false")
-        return
+        return body
     raise RuntimeError(f"Apps Script unreachable: {last}")
+
+
+def script_info() -> dict[str, Any]:
+    """Ask the deployed Apps Script for its version and tab names."""
+    try:
+        return _post({"action": "info"})
+    except Exception as exc:  # noqa: BLE001
+        msg = str(exc)
+        if "unknown action" in msg:
+            msg = "Deployed Apps Script is an old version (no per-user support) — redeploy a new version."
+        return {"ok": False, "error": msg}
 
 
 def _run() -> None:

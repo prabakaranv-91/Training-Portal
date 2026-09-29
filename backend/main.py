@@ -548,9 +548,12 @@ def nutrition_item_qty(
 
 
 @app.get("/api/nutrition/sheets")
-def nutrition_sheets_status(garmin_session: str | None = Cookie(default=None)):
+def nutrition_sheets_status(check: bool = False, garmin_session: str | None = Cookie(default=None)):
     user = _nutrition_user(garmin_session)
-    return {**sheets_sync.status(), "user": user}
+    out = {**sheets_sync.status(), "user": user}
+    if check and sheets_sync.is_configured():
+        out["script"] = sheets_sync.script_info()
+    return out
 
 
 @app.post("/api/nutrition/sheets/sync")
