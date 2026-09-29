@@ -54,6 +54,26 @@
 .nutri-chip.miss { color: var(--danger); }
 .nutri-chip.revoked { opacity: 0.45; text-decoration: line-through; }
 .nutri-total { color: var(--text-dim); margin-left: 4px; }
+.nutri-qty {
+  background: none;
+  border: none;
+  border-bottom: 1px dashed var(--text-dim);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0 1px;
+}
+.nutri-qty:hover { color: var(--accent); border-color: var(--accent); }
+.nutri-qty-input {
+  width: 52px;
+  padding: 0 4px;
+  margin: 0 2px;
+  font: inherit;
+  background: var(--bg-soft);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+}
 .nutri-details { flex-basis: 100%; margin-top: 2px; }
 .nutri-details summary { cursor: pointer; color: var(--accent); font-size: 0.78rem; width: max-content; }
 .nutri-food { margin-top: 4px; font-size: 0.78rem; background: var(--card); border-radius: 8px; }

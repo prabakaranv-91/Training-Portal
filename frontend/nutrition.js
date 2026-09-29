@@ -71,7 +71,8 @@ function renderNutritionMessages(day) {
           const act = i.revoked
             ? `<button class="nutri-act nutri-restore" data-id="${id}" data-item="${idx}" title="Restore">↩</button>`
             : `<button class="nutri-act nutri-revoke" data-id="${id}" data-item="${idx}" title="Remove">×</button>`;
-          return `<span class="nutri-chip${i.revoked ? " revoked" : ""}" title="${escapeAttr(tip)}">${escapeAttr(i.name)} ×${i.qty}
+          return `<span class="nutri-chip${i.revoked ? " revoked" : ""}" title="${escapeAttr(tip)}">${escapeAttr(i.name)}
+            ${i.revoked ? `×${i.qty}` : `<button class="nutri-qty" data-id="${id}" data-item="${idx}" data-qty="${i.qty}" title="Edit quantity (${escapeAttr(i.unit)})">×${i.qty} ✎</button>`}
             <b>${nutriFmt(i.kcal)}</b>${act}</span>`;
         })
         .join("");
@@ -173,6 +174,43 @@ async function reanalyseNutritionEntry(id) {
   }
 }
 
+function editNutritionQty(btn) {
+  const { id, item, qty } = btn.dataset;
+  const input = document.createElement("input");
+  input.type = "number";
+  input.min = "0.25";
+  input.step = "0.5";
+  input.value = qty;
+  input.className = "nutri-qty-input";
+  btn.replaceWith(input);
+  input.focus();
+  input.select();
+  let done = false;
+  const finish = async (save) => {
+    if (done) return;
+    done = true;
+    const val = parseFloat(input.value);
+    if (!save || !(val > 0) || val === parseFloat(qty)) {
+      loadNutrition();
+      return;
+    }
+    try {
+      await api(`/api/nutrition/entries/${encodeURIComponent(id)}/items/${encodeURIComponent(item)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ qty: val }),
+      });
+    } catch (ex) {
+      toast(`Could not update quantity: ${ex.message}`);
+    }
+    loadNutrition();
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") finish(true);
+    else if (e.key === "Escape") finish(false);
+  });
+  input.addEventListener("blur", () => finish(true));
+}
+
 // ------------------------------------------------------------- history
 
 async function openNutritionHistory() {
@@ -270,6 +308,11 @@ document.getElementById("nutri-input").addEventListener("keydown", (e) => {
 });
 document.getElementById("nutri-date").addEventListener("change", loadNutrition);
 document.getElementById("nutri-messages").addEventListener("click", (e) => {
+  const qtyBtn = e.target.closest(".nutri-qty");
+  if (qtyBtn) {
+    editNutritionQty(qtyBtn);
+    return;
+  }
   const btn = e.target.closest(".nutri-act");
   if (!btn) return;
   if (btn.classList.contains("nutri-retry")) reanalyseNutritionEntry(btn.dataset.id);

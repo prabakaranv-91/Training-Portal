@@ -653,6 +653,29 @@ def set_revoked(entry_id: str, revoked: bool, item: int | None = None) -> dict[s
     return entry
 
 
+def set_item_qty(entry_id: str, item: int, qty: float) -> dict[str, Any] | None:
+    """Change one item's quantity, scaling its grams and nutrients proportionally."""
+    with _LOCK:
+        data = _load()
+        entry = next((e for e in data["entries"] if e.get("id") == entry_id), None)
+        if entry is None or not 0 <= item < len(entry["items"]):
+            return None
+        it = entry["items"][item]
+        old = it.get("qty") or 0
+        if not it.get("found") or old <= 0:
+            return None
+        factor = qty / old
+        it["qty"] = qty
+        if it.get("grams") is not None:
+            it["grams"] = round(it["grams"] * factor)
+        for k in NUTRIENTS:
+            it[k] = round((it.get(k) or 0) * factor, 1)
+        entry["totals"] = _sum([i for i in entry["items"] if not i.get("revoked")])
+        entry["editedAt"] = dt.datetime.now().isoformat(timespec="seconds")
+        _save(data)
+    return entry
+
+
 def reanalyse_entry(entry_id: str) -> dict[str, Any] | None:
     with _LOCK:
         entry = next((e for e in _load()["entries"] if e.get("id") == entry_id), None)

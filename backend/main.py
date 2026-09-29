@@ -57,6 +57,10 @@ class NutritionLogRequest(BaseModel):
     date: dt.date | None = None
 
 
+class NutritionQtyRequest(BaseModel):
+    qty: float = Field(gt=0, le=10000)
+
+
 # ------------------------------------------------------------------- helpers
 
 
@@ -512,6 +516,16 @@ def nutrition_revoke(
     if not nutrition_service.set_revoked(entry_id, True, item):
         raise HTTPException(status_code=404, detail="Entry not found")
     return {"status": "revoked"}
+
+
+@app.patch("/api/nutrition/entries/{entry_id}/items/{item}")
+def nutrition_item_qty(
+    entry_id: str, item: int, req: NutritionQtyRequest, garmin_session: str | None = Cookie(default=None)
+):
+    _valid_session(garmin_session)
+    if not nutrition_service.set_item_qty(entry_id, item, req.qty):
+        raise HTTPException(status_code=404, detail="Item not found")
+    return {"status": "updated"}
 
 
 @app.post("/api/nutrition/entries/{entry_id}/reanalyse")
