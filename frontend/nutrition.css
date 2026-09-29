@@ -107,4 +107,9 @@
 .nutri-status.ok { background: rgba(52, 211, 153, 0.18); color: #34d399; }
 .nutri-status.low { background: rgba(96, 165, 250, 0.18); color: #60a5fa; }
 .nutri-status.high { background: rgba(248, 113, 113, 0.18); color: #f87171; }
-.nutri-history { margin-top: 14px; }
+.nutri-history { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; font-size: 0.85rem; }
+.nh-chart { position: relative; height: 150px; }
+.nh-day { border-top: 1px solid var(--border); padding-top: 8px; }
+.nh-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-bottom: 6px; }
+.nh-items { display: flex; flex-wrap: wrap; gap: 4px; }
+.nh-items .nutri-chip { padding-right: 10px; }

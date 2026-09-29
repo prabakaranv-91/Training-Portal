@@ -168,46 +168,55 @@ function renderNutritionHistory(days) {
   const empty = !days.length;
   document.getElementById("nutri-history-empty").classList.toggle("hidden", !empty);
   const canvas = document.getElementById("nutri-history-chart");
-  canvas.classList.toggle("hidden", empty);
+  canvas.parentElement.classList.toggle("hidden", empty);
   if (nutriHistoryChart) nutriHistoryChart.destroy();
   nutriHistoryChart = null;
   if (empty) {
     document.getElementById("nutri-history-table").innerHTML = "";
     return;
   }
+  const tick = { color: "#9fb0cc", font: { size: 10 } };
   nutriHistoryChart = new Chart(canvas, {
     data: {
       labels: days.map((d) => d.date.slice(5)),
       datasets: [
-        { type: "bar", label: "Intake kcal", data: days.map((d) => d.intake.kcal), backgroundColor: "rgba(45,212,191,0.6)" },
-        { type: "line", label: "Burn kcal", data: days.map((d) => d.burn?.total ?? null), borderColor: "#f59e0b", tension: 0.3, spanGaps: true },
-        { type: "line", label: "Protein g", data: days.map((d) => d.intake.protein), borderColor: "#60a5fa", yAxisID: "y1", tension: 0.3 },
+        { type: "bar", label: "Intake kcal", data: days.map((d) => d.intake.kcal), backgroundColor: "rgba(45,212,191,0.6)", maxBarThickness: 24 },
+        { type: "line", label: "Burn kcal", data: days.map((d) => d.burn?.total ?? null), borderColor: "#f59e0b", tension: 0.3, spanGaps: true, pointRadius: 2 },
+        { type: "line", label: "Protein g", data: days.map((d) => d.intake.protein), borderColor: "#60a5fa", yAxisID: "y1", tension: 0.3, pointRadius: 2 },
       ],
     },
     options: {
       responsive: true,
-      plugins: { legend: { labels: { color: "#9fb0cc" } } },
+      maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: "#9fb0cc", boxWidth: 10, font: { size: 10 } } } },
       scales: {
-        x: { ticks: { color: "#9fb0cc" }, grid: { color: "rgba(255,255,255,0.05)" } },
-        y: { ticks: { color: "#9fb0cc" }, grid: { color: "rgba(255,255,255,0.05)" }, title: { display: true, text: "kcal", color: "#9fb0cc" } },
-        y1: { position: "right", ticks: { color: "#60a5fa" }, grid: { display: false }, title: { display: true, text: "protein g", color: "#60a5fa" } },
+        x: { ticks: tick, grid: { display: false } },
+        y: { ticks: tick, grid: { color: "rgba(255,255,255,0.05)" } },
+        y1: { position: "right", ticks: { ...tick, color: "#60a5fa" }, grid: { display: false } },
       },
     },
   });
-  const rows = [...days]
+  const list = [...days]
     .reverse()
     .map((d) => {
       const st = NUTRI_STATUS[d.status];
-      return `<tr><td>${escapeAttr(d.date)}</td><td>${nutriFmt(d.intake.kcal)}</td><td>${nutriFmt(d.burn?.total)}</td>
-        <td>${nutriFmt(d.intake.protein)}</td><td>${nutriFmt(d.intake.carbs)}</td><td>${nutriFmt(d.intake.fat)}</td>
-        <td>${nutriFmt(d.intake.fiber)}</td><td>${st ? `<span class="nutri-status ${st.cls}">${st.label}</span>` : "–"}</td></tr>`;
+      const label = new Date(`${d.date}T00:00`).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+      const items = (d.items || [])
+        .map((i) => `<span class="nutri-chip">${escapeAttr(i.name)} ×${i.qty}<b>${nutriFmt(i.kcal)}</b></span>`)
+        .join("");
+      return `
+        <div class="nh-day">
+          <div class="nh-head">
+            <b>${escapeAttr(label)}</b>
+            <span>${nutriFmt(d.intake.kcal)}${d.burn?.total ? ` / ${nutriFmt(d.burn.total)}` : ""} kcal</span>
+            <span class="dim">P ${nutriFmt(d.intake.protein)} · C ${nutriFmt(d.intake.carbs)} · F ${nutriFmt(d.intake.fat)} · Fib ${nutriFmt(d.intake.fiber)}</span>
+            ${st ? `<span class="nutri-status ${st.cls}">${st.label}</span>` : ""}
+          </div>
+          <div class="nh-items">${items || '<span class="dim">No items</span>'}</div>
+        </div>`;
     })
     .join("");
-  document.getElementById("nutri-history-table").innerHTML = `
-    <table class="nutri-items nutri-history">
-      <thead><tr><th>Date</th><th>Intake</th><th>Burn</th><th>Protein</th><th>Carbs</th><th>Fat</th><th>Fiber</th><th>Status</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
+  document.getElementById("nutri-history-table").innerHTML = `<div class="nutri-history">${list}</div>`;
 }
 
 function closeNutritionHistory() {

@@ -695,10 +695,19 @@ def history(days: int) -> list[dict[str, Any]]:
     out = []
     for date in sorted(by_day):
         snap = data["days"].get(date) or {}
+        foods: dict[tuple, dict[str, Any]] = {}
+        for e in by_day[date]:
+            for i in e["items"]:
+                if not i.get("found") or i.get("revoked"):
+                    continue
+                f = foods.setdefault((i["name"], i["unit"]), {"name": i["name"], "unit": i["unit"], "qty": 0, "kcal": 0})
+                f["qty"] = round(f["qty"] + (i.get("qty") or 0), 2)
+                f["kcal"] = round(f["kcal"] + (i.get("kcal") or 0), 1)
         out.append({
             "date": date,
             "intake": _sum([e["totals"] for e in by_day[date]]),
             "entries": len(by_day[date]),
+            "items": sorted(foods.values(), key=lambda f: -f["kcal"]),
             "burn": snap.get("burn"),
             "targetKcal": (snap.get("targets") or {}).get("kcal"),
             "status": snap.get("status"),
