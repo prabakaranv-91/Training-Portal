@@ -586,21 +586,27 @@ function renderNutritionHistory(days) {
     .map((d) => {
       const st = NUTRI_STATUS[d.status];
       const label = new Date(`${d.date}T00:00`).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
-      const items = (d.items || [])
-        .map((i) => `<span class="nutri-chip">${nutriRateIcon(i)}${escapeAttr(i.name)} ×${i.qty}<b>${nutriFmt(i.kcal)}</b></span>`)
+      const foods = (d.items || [])
+        .map(
+          (i) => `<li><span class="nh-f-name">${nutriRateIcon(i)}${escapeAttr(i.name)}</span>
+            <span class="nh-f-qty dim">×${i.qty}</span><span class="nh-f-kcal">${nutriFmt(i.kcal)}</span></li>`
+        )
         .join("");
+      const macro = (k, lbl) => `<span><i>${lbl}</i> ${nutriFmt(d.intake[k])} g</span>`;
       return `
         <div class="nh-day">
           <div class="nh-head">
-            <b>${escapeAttr(label)}</b>
-            <span title="${d.burn?.total ? `Burned ${nutriFmt(d.burn.total)} kcal` : ""}">${nutriFmt(d.intake.kcal)}${d.targetKcal ? ` / ${nutriFmt(d.targetKcal)}` : ""} kcal</span>
-            <span class="dim">P ${nutriFmt(d.intake.protein)} · C ${nutriFmt(d.intake.carbs)} · F ${nutriFmt(d.intake.fat)} · Fib ${nutriFmt(d.intake.fiber)}</span>
+            <div class="nh-date">${escapeAttr(label)}
+              <small class="nutri-prog">${escapeAttr(d.programLabel || NUTRI_PROGRAM_LABEL[d.program] || "")}</small></div>
+            <div class="nh-kcal" title="${d.burn?.total ? `Burned ${nutriFmt(d.burn.total)} kcal` : ""}">
+              <b>${nutriFmt(d.intake.kcal)}</b><span class="dim">${d.targetKcal ? ` / ${nutriFmt(d.targetKcal)}` : ""} kcal</span>
+              ${d.deviationKcal != null ? `<span class="nh-dev ${d.deviationKcal > 0 ? "over" : "under"}" title="Intake vs program target">${d.deviationKcal > 0 ? "+" : ""}${nutriFmt(d.deviationKcal)}</span>` : ""}
+            </div>
             ${st ? `<span class="nutri-status ${st.cls}">${st.label}</span>` : ""}
-            ${d.deviationKcal != null ? `<span class="nh-dev ${d.deviationKcal > 0 ? "over" : "under"}" title="Intake vs program target">${d.deviationKcal > 0 ? "+" : ""}${nutriFmt(d.deviationKcal)} kcal</span>` : ""}
-            ${d.weightKg ? `<span class="dim">⚖️ ${d.weightKg} kg</span>` : ""}
-            <small class="nutri-prog">${escapeAttr(d.programLabel || NUTRI_PROGRAM_LABEL[d.program] || "")}</small>
           </div>
-          <div class="nh-items">${items || '<span class="dim">No items</span>'}</div>
+          <div class="nh-macros">${macro("protein", "P")}${macro("carbs", "C")}${macro("fat", "F")}${macro("fiber", "Fib")}
+            ${d.weightKg ? `<span class="nh-wt">⚖️ ${d.weightKg} kg</span>` : ""}</div>
+          ${foods ? `<ul class="nh-food-list">${foods}</ul>` : '<div class="dim nh-empty-day">No items</div>'}
           ${nutriFoodTable(d.items || [], `d-${d.date}`)}
         </div>`;
     })
