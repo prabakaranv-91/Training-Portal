@@ -86,7 +86,8 @@ def _api_key() -> str | None:
         return None
 
 
-def gemini_parse(text: str) -> list[dict[str, Any]]:
+def _generate(prompt: str, schema: dict[str, Any]) -> Any:
+    """Run a JSON-schema prompt on the configured model, falling back through the model list."""
     key = _api_key()
     if not key:
         raise RuntimeError("Gemini API key not configured (GEMINI_API_KEY or nutrition_secrets.json).")
@@ -95,7 +96,7 @@ def gemini_parse(text: str) -> list[dict[str, Any]]:
     last = ""
     for model in models:
         try:
-            return _call(model, key, text)
+            return _call(model, key, prompt, schema)
         except _Retryable as exc:  # overloaded / quota / retired model -> try the next one
             last = str(exc)
     raise RuntimeError(last or "No Gemini model available")
@@ -105,21 +106,18 @@ class _Retryable(RuntimeError):
     pass
 
 
-def _call(model: str, key: str, text: str) -> list[dict[str, Any]]:
+def _call(model: str, key: str, prompt: str, schema: dict[str, Any]) -> Any:
     gen: dict[str, Any] = {
         "temperature": 0,
         "responseMimeType": "application/json",
-        "responseSchema": SCHEMA,
+        "responseSchema": schema,
     }
     if "2.5" in model:
         gen["thinkingConfig"] = {"thinkingBudget": 0}  # faster; this task needs no reasoning
     r = requests.post(
         GEMINI_URL.format(model=model),
         headers={"x-goog-api-key": key, "Content-Type": "application/json"},
-        json={
-            "contents": [{"role": "user", "parts": [{"text": PROMPT.format(units=", ".join(UNITS), text=text)}]}],
-            "generationConfig": gen,
-        },
+        json={"contents": [{"role": "user", "parts": [{"text": prompt}]}], "generationConfig": gen},
         timeout=30,
     )
     if r.status_code in (404, 429, 500, 503):
@@ -127,7 +125,11 @@ def _call(model: str, key: str, text: str) -> list[dict[str, Any]]:
     if r.status_code != 200:
         raise RuntimeError(f"Gemini HTTP {r.status_code}: {r.text[:300]}")
     parts = (((r.json().get("candidates") or [{}])[0].get("content") or {}).get("parts") or [{}])
-    items = json.loads(parts[0].get("text") or "[]")
+    return json.loads(parts[0].get("text") or "null")
+
+
+def gemini_parse(text: str) -> list[dict[str, Any]]:
+    items = _generate(PROMPT.format(units=", ".join(UNITS), text=text), SCHEMA)
     out = []
     for it in items if isinstance(items, list) else []:
         name = str(it.get("name") or "").strip()
@@ -145,6 +147,70 @@ def _call(model: str, key: str, text: str) -> list[dict[str, Any]]:
     return out
 
 
+REVIEW_PROMPT = """You are a sports nutrition coach for an Indian amateur runner. Review their whole day of eating
+against their goal and suggest what to avoid. Be specific to the foods they actually ate.
+
+Goal program: {program}
+Calorie target today: {target} kcal (burned {burn} kcal incl. {workout} kcal of workouts)
+Eaten so far: {intake}
+Targets: {targets}
+Foods eaten today (name, amount, kcal, protein g, fat g, sugar g, sodium mg):
+{foods}
+Day in progress: {in_progress}
+
+Rules:
+- verdict: "on_track", "over" or "under" for the calorie target.
+- summary: ONE short sentence (max 14 words), plain language.
+- avoid: up to 3 foods FROM THE LIST that most hurt the goal (e.g. sugary, fried, high-fat, low-protein calories).
+  For each: item (exact name from the list), reason (max 6 words), instead (a concrete Indian swap, max 6 words).
+  If nothing needs avoiding, return an empty list.
+- keep: up to 2 foods from the list that help the goal (e.g. high protein, fibre).
+- next: one short tip for the rest of today or tomorrow (max 14 words).
+"""
+
+REVIEW_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "verdict": {"type": "STRING", "enum": ["on_track", "over", "under"]},
+        "summary": {"type": "STRING"},
+        "avoid": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {"item": {"type": "STRING"}, "reason": {"type": "STRING"}, "instead": {"type": "STRING"}},
+                "required": ["item", "reason", "instead"],
+            },
+        },
+        "keep": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "next": {"type": "STRING"},
+    },
+    "required": ["verdict", "summary", "avoid", "keep", "next"],
+}
+
+
+def gemini_review(day: dict[str, Any]) -> dict[str, Any]:
+    foods = "\n".join(
+        f"- {f['name']}: {f['qty']} {f['unit']}, {round(f['kcal'])} kcal, P {f['protein']}, F {f['fat']}, "
+        f"sugar {f['sugar']}, sodium {round(f['sodium'])}"
+        for f in day["foods"]
+    )
+    t = day["targets"]
+    prompt = REVIEW_PROMPT.format(
+        program=day["program"], target=t["kcal"], burn=day["burn"], workout=day.get("workoutKcal", 0),
+        intake=", ".join(f"{k} {round(v)}" for k, v in day["intake"].items()),
+        targets=", ".join(f"{k} {v}" for k, v in t.items()), foods=foods or "(none)",
+        in_progress="yes" if day.get("inProgress") else "no",
+    )
+    res = _generate(prompt, REVIEW_SCHEMA) or {}
+    return {
+        "verdict": res.get("verdict") or "on_track",
+        "summary": str(res.get("summary") or "")[:160],
+        "avoid": [{k: str(a.get(k) or "")[:60] for k in ("item", "reason", "instead")} for a in (res.get("avoid") or [])][:3],
+        "keep": [str(k)[:40] for k in (res.get("keep") or [])][:2],
+        "next": str(res.get("next") or "")[:160],
+    }
+
+
 mcp = FastMCP("training-lab-food-parser")
 
 
@@ -155,6 +221,16 @@ def parse_food_text(text: str) -> str:
     Returns a JSON list of {input, name, qty, unit, total_grams, per100g}.
     """
     return json.dumps(gemini_parse(text))
+
+
+@mcp.tool()
+def review_day(day_json: str) -> str:
+    """Review a full day of eating against the user's program and say which foods to avoid.
+
+    day_json: {program, targets, intake, burn, workoutKcal, inProgress, foods:[{name,qty,unit,kcal,protein,fat,sugar,sodium}]}
+    Returns JSON {verdict, summary, avoid:[{item,reason,instead}], keep:[...], next}.
+    """
+    return json.dumps(gemini_review(json.loads(day_json)))
 
 
 if __name__ == "__main__":

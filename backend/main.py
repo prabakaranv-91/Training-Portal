@@ -559,6 +559,12 @@ def nutrition_item_qty(
     return {"status": "updated"}
 
 
+@app.get("/api/nutrition/coach")
+def nutrition_coach(date: dt.date | None = None, garmin_session: str | None = Cookie(default=None)):
+    user = _nutrition_user(garmin_session)
+    return nutrition_service.coach(user, (date or dt.date.today()).isoformat())
+
+
 @app.get("/api/nutrition/parser")
 def nutrition_parser_status(garmin_session: str | None = Cookie(default=None)):
     _valid_session(garmin_session)

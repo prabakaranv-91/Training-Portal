@@ -54,12 +54,12 @@ async def _serve(queue: asyncio.Queue) -> None:
         async with ClientSession(read, write) as session:
             await session.initialize()
             while True:
-                text, fut = await queue.get()
+                tool, args, fut = await queue.get()
                 try:
-                    res = await asyncio.wait_for(session.call_tool("parse_food_text", {"text": text}), 45)
+                    res = await asyncio.wait_for(session.call_tool(tool, args), 45)
                     if res.isError:
                         raise RuntimeError(" ".join(getattr(c, "text", "") for c in res.content) or "tool error")
-                    fut.set_result(json.loads(res.content[0].text))
+                    fut.set_result(json.loads(getattr(res.content[0], "text", "null")))
                 except Exception as exc:  # noqa: BLE001
                     fut.set_exception(exc)
 
@@ -90,6 +90,24 @@ def _ensure_started() -> None:
         threading.Event().wait(0.05)
 
 
+def _call_tool(tool: str, args: dict[str, Any]) -> Any:
+    _ensure_started()
+    if _loop is None or _queue is None:
+        raise RuntimeError("MCP client loop did not start")
+    fut: Future = Future()
+    loop, queue = _loop, _queue
+
+    def _put() -> None:
+        afut = loop.create_future()
+        afut.add_done_callback(
+            lambda f: fut.set_exception(f.exception()) if f.exception() else fut.set_result(f.result())
+        )
+        queue.put_nowait((tool, args, afut))
+
+    loop.call_soon_threadsafe(_put)
+    return fut.result(timeout=60)
+
+
 def parse(text: str) -> list[dict[str, Any]] | None:
     """Foods in `text` via the MCP server, or None to fall back to the regex parser."""
     if not is_enabled():
@@ -98,21 +116,7 @@ def parse(text: str) -> list[dict[str, Any]] | None:
     if key in _cache:
         return _cache[key]
     try:
-        _ensure_started()
-        if _loop is None or _queue is None:
-            raise RuntimeError("MCP client loop did not start")
-        fut: Future = Future()
-        loop, queue = _loop, _queue
-
-        def _put() -> None:
-            afut = loop.create_future()
-            afut.add_done_callback(
-                lambda f: fut.set_exception(f.exception()) if f.exception() else fut.set_result(f.result())
-            )
-            queue.put_nowait((text, afut))
-
-        loop.call_soon_threadsafe(_put)
-        items = fut.result(timeout=60)
+        items = _call_tool("parse_food_text", {"text": text})
     except Exception as exc:  # noqa: BLE001
         logger.warning("Gemini food parsing failed, using built-in parser: %s", exc)
         _status["lastError"] = str(exc)
@@ -121,3 +125,15 @@ def parse(text: str) -> list[dict[str, Any]] | None:
     _status["lastError"] = None
     _cache[key] = items
     return items
+
+
+def review(day: dict[str, Any]) -> dict[str, Any] | None:
+    """Gemini review of the whole day (foods to avoid for the program), or None if unavailable."""
+    if not is_enabled():
+        return None
+    try:
+        return _call_tool("review_day", {"day_json": json.dumps(day)})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Gemini day review failed: %s", exc)
+        _status["lastError"] = str(exc)
+        return None

@@ -786,6 +786,36 @@ def sync_all_to_sheets(user: str) -> dict[str, int]:
 KCAL_PER_KG = 7700  # energy in ~1 kg of body weight change
 
 
+def coach(user: str, date: str) -> dict[str, Any]:
+    """Gemini review of the day's meals vs. the program; cached until the day's food changes."""
+    data = _load(user)
+    snap = data["days"].get(date)
+    entries = [e for e in data["entries"] if e.get("date") == date]
+    foods = [{k: i.get(k) for k in ("name", "qty", "unit", "kcal", "protein", "fat", "sugar", "sodium")}
+             for e in _active(entries) for i in e["items"] if i.get("found") and not i.get("revoked")]
+    if not snap or not foods:
+        return {"source": None}
+    day = {
+        "program": PROGRAMS.get(snap.get("program") or "maintain", PROGRAMS["maintain"])["label"],
+        "targets": snap["targets"], "intake": snap["intake"],
+        "burn": (snap.get("burn") or {}).get("total"), "workoutKcal": (snap.get("burn") or {}).get("workoutKcal", 0),
+        "inProgress": date == dt.date.today().isoformat(), "foods": foods,
+    }
+    sig = uuid.uuid5(uuid.NAMESPACE_OID, json.dumps([day["program"], day["targets"], foods], sort_keys=True)).hex
+    cached = (data.get("coach") or {}).get(date)
+    if cached and cached.get("sig") == sig:
+        return {"source": "gemini", **cached["review"]}
+    review = food_parser_client.review(day)
+    if not review:
+        return {"source": None}
+    with _LOCK:
+        data = _load(user)
+        data.setdefault("coach", {})[date] = {"sig": sig, "review": review,
+                                              "at": dt.datetime.now().isoformat(timespec="seconds")}
+        _save(user, data)
+    return {"source": "gemini", **review}
+
+
 def weight_for(user: str, date: str, data: dict[str, Any] | None = None) -> float | None:
     """Latest weight logged on or before `date`."""
     kg = None
