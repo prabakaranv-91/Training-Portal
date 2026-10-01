@@ -795,8 +795,9 @@ def weight_for(user: str, date: str, data: dict[str, Any] | None = None) -> floa
     return kg
 
 
-def set_weight(user: str, kg: float, date: str) -> dict[str, Any]:
-    entry = {"date": date, "kg": round(kg, 1), "setAt": dt.datetime.now().isoformat(timespec="seconds")}
+def set_weight(user: str, kg: float, date: str, source: str = "manual") -> dict[str, Any]:
+    entry = {"date": date, "kg": round(kg, 1), "source": source,
+             "setAt": dt.datetime.now().isoformat(timespec="seconds")}
     with _LOCK:
         data = _load(user)
         data["weights"] = [w for w in data.get("weights", []) if w["date"] != date] + [entry]
@@ -805,10 +806,10 @@ def set_weight(user: str, kg: float, date: str) -> dict[str, Any]:
     return entry
 
 
-def weights(user: str) -> dict[str, Any]:
+def weights(user: str, garmin_kg: float | None = None) -> dict[str, Any]:
     data = _load(user)
     hist = sorted(data.get("weights", []), key=lambda w: w["date"], reverse=True)
-    return {"current": hist[0] if hist else None, "history": hist}
+    return {"current": hist[0] if hist else None, "history": hist, "garminKg": garmin_kg}
 
 
 def progress(user: str, days: int) -> dict[str, Any]:
@@ -1026,8 +1027,12 @@ def assess(user: str, date: str, energy: dict[str, Any]) -> dict[str, Any]:
     entries = entries_for(user, date)
     intake = _sum([e["totals"] for e in _active(entries)])
     logged_kg = weight_for(user, date)
-    weight = logged_kg or energy.get("weightKg") or DEFAULT_WEIGHT_KG
-    weight_source = "logged" if logged_kg else "garmin" if energy.get("weightKg") else "default"
+    garmin_kg = energy.get("weightKg")
+    # Garmin's weight wins when available; the user is only asked when Garmin has none.
+    weight = garmin_kg or logged_kg or DEFAULT_WEIGHT_KG
+    weight_source = "garmin" if garmin_kg else "logged" if logged_kg else "default"
+    if garmin_kg and logged_kg != garmin_kg:
+        set_weight(user, garmin_kg, date, source="garmin")  # builds a weight history for progress
     workouts = [
         {**w, "kcal": round(_estimate_workout_kcal(w, weight)), "estimated": not w.get("kcal")}
         for w in energy.get("workouts") or []

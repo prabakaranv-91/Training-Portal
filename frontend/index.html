@@ -6,7 +6,7 @@
     <title>Training Lab — Running Portal</title>
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="analysis.css" />
-    <link rel="stylesheet" href="nutrition.css?v=2026092904" />
+    <link rel="stylesheet" href="nutrition.css?v=2026100102" />
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   </head>
@@ -322,8 +322,11 @@
         </div>
         <form id="nutri-weight-form" class="nh-program">
           <label for="nutri-weight">⚖️ Weight</label>
-          <input id="nutri-weight" type="number" min="25" max="350" step="0.1" placeholder="kg" />
-          <button type="submit" class="btn-primary btn-sm">Save</button>
+          <b id="nutri-weight-garmin" class="hidden"></b>
+          <span id="nutri-weight-edit" class="nh-weight-edit">
+            <input id="nutri-weight" type="number" min="25" max="350" step="0.1" placeholder="kg" />
+            <button type="submit" class="btn-primary btn-sm">Save</button>
+          </span>
           <span id="nutri-weight-note" class="dim"></span>
         </form>
         <div id="nutri-progress" class="nh-progress"></div>
@@ -374,6 +377,6 @@
     </div>
 
     <script src="app.js"></script>
-    <script src="nutrition.js?v=2026092904"></script>
+    <script src="nutrition.js?v=2026100102"></script>
   </body>
 </html>

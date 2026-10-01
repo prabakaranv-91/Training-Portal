@@ -612,14 +612,27 @@ def nutrition_set_program(req: NutritionProgramRequest, garmin_session: str | No
     return nutrition_service.programs(user)
 
 
+def _garmin_weight(garmin_session: str | None) -> float | None:
+    service = _garmin(garmin_session)
+    if not service:
+        return None
+    try:
+        return service.body_weight_kg()
+    except Exception:  # noqa: BLE001
+        return None
+
+
 @app.get("/api/nutrition/weight")
 def nutrition_weight(garmin_session: str | None = Cookie(default=None)):
-    return nutrition_service.weights(_nutrition_user(garmin_session))
+    return nutrition_service.weights(_nutrition_user(garmin_session), _garmin_weight(garmin_session))
 
 
 @app.post("/api/nutrition/weight")
 def nutrition_set_weight(req: NutritionWeightRequest, garmin_session: str | None = Cookie(default=None)):
     user = _nutrition_user(garmin_session)
+    garmin_kg = _garmin_weight(garmin_session)
+    if garmin_kg:
+        raise HTTPException(status_code=400, detail="Weight comes from Garmin; update it in Garmin Connect.")
     nutrition_service.set_weight(user, req.kg, (req.date or dt.date.today()).isoformat())
     return nutrition_service.weights(user)
 

@@ -235,3 +235,34 @@
 .nh-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-bottom: 6px; }
 .nh-items { display: flex; flex-wrap: wrap; gap: 4px; }
 .nh-items .nutri-chip { padding-right: 10px; }
+.nutri-pending { display: flex; flex-direction: column; gap: 6px; }
+.nutri-pending .nutri-user { align-self: flex-end; }
+.nutri-typing {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px 12px 12px 4px;
+  padding: 8px 10px;
+}
+.nutri-typing span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: nutri-dot 1.2s infinite ease-in-out;
+}
+.nutri-typing span:nth-child(2) { animation-delay: 0.15s; }
+.nutri-typing span:nth-child(3) { animation-delay: 0.3s; }
+.nutri-typing small { margin-left: 6px; }
+@keyframes nutri-dot {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
+}
+.nutri-chatbox.busy .nutri-form { opacity: 0.6; }
+.nutri-chatbox.busy .nutri-form input { cursor: wait; }
+.nutri-chatbox.busy .nutri-messages .nutri-act,
+.nutri-chatbox.busy .nutri-messages .nutri-qty { pointer-events: none; opacity: 0.4; }
+.nh-weight-edit { display: inline-flex; gap: 8px; align-items: center; }
+.nh-weight-edit.hidden { display: none; }

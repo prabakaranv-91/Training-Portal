@@ -57,7 +57,7 @@ function renderNutritionDay(day) {
 function renderNutritionMessages(day) {
   const box = document.getElementById("nutri-messages");
   if (!day.entries.length) {
-    box.innerHTML = `<div class="nutri-bot dim">Tell me what you ate — e.g. "2 idli with 1 cup sambar", "1 scoop iso whey".</div>`;
+    box.innerHTML = `<div class="nutri-bot dim nutri-hint-empty">Tell me what you ate — e.g. "2 idli with 1 cup sambar", "1 scoop iso whey".</div>`;
     return;
   }
   box.innerHTML = day.entries
@@ -159,26 +159,49 @@ function nutriCutsHtml(day) {
   return `<div class="nutri-cuts"><div class="dim">✂️ To hit your target</div><ul>${lines}</ul></div>`;
 }
 
-async function submitNutrition(e) {
-  e.preventDefault();
+let nutriBusy = false;
+
+function setNutritionBusy(busy) {
+  nutriBusy = busy;
   const input = document.getElementById("nutri-input");
   const btn = document.getElementById("nutri-send");
+  input.disabled = busy;
+  btn.disabled = busy;
+  btn.textContent = busy ? "…" : "Log";
+  document.getElementById("nutri-chatbox").classList.toggle("busy", busy);
+}
+
+async function submitNutrition(e) {
+  e.preventDefault();
+  if (nutriBusy) return;
+  const input = document.getElementById("nutri-input");
   const text = input.value.trim();
   if (!text) return;
-  btn.disabled = true;
-  btn.textContent = "…";
+  const box = document.getElementById("nutri-messages");
+  box.querySelector(".nutri-hint-empty")?.remove();
+  // Show the message right away with a typing indicator while it's analysed.
+  const pending = document.createElement("div");
+  pending.className = "nutri-pending";
+  pending.innerHTML = `<div class="nutri-user">${escapeAttr(text)}</div>
+    <div class="nutri-bot nutri-typing" aria-label="Analysing"><span></span><span></span><span></span>
+      <small class="dim">Analysing your meal…</small></div>`;
+  box.appendChild(pending);
+  box.scrollTop = box.scrollHeight;
+  input.value = "";
+  setNutritionBusy(true);
   try {
     const res = await api("/api/nutrition/log", {
       method: "POST",
       body: JSON.stringify({ text, date: document.getElementById("nutri-date").value || null }),
     });
-    input.value = "";
     renderNutritionDay(res.day);
   } catch (ex) {
+    pending.remove();
+    input.value = text;
     toast(`Could not log meal: ${ex.message}`);
   } finally {
-    btn.disabled = false;
-    btn.textContent = "Log";
+    setNutritionBusy(false);
+    input.focus();
   }
 }
 
@@ -274,8 +297,15 @@ function renderNutritionProgram(p) {
 function renderNutritionWeight(w) {
   const cur = w.current;
   const prev = (w.history || [])[1];
-  document.getElementById("nutri-weight").value = cur ? cur.kg : "";
-  let note = cur ? `last logged ${cur.date}` : "Not set — using Garmin weight or 70 kg";
+  const fromGarmin = !!w.garminKg;
+  const shown = document.getElementById("nutri-weight-garmin");
+  shown.classList.toggle("hidden", !fromGarmin);
+  shown.textContent = fromGarmin ? `${w.garminKg} kg` : "";
+  document.getElementById("nutri-weight-edit").classList.toggle("hidden", fromGarmin);
+  document.getElementById("nutri-weight").value = !fromGarmin && cur ? cur.kg : "";
+  let note;
+  if (fromGarmin) note = "from Garmin · update it in Garmin Connect";
+  else note = cur ? `last logged ${cur.date}` : "Not available from Garmin — please enter your weight";
   if (cur && prev) {
     const d = Math.round((cur.kg - prev.kg) * 10) / 10;
     note += ` · ${d > 0 ? "+" : ""}${d} kg since ${prev.date}`;
@@ -454,6 +484,7 @@ document.getElementById("nutri-input").addEventListener("keydown", (e) => {
 });
 document.getElementById("nutri-date").addEventListener("change", loadNutrition);
 document.getElementById("nutri-messages").addEventListener("click", (e) => {
+  if (nutriBusy) return;
   const qtyBtn = e.target.closest(".nutri-qty");
   if (qtyBtn) {
     editNutritionQty(qtyBtn);

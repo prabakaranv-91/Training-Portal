@@ -195,6 +195,24 @@ class GarminService:
         client = self._require_client()
         return _safe(client.get_stats, date) or {}
 
+    def body_weight_kg(self) -> float | None:
+        """Body weight from the Garmin profile, or None if not set."""
+        client = self._require_client()
+        weight = None
+        info = _safe(
+            client.connectapi,
+            "/userprofile-service/userprofile/personal-information",
+        )
+        if isinstance(info, dict):
+            weight = (info.get("biometricProfile") or {}).get("weight")
+        if not weight:
+            prof = _safe(client.get_user_profile)
+            if isinstance(prof, dict):
+                weight = (prof.get("userData") or {}).get("weight")
+        if weight and weight > 1000:  # Garmin stores grams
+            weight = weight / 1000
+        return round(weight, 1) if weight else None
+
     def energy_day(self, date: str) -> dict[str, Any]:
         """Calories burned + workouts on `date`, and body weight, for nutrition."""
         client = self._require_client()
@@ -217,19 +235,7 @@ class GarminService:
             for a in self.activities(start=date, end=date)
         ]
 
-        weight = None
-        info = _safe(
-            client.connectapi,
-            "/userprofile-service/userprofile/personal-information",
-        )
-        if isinstance(info, dict):
-            weight = (info.get("biometricProfile") or {}).get("weight")
-        if not weight:
-            prof = _safe(client.get_user_profile)
-            if isinstance(prof, dict):
-                weight = (prof.get("userData") or {}).get("weight")
-        if weight and weight > 1000:  # Garmin stores grams
-            weight = weight / 1000
+        weight = self.body_weight_kg()
 
         return {
             "source": "garmin",
@@ -237,7 +243,7 @@ class GarminService:
             "active": stats.get("activeKilocalories"),
             "total": stats.get("totalKilocalories"),
             "workouts": workouts,
-            "weightKg": round(weight, 1) if weight else None,
+            "weightKg": weight,
         }
 
     def vo2max(self, date: str) -> dict[str, Any]:
