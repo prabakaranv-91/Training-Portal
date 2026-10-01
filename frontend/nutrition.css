@@ -310,7 +310,7 @@
   .nh-progress { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .nh-progress:empty { display: none; }
-.nh-tile { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 10px; padding: 6px 8px; display: flex; flex-direction: column; gap: 1px; align-items: flex-start; min-width: 0; line-height: 1.35; }
+.nh-tile { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 10px; padding: 6px 8px; display: flex; flex-direction: column; gap: 1px; align-items: flex-start; min-width: 0; max-width: 100%; overflow: hidden; line-height: 1.35; }
 .nh-val { font-size: 0.92rem; font-weight: 700; color: var(--text); }
 .nh-foods { list-style: none; margin: 2px 0 0; padding: 0; width: 100%; }
 .nh-foods li { display: flex; justify-content: space-between; gap: 6px; }
@@ -394,9 +394,10 @@
 .nh-weight { color: var(--text); }
 .nh-cap { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); }
 .nh-tile .nh-cap + .nh-cap, .nh-more .nh-cap { margin-top: 6px; }
-.nh-act { display: flex; align-items: baseline; gap: 6px; width: 100%; }
+.nh-act { display: flex; align-items: baseline; gap: 6px; width: 100%; min-width: 0; }
 .nh-act-i { flex: none; font-size: 0.72rem; }
-.nh-act .nh-adv { margin: 0; }
+.nh-act .nh-adv { margin: 0; min-width: 0; flex: 1; }
+.nh-act .nh-adv li { display: block; max-width: 100%; }
 .nh-more { width: 100%; margin-top: 6px; }
 .nh-more > summary { cursor: pointer; color: var(--text-dim); font-size: 0.7rem; list-style: none; }
 .nh-more > summary::-webkit-details-marker { display: none; }
@@ -404,6 +405,18 @@
 .nh-more[open] > summary::before { content: "▾ "; }
 .nh-more > summary:hover { color: var(--accent); }
 .nh-more .nh-adv li { white-space: normal; }
+/* Meal ideas modal */
+.ni-head { margin-bottom: 10px; }
+.ni-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ni-chip { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; font-size: 0.74rem; color: var(--text-dim); }
+.ni-chip b { color: var(--text); }
+.ni-chip.done { opacity: 0.55; }
+.ni-note { margin-top: 6px; font-size: 0.78rem; }
+.ni-list { list-style: none; margin: 0; padding: 0; }
+.ni-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 10px; padding: 8px 0; border-top: 1px solid var(--border); }
+.ni-main { font-size: 0.88rem; }
+.ni-meta { grid-column: 1; font-size: 0.74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ni-log { grid-row: 1 / span 2; grid-column: 2; white-space: nowrap; }
 .nh-spark { width: 100%; height: 26px; color: var(--accent); margin: 1px 0; }
 .nh-adv { list-style: none; margin: 2px 0 0; padding: 0; width: 100%; }
 .nh-adv li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.45; }

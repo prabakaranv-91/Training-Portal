@@ -514,7 +514,11 @@ function renderNutritionProgress(p) {
   }
 
   const adv = p.advice || {};
-  const line = (a) => `<li title="${escapeAttr(a.why)}"><b>${escapeAttr(a.name)}</b><span class="dim"> ${escapeAttr(a.instead ? `→ ${a.instead}` : a.portion)}</span></li>`;
+  // Each line is clipped to the tile width; the title shows the whole suggestion on hover.
+  const line = (a) => {
+    const tail = a.instead ? `→ ${a.instead}` : a.portion;
+    return `<li title="${escapeAttr(`${a.name} ${tail}${a.why ? ` — ${a.why}` : ""}`)}"><b>${escapeAttr(a.name)}</b><span class="dim"> ${escapeAttr(tail)}</span></li>`;
+  };
   const avoid = adv.avoid || [], add = adv.add || [], foods = p.contributors || [];
   const actions = avoid.length || add.length
     ? `<div class="nh-tile nh-advice">
@@ -660,6 +664,46 @@ document.addEventListener(
   },
   true
 );
+// ------------------------------------------------------------- meal ideas
+
+async function openNutritionIdeas() {
+  const modal = document.getElementById("nutri-ideas-modal");
+  const body = document.getElementById("nutri-ideas-body");
+  modal.classList.remove("hidden");
+  body.innerHTML = `<div class="empty">Looking at what you still need…</div>`;
+  const date = document.getElementById("nutri-date").value || nutriLocalDate();
+  let d;
+  try {
+    d = await api(`/api/nutrition/ideas?date=${encodeURIComponent(date)}`);
+  } catch (ex) {
+    body.innerHTML = `<div class="empty">Could not load suggestions: ${escapeAttr(ex.message)}</div>`;
+    return;
+  }
+  const left = d.left || {};
+  const chip = (label, v, unit) =>
+    `<span class="ni-chip ${v > 0 ? "" : "done"}">${label} <b>${v > 0 ? nutriFmt(v) : 0}${unit}</b> left</span>`;
+  body.innerHTML = `
+    <div class="ni-head">
+      <div class="ni-chips">${chip("Calories", left.kcal, "")}${chip("Protein", left.protein, " g")}${chip("Fibre", left.fiber, " g")}</div>
+      <div class="dim ni-note">${escapeAttr(d.note || "")}</div>
+    </div>
+    ${d.ideas && d.ideas.length
+      ? `<ul class="ni-list">${d.ideas
+          .map(
+            (i) => `<li class="ni-item">
+              <div class="ni-main"><b>${escapeAttr(i.name)}</b> <span class="dim">· ${escapeAttr(i.portion)}</span></div>
+              <div class="ni-meta dim">${nutriFmt(i.kcal)} kcal · ${i.protein} g protein · ${i.fiber} g fibre — ${escapeAttr(i.why)}</div>
+              <button class="btn-link ni-log" data-text="${escapeAttr(`${i.portion} ${i.name}`)}">Log this</button>
+            </li>`
+          )
+          .join("")}</ul>`
+      : `<div class="empty">Nothing to add right now.</div>`}`;
+}
+
+function closeNutritionIdeas() {
+  document.getElementById("nutri-ideas-modal").classList.add("hidden");
+}
+
 function toggleNutritionChat(open) {
   const box = document.getElementById("nutri-chatbox");
   const show = open ?? box.classList.contains("hidden");
@@ -711,6 +755,18 @@ document.getElementById("nutri-messages").addEventListener("click", (e) => {
   else setNutritionRevoked(btn.dataset.id, btn.dataset.item, btn.classList.contains("nutri-revoke"));
 });
 document.getElementById("nutri-history-btn").addEventListener("click", openNutritionHistory);
+document.getElementById("nutri-ideas-btn").addEventListener("click", openNutritionIdeas);
+document.getElementById("nutri-ideas-close").addEventListener("click", closeNutritionIdeas);
+document.getElementById("nutri-ideas-modal").addEventListener("click", (e) => {
+  if (e.target.id === "nutri-ideas-modal") return closeNutritionIdeas();
+  const btn = e.target.closest(".ni-log");
+  if (!btn) return;
+  closeNutritionIdeas();
+  toggleNutritionChat(true);
+  const input = document.getElementById("nutri-input");
+  input.value = btn.dataset.text;
+  input.focus();
+});
 document.getElementById("nutri-history-close").addEventListener("click", closeNutritionHistory);
 document.getElementById("nutri-history-modal").addEventListener("click", (e) => {
   if (e.target.id === "nutri-history-modal") closeNutritionHistory();
@@ -724,6 +780,7 @@ document.getElementById("nutri-history-period").addEventListener("change", (e) =
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     closeNutritionHistory();
+    closeNutritionIdeas();
     toggleNutritionChat(false);
   }
 });

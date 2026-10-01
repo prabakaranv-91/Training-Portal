@@ -575,6 +575,12 @@ def nutrition_coach(date: dt.date | None = None, refresh: bool = False,
     return nutrition_service.coach(user, (date or dt.date.today()).isoformat(), refresh)
 
 
+@app.get("/api/nutrition/ideas")
+def nutrition_ideas(date: dt.date | None = None, garmin_session: str | None = Cookie(default=None)):
+    user = _nutrition_user(garmin_session)
+    return nutrition_service.meal_ideas(user, (date or dt.date.today()).isoformat())
+
+
 @app.get("/api/nutrition/parser")
 def nutrition_parser_status(garmin_session: str | None = Cookie(default=None)):
     _valid_session(garmin_session)

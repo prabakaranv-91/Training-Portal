@@ -6,7 +6,7 @@
     <title>Training Lab — Running Portal</title>
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="analysis.css" />
-    <link rel="stylesheet" href="nutrition.css?v=2026100115" />
+    <link rel="stylesheet" href="nutrition.css?v=2026100116" />
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   </head>
@@ -87,6 +87,7 @@
             <h2>🍽️ Nutrition log</h2>
             <div class="panel-controls">
               <input type="date" id="nutri-date" />
+              <button id="nutri-ideas-btn" class="btn-link" type="button" title="What to eat next for a balanced day">🥗 Eat next</button>
               <button id="nutri-history-btn" class="btn-link" type="button" title="Program, weight, progress and daily history">🎯 Plan &amp; progress →</button>
             </div>
           </div>
@@ -359,6 +360,17 @@
       </div>
     </div>
 
+    <!-- ========================= MEAL IDEAS ========================= -->
+    <div id="nutri-ideas-modal" class="modal-overlay hidden">
+      <div class="modal">
+        <div class="modal-head">
+          <h2>🥗 What to eat next</h2>
+          <button id="nutri-ideas-close" class="modal-close" title="Close">×</button>
+        </div>
+        <div class="modal-body" id="nutri-ideas-body"></div>
+      </div>
+    </div>
+
     <!-- ======================== ACTIVITY MODAL ======================== -->
     <div id="activity-modal" class="modal-overlay hidden">
       <div class="modal modal-lg">
@@ -393,6 +405,6 @@
     </div>
 
     <script src="app.js"></script>
-    <script src="nutrition.js?v=2026100115"></script>
+    <script src="nutrition.js?v=2026100116"></script>
   </body>
 </html>

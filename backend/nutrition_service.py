@@ -943,6 +943,82 @@ def _forecast(user: str, data: dict[str, Any], counted: int, balance: float,
             "lowData": counted < 5, "tooFast": abs(actual["perWeekKg"]) > _SAFE_KG_PER_WEEK}
 
 
+# Everyday Indian options used to fill the rest of the day: (name, portion, kcal, protein g, fibre g, tags)
+_IDEAS: list[tuple[str, str, int, int, int, tuple[str, ...]]] = [
+    ("Boiled eggs", "2", 140, 12, 0, ("protein",)),
+    ("Paneer bhurji", "100 g", 220, 18, 1, ("protein",)),
+    ("Grilled chicken", "150 g", 250, 45, 0, ("protein",)),
+    ("Hung curd / Greek yogurt", "1 cup", 130, 18, 0, ("protein",)),
+    ("Whey protein shake", "1 scoop", 120, 24, 0, ("protein",)),
+    ("Fish curry (no cream)", "1 bowl", 220, 25, 1, ("protein",)),
+    ("Sprouts / chana sundal", "1 cup", 120, 9, 6, ("protein", "fiber")),
+    ("Dal or sambar", "1 cup", 150, 9, 5, ("protein", "fiber")),
+    ("Rajma / chana masala", "1 cup", 220, 12, 9, ("protein", "fiber")),
+    ("Vegetable poriyal", "1 bowl", 90, 3, 5, ("fiber",)),
+    ("Cucumber & carrot salad", "1 plate", 60, 2, 4, ("fiber",)),
+    ("Guava", "1 fruit", 70, 1, 5, ("fiber",)),
+    ("Papaya", "1 cup", 60, 1, 3, ("fiber",)),
+    ("Oats porridge", "1 bowl", 220, 8, 5, ("carbs", "fiber")),
+    ("Phulka / chapati", "2", 240, 6, 4, ("carbs",)),
+    ("Brown rice", "1 cup", 220, 5, 3, ("carbs",)),
+    ("Idli with sambar", "3 + 1 cup", 280, 10, 4, ("carbs", "protein")),
+    ("Banana", "1", 100, 1, 3, ("carbs",)),
+    ("Peanut butter on toast", "1 slice + 1 tbsp", 200, 7, 2, ("fat", "carbs")),
+    ("Almonds", "15", 100, 4, 2, ("fat",)),
+    ("Buttermilk", "1 glass", 60, 3, 0, ("light",)),
+]
+
+
+def meal_ideas(user: str, date: str) -> dict[str, Any]:
+    """Foods that fill what is still missing today: calories left first, then protein and fibre."""
+    data = _load(user)
+    snap = data["days"].get(date)
+    if not snap:
+        return {"date": date, "ideas": [], "note": "Log today's food first to get suggestions."}
+    intake, targets = snap["intake"], snap["targets"]
+    left = {k: (targets.get(k) or 0) - (intake.get(k) or 0) for k in ("kcal", "protein", "fiber")}
+    eaten = {i["name"].lower() for e in _active([e for e in data["entries"] if e.get("date") == date])
+             for i in e["items"] if i.get("found") and not i.get("revoked")}
+    program = PROGRAMS.get(snap.get("program") or "maintain", PROGRAMS["maintain"])
+
+    if left["kcal"] < 100:
+        over = left["kcal"] < -50
+        pool = [i for i in _IDEAS if "light" in i[5] or ("fiber" in i[5] and i[2] <= 90)]
+        note = ("You are past your calorie target for today — if you are still hungry, keep it to these."
+                if over else "You are close to your target — only light options left for today.")
+    else:
+        pool = [i for i in _IDEAS if i[0].lower() not in eaten]
+        note = f"About {round(left['kcal']):,} kcal left for your {program['label'].lower()} target."
+
+    # Greedy pick: whatever closes the biggest remaining gap, re-scored after every choice.
+    rem = {k: max(v, 0) for k, v in left.items()}
+    ideas: list[dict[str, Any]] = []
+    while pool and len(ideas) < 4:
+        def score(idea: tuple[str, str, int, int, int, tuple[str, ...]]) -> float:
+            _, _, kcal, prot, fib, _tags = idea
+            if rem["kcal"] and kcal > rem["kcal"] + 120:
+                return -100
+            fit = kcal / rem["kcal"] * 4 if rem["kcal"] else 0
+            return min(prot, rem["protein"]) * 2 + min(fib, rem["fiber"]) * 3 + fit
+
+        best = max(pool, key=score)
+        if score(best) <= -100:
+            break
+        pool.remove(best)
+        name, portion, kcal, prot, fib, tags = best
+        why = (f"{prot} g protein" if rem["protein"] >= 10 and "protein" in tags else
+               f"{fib} g fibre" if rem["fiber"] >= 4 and "fiber" in tags else
+               f"{kcal} kcal to round off the day")
+        ideas.append({"name": name, "portion": portion, "kcal": kcal, "protein": prot, "fiber": fib,
+                      "why": why, "tags": list(tags)})
+        rem = {"kcal": max(rem["kcal"] - kcal, 0), "protein": max(rem["protein"] - prot, 0),
+               "fiber": max(rem["fiber"] - fib, 0)}
+        if rem["kcal"] < 80:
+            break
+    return {"date": date, "left": {k: round(v) for k, v in left.items()}, "ideas": ideas, "note": note,
+            "program": program["label"]}
+
+
 # Everyday Indian foods used when there is no Gemini review to draw from.
 _ADD_PROTEIN = [("Sprouts / chana sundal", "1 cup", "~9 g protein, high fibre"),
                 ("Paneer bhurji", "100 g", "~18 g protein"),
