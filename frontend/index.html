@@ -6,7 +6,7 @@
     <title>Training Lab — Running Portal</title>
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="analysis.css" />
-    <link rel="stylesheet" href="nutrition.css?v=2026100116" />
+    <link rel="stylesheet" href="nutrition.css?v=2026100117" />
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   </head>
@@ -85,10 +85,10 @@
         <section class="panel nutrition-panel">
           <div class="panel-head">
             <h2>🍽️ Nutrition log</h2>
-            <div class="panel-controls">
+            <div class="panel-controls nutri-controls">
               <input type="date" id="nutri-date" />
               <button id="nutri-ideas-btn" class="btn-link" type="button" title="What to eat next for a balanced day">🥗 Eat next</button>
-              <button id="nutri-history-btn" class="btn-link" type="button" title="Program, weight, progress and daily history">🎯 Plan &amp; progress →</button>
+              <button id="nutri-history-btn" class="btn-link" type="button" title="Program, weight, progress and daily history">🎯 Plan &amp; progress</button>
             </div>
           </div>
           <div class="nutri-chat">
@@ -338,22 +338,20 @@
             </div>
             <div id="nutri-weight-note" class="nh-note dim"></div>
           </form>
-          <div class="nh-field">
-            <label class="nh-label" for="nutri-history-period">📅 Period</label>
-            <select id="nutri-history-period">
-              <option value="7">Last 7 days</option>
-              <option value="30" selected>Last 30 days</option>
-              <option value="90">Last 90 days</option>
-            </select>
-            <div class="nh-note dim">Summary and charts below</div>
-          </div>
         </div>
         <div id="nutri-progress" class="nh-progress"></div>
         <div class="modal-body">
           <p id="nutri-history-empty" class="empty hidden">No meals logged in this period.</p>
           <div id="nutri-history-table"></div>
           <div class="nh-chart-wrap">
-            <div class="nh-cap">Calories eaten vs burned</div>
+            <div class="nh-chart-head">
+              <div class="nh-cap">Calories eaten vs burned</div>
+              <select id="nutri-history-period" class="nh-period" title="Period shown in the chart and summary">
+                <option value="7">7 days</option>
+                <option value="30" selected>30 days</option>
+                <option value="90">90 days</option>
+              </select>
+            </div>
             <div class="nh-chart"><canvas id="nutri-history-chart"></canvas></div>
           </div>
         </div>
@@ -405,6 +403,6 @@
     </div>
 
     <script src="app.js"></script>
-    <script src="nutrition.js?v=2026100116"></script>
+    <script src="nutrition.js?v=2026100117"></script>
   </body>
 </html>
