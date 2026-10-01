@@ -6,7 +6,7 @@
     <title>Training Lab — Running Portal</title>
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="analysis.css" />
-    <link rel="stylesheet" href="nutrition.css?v=2026100113" />
+    <link rel="stylesheet" href="nutrition.css?v=2026100114" />
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   </head>
@@ -316,42 +316,42 @@
           <button id="nutri-history-close" class="modal-close" title="Close">×</button>
         </div>
         <div class="nh-settings">
-          <div class="nh-setting">
+          <div class="nh-field">
             <label class="nh-label" for="nutri-program">🎯 Program</label>
             <select id="nutri-program">
               <option value="maintain">Maintain weight</option>
             </select>
             <div id="nutri-program-note" class="nh-note dim"></div>
           </div>
-          <form id="nutri-weight-form" class="nh-setting">
+          <form id="nutri-weight-form" class="nh-field">
             <label class="nh-label" for="nutri-weight">⚖️ Weight</label>
-            <b id="nutri-weight-garmin" class="nh-weight-val hidden"></b>
-            <span id="nutri-weight-edit" class="nh-weight-edit">
-              <input id="nutri-weight" type="number" min="25" max="350" step="0.1" placeholder="kg" />
-              <button type="submit" class="btn-primary btn-sm">Save</button>
-            </span>
+            <div class="nh-control">
+              <b id="nutri-weight-garmin" class="nh-weight-val hidden"></b>
+              <span id="nutri-weight-edit" class="nh-weight-edit">
+                <input id="nutri-weight" type="number" min="25" max="350" step="0.1" placeholder="kg" />
+                <button type="submit" class="btn-primary btn-sm">Save</button>
+              </span>
+            </div>
             <div id="nutri-weight-note" class="nh-note dim"></div>
           </form>
+          <div class="nh-field">
+            <label class="nh-label" for="nutri-history-period">📅 Period</label>
+            <select id="nutri-history-period">
+              <option value="7">Last 7 days</option>
+              <option value="30" selected>Last 30 days</option>
+              <option value="90">Last 90 days</option>
+            </select>
+            <div class="nh-note dim">Summary and charts below</div>
+          </div>
         </div>
-        <form id="nutri-weight-form" class="nh-program">
-          <label for="nutri-weight">⚖️ Weight</label>
-          <b id="nutri-weight-garmin" class="hidden"></b>
-          <span id="nutri-weight-edit" class="nh-weight-edit">
-            <input id="nutri-weight" type="number" min="25" max="350" step="0.1" placeholder="kg" />
-            <button type="submit" class="btn-primary btn-sm">Save</button>
-          </span>
-          <span id="nutri-weight-note" class="dim"></span>
-        </form>
         <div id="nutri-progress" class="nh-progress"></div>
-        <div class="period-tabs" id="nutri-history-periods">
-          <button data-days="7">7 days</button>
-          <button data-days="30" class="active">30 days</button>
-          <button data-days="90">90 days</button>
-        </div>
         <div class="modal-body">
-          <div class="nh-chart"><canvas id="nutri-history-chart"></canvas></div>
           <p id="nutri-history-empty" class="empty hidden">No meals logged in this period.</p>
           <div id="nutri-history-table"></div>
+          <div class="nh-chart-wrap">
+            <div class="nh-cap">Calories eaten vs burned</div>
+            <div class="nh-chart"><canvas id="nutri-history-chart"></canvas></div>
+          </div>
         </div>
       </div>
     </div>
@@ -390,6 +390,6 @@
     </div>
 
     <script src="app.js"></script>
-    <script src="nutrition.js?v=2026100113"></script>
+    <script src="nutrition.js?v=2026100114"></script>
   </body>
 </html>

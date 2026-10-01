@@ -395,9 +395,7 @@ function editNutritionQty(btn) {
 
 async function openNutritionHistory() {
   document.getElementById("nutri-history-modal").classList.remove("hidden");
-  document
-    .querySelectorAll("#nutri-history-periods button")
-    .forEach((b) => b.classList.toggle("active", Number(b.dataset.days) === nutriHistoryDays));
+  document.getElementById("nutri-history-period").value = String(nutriHistoryDays);
   api("/api/nutrition/program").then(renderNutritionProgram).catch(() => {});
   api("/api/nutrition/weight").then(renderNutritionWeight).catch(() => {});
   try {
@@ -584,7 +582,7 @@ function renderNutritionHistory(days) {
   const empty = !days.length;
   document.getElementById("nutri-history-empty").classList.toggle("hidden", !empty);
   const canvas = document.getElementById("nutri-history-chart");
-  canvas.parentElement.classList.toggle("hidden", empty);
+  canvas.closest(".nh-chart-wrap").classList.toggle("hidden", empty);
   if (nutriHistoryChart) nutriHistoryChart.destroy();
   nutriHistoryChart = null;
   if (empty) {
@@ -596,20 +594,18 @@ function renderNutritionHistory(days) {
     data: {
       labels: days.map((d) => d.date.slice(5)),
       datasets: [
-        { type: "bar", label: "Intake kcal", data: days.map((d) => d.intake.kcal), backgroundColor: "rgba(45,212,191,0.6)", maxBarThickness: 24 },
-        { type: "line", label: "Burn kcal", data: days.map((d) => d.burn?.total ?? null), borderColor: "#f59e0b", tension: 0.3, spanGaps: true, pointRadius: 2 },
-        { type: "line", label: "Target kcal", data: days.map((d) => d.targetKcal ?? null), borderColor: "#a78bfa", borderDash: [5, 4], tension: 0.3, spanGaps: true, pointRadius: 2 },
-        { type: "line", label: "Protein g", data: days.map((d) => d.intake.protein), borderColor: "#60a5fa", yAxisID: "y1", tension: 0.3, pointRadius: 2 },
+        { type: "bar", label: "Eaten", data: days.map((d) => d.intake.kcal), backgroundColor: "rgba(45,212,191,0.6)", maxBarThickness: 18 },
+        { type: "line", label: "Burned", data: days.map((d) => d.burn?.total ?? null), borderColor: "#f59e0b", borderWidth: 2, tension: 0.3, spanGaps: true, pointRadius: 0 },
+        { type: "line", label: "Target", data: days.map((d) => d.targetKcal ?? null), borderColor: "#a78bfa", borderDash: [5, 4], borderWidth: 2, tension: 0.3, spanGaps: true, pointRadius: 0 },
       ],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: "#9fb0cc", boxWidth: 10, font: { size: 10 } } } },
+      plugins: { legend: { labels: { color: "#9fb0cc", boxWidth: 8, boxHeight: 8, font: { size: 10 }, padding: 10 } } },
       scales: {
-        x: { ticks: tick, grid: { display: false } },
-        y: { ticks: tick, grid: { color: "rgba(255,255,255,0.05)" } },
-        y1: { position: "right", ticks: { ...tick, color: "#60a5fa" }, grid: { display: false } },
+        x: { ticks: { ...tick, maxTicksLimit: 8 }, grid: { display: false } },
+        y: { ticks: { ...tick, maxTicksLimit: 4 }, grid: { color: "rgba(255,255,255,0.05)" } },
       },
     },
   });
@@ -707,10 +703,8 @@ document.getElementById("nutri-history-modal").addEventListener("click", (e) => 
 });
 document.getElementById("nutri-program").addEventListener("change", saveNutritionProgram);
 document.getElementById("nutri-weight-form").addEventListener("submit", saveNutritionWeight);
-document.getElementById("nutri-history-periods").addEventListener("click", (e) => {
-  const b = e.target.closest("button[data-days]");
-  if (!b) return;
-  nutriHistoryDays = Number(b.dataset.days);
+document.getElementById("nutri-history-period").addEventListener("change", (e) => {
+  nutriHistoryDays = Number(e.target.value);
   openNutritionHistory();
 });
 document.addEventListener("keydown", (e) => {
