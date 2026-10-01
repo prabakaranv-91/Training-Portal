@@ -33,12 +33,20 @@ async function loadNutrition() {
   const dateEl = document.getElementById("nutri-date");
   if (!dateEl.value) dateEl.value = nutriLocalDate();
   dateEl.max = nutriLocalDate();
-  document.getElementById("nutri-summary").innerHTML = `<div class="empty">Loading…</div>`;
+  setNutritionBusy(true);
+  document.getElementById("nutri-chat-sub").textContent = "Loading\u2026";
+  document.getElementById("nutri-messages").innerHTML =
+    `<div class="nutri-bot nutri-typing" aria-label="Loading"><span></span><span></span><span></span>
+      <small class="dim">Loading that day\u2026</small></div>`;
+  document.getElementById("nutri-summary").innerHTML =
+    `<div class="empty nutri-loading"><span class="nutri-spinner" aria-hidden="true"></span> Loading\u2026</div>`;
   try {
     renderNutritionDay(await api(`/api/nutrition/day?date=${encodeURIComponent(dateEl.value)}`));
   } catch (ex) {
     document.getElementById("nutri-summary").innerHTML =
       `<div class="empty">Could not load nutrition: ${escapeAttr(ex.message)}</div>`;
+  } finally {
+    setNutritionBusy(false);
   }
 }
 

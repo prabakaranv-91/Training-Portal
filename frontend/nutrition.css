@@ -388,6 +388,9 @@
   border-radius: 6px;
 }
 .nh-period:hover, .nh-period:focus { color: var(--text); border-color: var(--accent); }
+.nutri-loading { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.nutri-spinner { width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: nutri-spin 0.7s linear infinite; }
+@keyframes nutri-spin { to { transform: rotate(360deg); } }
 .nh-settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; padding: 0 20px 12px; }
 /* Nutrition panel head: the narrow panel puts date + actions on their own row */
 .nutri-controls { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 6px; }
