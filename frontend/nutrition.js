@@ -61,13 +61,13 @@ const NUTRI_VERDICT = {
   under: { label: "Under target", cls: "low" },
 };
 
-// Gemini reviews the whole day (via the MCP server) after every change; rule-based tips if it's unavailable.
-async function loadNutritionCoach(day) {
+// The day review is generated once by Gemini and stored (sheet + local); "Update" regenerates it on demand.
+async function loadNutritionCoach(day, refresh = false) {
   const seq = ++nutriCoachSeq;
   if (!document.getElementById("nutri-coach")) return;
   let review = null;
   try {
-    review = await api(`/api/nutrition/coach?date=${encodeURIComponent(day.date)}`);
+    review = await api(`/api/nutrition/coach?date=${encodeURIComponent(day.date)}${refresh ? "&refresh=true" : ""}`);
   } catch (_) {}
   const el = document.getElementById("nutri-coach");
   if (seq !== nutriCoachSeq || !el) return;
@@ -115,7 +115,9 @@ function nutriFillCoach(el, day, review) {
       .map((a) => `<li><b>${escapeAttr(a.item)}</b> — ${escapeAttr(a.reason)}<span class="dim"> → ${escapeAttr(a.instead)}</span></li>`)
       .join("");
     el.innerHTML = `
-      <div class="nc-head">🤖 <b>Day review</b> <span class="nutri-status ${v.cls}">${v.label}</span></div>
+      <div class="nc-head">🤖 <b>Day review</b> <span class="nutri-status ${v.cls}">${v.label}</span>
+        ${review.stale ? `<span class="dim nc-stale" title="You logged food after this review">outdated</span>
+        <button class="nutri-act nutri-review-refresh" title="Review the day again with Gemini (uses 1 request)">↻ Update</button>` : ""}</div>
       ${review.summary ? `<div>${escapeAttr(review.summary)}</div>` : ""}
       ${avoid ? `<div class="nc-sec">🚫 Avoid</div><ul>${avoid}</ul>` : ""}
       ${(review.keep || []).length ? `<div class="nc-sec">👍 Keep: <span>${review.keep.map(escapeAttr).join(", ")}</span></div>` : ""}
@@ -653,7 +655,11 @@ document.getElementById("nutri-messages").addEventListener("click", (e) => {
   }
   const btn = e.target.closest(".nutri-act");
   if (!btn) return;
-  if (btn.classList.contains("nutri-retry")) reanalyseNutritionEntry(btn.dataset.id);
+  if (btn.classList.contains("nutri-review-refresh")) {
+    btn.disabled = true;
+    btn.textContent = "Reviewing…";
+    if (nutriDay) loadNutritionCoach(nutriDay, true);
+  } else if (btn.classList.contains("nutri-retry")) reanalyseNutritionEntry(btn.dataset.id);
   else setNutritionRevoked(btn.dataset.id, btn.dataset.item, btn.classList.contains("nutri-revoke"));
 });
 document.getElementById("nutri-history-btn").addEventListener("click", openNutritionHistory);

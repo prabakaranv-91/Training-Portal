@@ -788,8 +788,15 @@ def sync_all_to_sheets(user: str) -> dict[str, int]:
 KCAL_PER_KG = 7700  # energy in ~1 kg of body weight change
 
 
-def coach(user: str, date: str) -> dict[str, Any]:
-    """Gemini review of the day's meals vs. the program; cached until the day's food changes."""
+REVIEW_REFRESH_HOURS = 3  # an outdated review is regenerated automatically at most this often
+
+
+def coach(user: str, date: str, refresh: bool = False) -> dict[str, Any]:
+    """Gemini review of the day's meals, generated once and stored (locally + Google Sheet).
+
+    Logging more food marks the stored review stale; it is regenerated only on `refresh`
+    or once it is older than REVIEW_REFRESH_HOURS, so Gemini isn't called on every change.
+    """
     data = _load(user)
     snap = data["days"].get(date)
     entries = [e for e in data["entries"] if e.get("date") == date]
@@ -803,25 +810,42 @@ def coach(user: str, date: str) -> dict[str, Any]:
         "burn": (snap.get("burn") or {}).get("total"), "workoutKcal": (snap.get("burn") or {}).get("workoutKcal", 0),
         "inProgress": date == dt.date.today().isoformat(), "foods": foods,
     }
-    sig = uuid.uuid5(uuid.NAMESPACE_OID, json.dumps(["v2", day["program"], day["targets"], foods], sort_keys=True)).hex
+    # Only the food and program decide freshness; burn/targets drift during the day as workouts sync.
+    sig = uuid.uuid5(uuid.NAMESPACE_OID, json.dumps(["v3", day["program"], foods], sort_keys=True)).hex
+    now = dt.datetime.now()
     cached = (data.get("coach") or {}).get(date)
-    if cached and cached.get("sig") == sig:
-        return {"source": "gemini", "from": "cache", **cached["review"]}
-    # The sheet keeps every review, so another PC / a fresh install doesn't spend Gemini quota again.
-    saved = sheets_sync.fetch_review(user, date)
-    if saved and saved.get("sig") == sig and saved.get("review"):
-        review, origin = saved["review"], "sheet"
-    else:
-        review, origin = food_parser_client.review(day), "gemini"
-        if not review:
-            return {"source": None}
-        sheets_sync.push_review(user, date, sig, review)
+    origin = "cache"
+    if not cached:
+        # The sheet keeps every review, so another PC / a fresh install doesn't spend Gemini quota again.
+        saved = sheets_sync.fetch_review(user, date)
+        if saved and saved.get("review"):
+            cached, origin = {"sig": saved.get("sig"), "review": saved["review"],
+                              "at": now.isoformat(timespec="seconds")}, "sheet"
+            _store_review(user, date, cached)
+    if cached:
+        stale = cached.get("sig") != sig
+        try:
+            age_h = (now - dt.datetime.fromisoformat(cached.get("at") or "")).total_seconds() / 3600
+        except ValueError:
+            age_h = 0.0
+        if not stale or not (refresh or (day["inProgress"] and age_h >= REVIEW_REFRESH_HOURS)):
+            return {"source": "gemini", "from": origin, "stale": stale, "at": cached.get("at"), **cached["review"]}
+    review = food_parser_client.review(day)
+    if not review:
+        if cached:
+            return {"source": "gemini", "from": origin, "stale": True, "at": cached.get("at"), **cached["review"]}
+        return {"source": None}
+    entry = {"sig": sig, "review": review, "at": now.isoformat(timespec="seconds")}
+    _store_review(user, date, entry)
+    sheets_sync.push_review(user, date, sig, review)
+    return {"source": "gemini", "from": "gemini", "stale": False, "at": entry["at"], **review}
+
+
+def _store_review(user: str, date: str, entry: dict[str, Any]) -> None:
     with _LOCK:
         data = _load(user)
-        data.setdefault("coach", {})[date] = {"sig": sig, "review": review,
-                                              "at": dt.datetime.now().isoformat(timespec="seconds")}
+        data.setdefault("coach", {})[date] = entry
         _save(user, data)
-    return {"source": "gemini", "from": origin, **review}
 
 
 def weight_for(user: str, date: str, data: dict[str, Any] | None = None) -> float | None:

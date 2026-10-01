@@ -36,6 +36,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def no_stale_frontend(request: Request, call_next):
+    # Browsers otherwise keep serving an old index.html/app.js after updates.
+    response = await call_next(request)
+    path = request.url.path
+    if not path.startswith("/api/") and (path == "/" or path.endswith((".html", ".js", ".css"))):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
 # In-memory session store: session_id -> GarminService.
 # Fine for a single-user, locally-run personal app.
 SESSIONS: dict[str, GarminService] = {}
@@ -559,9 +569,10 @@ def nutrition_item_qty(
 
 
 @app.get("/api/nutrition/coach")
-def nutrition_coach(date: dt.date | None = None, garmin_session: str | None = Cookie(default=None)):
+def nutrition_coach(date: dt.date | None = None, refresh: bool = False,
+                    garmin_session: str | None = Cookie(default=None)):
     user = _nutrition_user(garmin_session)
-    return nutrition_service.coach(user, (date or dt.date.today()).isoformat())
+    return nutrition_service.coach(user, (date or dt.date.today()).isoformat(), refresh)
 
 
 @app.get("/api/nutrition/parser")
