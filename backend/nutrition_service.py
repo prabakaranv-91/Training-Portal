@@ -788,14 +788,11 @@ def sync_all_to_sheets(user: str) -> dict[str, int]:
 KCAL_PER_KG = 7700  # energy in ~1 kg of body weight change
 
 
-REVIEW_REFRESH_HOURS = 3  # an outdated review is regenerated automatically at most this often
-
-
 def coach(user: str, date: str, refresh: bool = False) -> dict[str, Any]:
-    """Gemini review of the day's meals, generated once and stored (locally + Google Sheet).
+    """Gemini review of the day's meals, stored locally + in the Google Sheet.
 
-    Logging more food marks the stored review stale; it is regenerated only on `refresh`
-    or once it is older than REVIEW_REFRESH_HOURS, so Gemini isn't called on every change.
+    It is regenerated only when the day's food or program changed (or on `refresh`),
+    so reopening the page reuses the stored review instead of spending Gemini quota.
     """
     data = _load(user)
     snap = data["days"].get(date)
@@ -822,14 +819,8 @@ def coach(user: str, date: str, refresh: bool = False) -> dict[str, Any]:
             cached, origin = {"sig": saved.get("sig"), "review": saved["review"],
                               "at": now.isoformat(timespec="seconds")}, "sheet"
             _store_review(user, date, cached)
-    if cached:
-        stale = cached.get("sig") != sig
-        try:
-            age_h = (now - dt.datetime.fromisoformat(cached.get("at") or "")).total_seconds() / 3600
-        except ValueError:
-            age_h = 0.0
-        if not stale or not (refresh or (day["inProgress"] and age_h >= REVIEW_REFRESH_HOURS)):
-            return {"source": "gemini", "from": origin, "stale": stale, "at": cached.get("at"), **cached["review"]}
+    if cached and cached.get("sig") == sig and not refresh:
+        return {"source": "gemini", "from": origin, "stale": False, "at": cached.get("at"), **cached["review"]}
     review = food_parser_client.review(day)
     if not review:
         if cached:
@@ -1131,7 +1122,7 @@ _SWEET_FRIED = _SWEETS + _FRIED
 
 
 def _rate(item: dict[str, Any], program: str, review: dict[str, Any] | None = None) -> tuple[str | None, str]:
-    """('best' | 'good' | 'avoid' | None, plain-language reason with the food's numbers)."""
+    """('best' | 'good' | 'ok' | 'avoid', plain-language reason with the food's numbers)."""
     name = (item.get("name") or "").lower()
     label = PROGRAMS.get(program, PROGRAMS["maintain"])["label"].lower()
     for a in (review or {}).get("avoid") or []:
@@ -1139,7 +1130,7 @@ def _rate(item: dict[str, Any], program: str, review: dict[str, Any] | None = No
             return "avoid", f"{a['reason']}. Try {a['instead']} instead (from today's review)."
     kcal = item.get("kcal") or 0
     if kcal < 15:
-        return None, ""
+        return "ok", "Almost no calories \u2014 fine any time."
     prot, sug, fat = item.get("protein") or 0, item.get("sugar") or 0, item.get("fat") or 0
     fiber, sod, grams = item.get("fiber") or 0, item.get("sodium") or 0, item.get("grams") or 0
     p, s, f = prot * 4 / kcal, sug * 4 / kcal, fat * 9 / kcal
@@ -1172,7 +1163,8 @@ def _rate(item: dict[str, Any], program: str, review: dict[str, Any] | None = No
         return "good", f"{round(fiber, 1)} g fibre \u2014 keeps you full and helps digestion."
     if grams and kcal / grams * 100 < 60 and s < 0.5:
         return "good", f"Only {round(kcal)} kcal for {round(grams)} g \u2014 filling and light."
-    return None, ""
+    return "ok", (f"{round(kcal)} kcal, {round(prot)} g protein, {round(fat)} g fat \u2014 nothing wrong with it, "
+                  f"just keep the portion in line with your {label} target.{instead}")
 
 
 def _annotate(items: list[dict[str, Any]], program: str, review: dict[str, Any] | None) -> None:

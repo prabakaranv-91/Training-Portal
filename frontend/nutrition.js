@@ -50,6 +50,7 @@ function renderNutritionDay(day) {
   const label = day.inProgress
     ? "Today"
     : new Date(`${day.date}T00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  document.getElementById("nutri-chat-date-btn").classList.toggle("active", !day.inProgress);
   document.getElementById("nutri-chat-sub").textContent =
     `${label} · ${nutriFmt(day.intake.kcal)} / ${nutriFmt(day.targets.kcal)} kcal`;
 }
@@ -177,10 +178,11 @@ const nutriOpen = new Set(); // keeps expanded nutrient tables open across re-re
 const NUTRI_RATING = {
   best: { icon: "★", title: "Highly recommended — keep eating this" },
   good: { icon: "✔", title: "Good choice for your goal" },
+  ok: { icon: "•", title: "Neutral — fine in moderation" },
   avoid: { icon: "⊘", title: "Better to avoid" },
 };
 
-// ★ highly recommended, ✔ good, ⊘ avoid; neutral foods get no marker. Hover/tap shows why.
+// ★ highly recommended, ✔ good, • neutral, ⊘ avoid. Hover/tap shows why.
 function nutriRateIcon(i) {
   const r = NUTRI_RATING[i.rating];
   if (!r) return "";
@@ -664,6 +666,12 @@ function toggleNutritionChat(open) {
   box.classList.toggle("hidden", !show);
   document.getElementById("nutri-fab").classList.toggle("open", show);
   if (show) {
+    // The chat always opens on today; use the date button to log for an earlier day.
+    const dateEl = document.getElementById("nutri-date");
+    if (dateEl.value !== nutriLocalDate()) {
+      dateEl.value = nutriLocalDate();
+      loadNutrition();
+    }
     const msgs = document.getElementById("nutri-messages");
     msgs.scrollTop = msgs.scrollHeight;
     document.getElementById("nutri-input").focus();
@@ -671,6 +679,12 @@ function toggleNutritionChat(open) {
 }
 
 document.getElementById("nutri-fab").addEventListener("click", () => toggleNutritionChat());
+document.getElementById("nutri-chat-date-btn").addEventListener("click", () => {
+  const el = document.getElementById("nutri-date");
+  el.max = nutriLocalDate();
+  if (el.showPicker) el.showPicker();
+  else el.focus();
+});
 document.getElementById("nutri-chat-close").addEventListener("click", () => toggleNutritionChat(false));
 document.getElementById("nutri-form").addEventListener("submit", submitNutrition);
 document.getElementById("nutri-input").addEventListener("keydown", (e) => {

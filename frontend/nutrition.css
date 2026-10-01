@@ -251,6 +251,7 @@
   cursor: pointer;
 }
 .nutri-chat-min:hover { background: var(--bg-soft); color: var(--text); }
+.nutri-chat-min.active { color: var(--accent); background: rgba(45, 212, 191, 0.12); }
 .nutri-chatbox .nutri-messages {
   flex: 1;
   max-height: none;
@@ -329,6 +330,7 @@
   cursor: help;
 }
 .nr.good { background: rgba(52, 211, 153, 0.18); color: #34d399; }
+.nr.ok { background: rgba(159, 176, 204, 0.16); color: var(--text-dim); }
 .nr.avoid { background: rgba(248, 113, 113, 0.18); color: #f87171; }
 .nr.best { background: #34d399; color: #062a26; font-size: 9px; }
 .nr:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
