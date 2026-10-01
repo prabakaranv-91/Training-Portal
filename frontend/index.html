@@ -113,7 +113,20 @@
         </section>
         </div>
 
-        <section class="panel">
+        <section class="panel nutrition-panel">
+          <div class="panel-head">
+            <h2>🍽️ Nutrition log</h2>
+            <div class="panel-controls">
+              <input type="date" id="nutri-date" />
+              <button id="nutri-history-btn" class="btn-link" type="button" title="Program, weight, progress and daily history">🎯 Plan &amp; progress →</button>
+            </div>
+          </div>
+          <div class="nutri-chat">
+            <div id="nutri-summary" class="nutri-summary"></div>
+          </div>
+        </section>
+
+        <section class="panel vo2-training-panel">
           <h2>VO₂ Max &amp; Training</h2>
           <div id="vo2-panel" class="vo2-grid"></div>
         </section>
@@ -308,7 +321,7 @@
     <div id="nutri-history-modal" class="modal-overlay hidden">
       <div class="modal modal-lg">
         <div class="modal-head">
-          <h2>🍽️ Nutrition history</h2>
+          <h2>🍽️ Nutrition plan &amp; progress</h2>
           <button id="nutri-history-close" class="modal-close" title="Close">×</button>
         </div>
         <div class="nh-program">
