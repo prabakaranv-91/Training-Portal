@@ -526,9 +526,32 @@ function renderNutritionProgress(p) {
   el.innerHTML = `
     <div class="nh-tile">${calories}</div>
     <div class="nh-tile nh-weight">${weight}</div>
+    ${nutriForecastTile(p.forecast)}
     ${foods ? `<div class="nh-tile"><div class="dim">Top calorie foods</div><ul class="nh-foods">${foods}</ul></div>` : ""}
     ${avoid || add ? `<div class="nh-tile nh-advice"><div class="dim">To hit your target</div>
       ${avoid ? `<ul class="nh-adv">${avoid}</ul>` : ""}${add ? `<ul class="nh-adv">${add}</ul>` : ""}</div>` : ""}`;
+}
+
+// Weight you land on if the last few days of eating + training continue, next to the program's own pace.
+function nutriForecastTile(f) {
+  if (!f) return "";
+  const rate = f.actual.perWeekKg;
+  const cls = Math.abs(rate) < 0.05 ? "ok" : rate < 0 ? "low" : "high";
+  const pace = Math.abs(rate) < 0.05
+    ? "Holding steady at this pace"
+    : `${rate < 0 ? "↓" : "↑"} ${Math.abs(rate).toFixed(2)} kg/week at this pace`;
+  const note = f.lowData
+    ? `Based on ${f.basisDays} logged day${f.basisDays === 1 ? "" : "s"} — log more for a reliable trend.`
+    : f.tooFast
+      ? "Faster than 1 kg/week — consider easing the deficit/surplus."
+      : `If you follow the plan: ${f.plan.in4wKg} kg in 4 weeks.`;
+  return `<div class="nh-tile nh-forecast">
+    <div class="dim">Projected weight</div>
+    <div class="nh-val">${f.actual.in4wKg} kg <small class="dim">in 4 weeks</small></div>
+    <div class="dim">${f.actual.in12wKg} kg in 12 weeks · now ${f.currentKg} kg</div>
+    <div class="nh-sentence ${cls}">${pace}</div>
+    <div class="dim nh-fc-note">${escapeAttr(note)}</div>
+  </div>`;
 }
 
 async function saveNutritionProgram(e) {

@@ -882,7 +882,7 @@ def progress(user: str, days: int) -> dict[str, Any]:
     balance = 0.0
     target_gap = 0.0
     counted = 0
-    sums = {k: 0.0 for k in ("intake", "target", "protein", "proteinT", "fiber", "fiberT")}
+    sums = {k: 0.0 for k in ("intake", "target", "protein", "proteinT", "fiber", "fiberT", "burn")}
     for date, snap in data["days"].items():
         burn = (snap.get("burn") or {}).get("total")
         target = (snap.get("targets") or {}).get("kcal")
@@ -893,6 +893,7 @@ def progress(user: str, days: int) -> dict[str, Any]:
             t = snap.get("targets") or {}
             sums["intake"] += snap["intake"]["kcal"]
             sums["target"] += target or burn
+            sums["burn"] += burn
             sums["protein"] += snap["intake"].get("protein") or 0
             sums["proteinT"] += t.get("protein") or 0
             sums["fiber"] += snap["intake"].get("fiber") or 0
@@ -924,7 +925,31 @@ def progress(user: str, days: int) -> dict[str, Any]:
         "weights": [{"date": w["date"], "kg": w["kg"]} for w in ws],
         "contributors": contributors,
         "advice": _period_advice(data, start, contributors, avg, target_gap),
+        "forecast": _forecast(user, data, counted, balance, avg),
     }
+
+
+# A realistic floor/ceiling for sustainable change, used to flag an over-aggressive pace.
+_SAFE_KG_PER_WEEK = 1.0
+
+
+def _forecast(user: str, data: dict[str, Any], counted: int, balance: float,
+              avg: dict[str, float]) -> dict[str, Any] | None:
+    """Where the current eating/training pace — and the program plan — lead the weight."""
+    current = weight_for(user, dt.date.today().isoformat(), data)
+    if not current or not counted:
+        return None
+
+    def project(daily_kcal: float) -> dict[str, Any]:
+        per_week = daily_kcal * 7 / KCAL_PER_KG
+        return {"perWeekKg": round(per_week, 2),
+                "in4wKg": round(current + per_week * 4, 1),
+                "in12wKg": round(current + per_week * 12, 1)}
+
+    actual = project(balance / counted)
+    plan = project(avg["target"] - avg["burn"])
+    return {"currentKg": current, "basisDays": counted, "actual": actual, "plan": plan,
+            "lowData": counted < 5, "tooFast": abs(actual["perWeekKg"]) > _SAFE_KG_PER_WEEK}
 
 
 # Everyday Indian foods used when there is no Gemini review to draw from.
