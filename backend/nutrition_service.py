@@ -1033,6 +1033,8 @@ def history(user: str, days: int) -> list[dict[str, Any]]:
                 f["grams"] = round(f["grams"] + (i.get("grams") or 0))
                 for k in NUTRIENTS:
                     f[k] = round(f[k] + (i.get(k) or 0), 1)
+        program = snap.get("program") or program_for(user, date, data)
+        _annotate(list(foods.values()), program, ((data.get("coach") or {}).get(date) or {}).get("review"))
         out.append({
             "date": date,
             "intake": _sum([e["totals"] for e in by_day[date]]),
@@ -1070,6 +1072,64 @@ _SWAPS: list[tuple[tuple[str, ...], str]] = [
 def _swap_hint(name: str) -> str | None:
     n = name.lower()
     return next((alt for keys, alt in _SWAPS if any(k in n for k in keys)), None)
+
+
+_SWEETS = ("jamun", "jalebi", "laddu", "halwa", "kesari", "payasam", "kheer", "barfi", "mysore pak",
+           "rasgulla", "biscuit", "sugarcane")
+_FRIED = ("parotta", "puri", "bhatura", "samosa", "pakora", "bonda", "vada", "murukku", "chips", "65", "fry",
+          "manchurian", "maggi", "instant noodles")
+_SWEET_FRIED = _SWEETS + _FRIED
+
+
+def _rate(item: dict[str, Any], program: str, review: dict[str, Any] | None = None) -> tuple[str | None, str]:
+    """('best' | 'good' | 'avoid' | None, plain-language reason with the food's numbers)."""
+    name = (item.get("name") or "").lower()
+    label = PROGRAMS.get(program, PROGRAMS["maintain"])["label"].lower()
+    for a in (review or {}).get("avoid") or []:
+        if a["item"].lower() in name or name in a["item"].lower():
+            return "avoid", f"{a['reason']}. Try {a['instead']} instead (from today's review)."
+    kcal = item.get("kcal") or 0
+    if kcal < 15:
+        return None, ""
+    prot, sug, fat = item.get("protein") or 0, item.get("sugar") or 0, item.get("fat") or 0
+    fiber, sod, grams = item.get("fiber") or 0, item.get("sodium") or 0, item.get("grams") or 0
+    p, s, f = prot * 4 / kcal, sug * 4 / kcal, fat * 9 / kcal
+    fib, na = fiber * 100 / kcal, sod * 100 / kcal
+    deficit = PROGRAMS.get(program, PROGRAMS["maintain"])["pct"] < 0
+    swap = _swap_hint(name)
+    if any(k in name for k in ("coffee", "tea", "chai")):
+        swap = "the same drink with little or no sugar"
+    instead = f" Try {swap} instead." if swap else ""
+    if any(k in name for k in _SWEET_FRIED):
+        what = "Deep-fried" if any(k in name for k in _FRIED) else "Sweet"
+        return "avoid", f"{what} \u2014 {round(kcal)} kcal, {round(fat)} g fat, {round(sug)} g sugar with little nutrition.{instead}"
+    if s > 0.35 and fib < 2.5:
+        return "avoid", f"{round(sug)} g sugar \u2014 {round(s * 100)}% of its calories come from sugar.{instead}"
+    if na > 700:
+        return "avoid", f"{round(sod):,} mg sodium \u2014 {round(sod / 23)}% of your daily limit in one item.{instead}"
+    if f > 0.55 and p < 0.15:
+        return "avoid", f"{round(f * 100)}% of its calories are fat, with only {round(prot)} g protein.{instead}"
+    if deficit and kcal >= 400 and p < 0.12:
+        return "avoid", f"{round(kcal)} kcal but only {round(prot)} g protein \u2014 heavy for your {label} target.{instead}"
+    in_review = any(k.lower() in name or name in k.lower() for k in (review or {}).get("keep") or [])
+    if (p >= 0.35 and f < 0.4 and s < 0.15) or (fib >= 4 and p >= 0.15):
+        return "best", (f"{round(prot)} g protein ({round(p * 100)}% of calories), "
+                        f"{'high fibre' if fib >= 4 else 'low fat'} \u2014 ideal for {label}. Keep eating this!")
+    if in_review:
+        return "best", f"Today's review says this helps your {label} goal ({round(prot)} g protein, {round(kcal)} kcal). Keep it up!"
+    if p >= 0.25:
+        return "good", f"{round(prot)} g protein \u2014 {round(p * 100)}% of its calories. Good for muscle and recovery."
+    if fib >= 2.5:
+        return "good", f"{round(fiber, 1)} g fibre \u2014 keeps you full and helps digestion."
+    if grams and kcal / grams * 100 < 60 and s < 0.5:
+        return "good", f"Only {round(kcal)} kcal for {round(grams)} g \u2014 filling and light."
+    return None, ""
+
+
+def _annotate(items: list[dict[str, Any]], program: str, review: dict[str, Any] | None) -> None:
+    for i in items:
+        if i.get("found", True):
+            i["rating"], i["ratingWhy"] = _rate(i, program, review)
 
 
 def _fmt_qty(q: float) -> str:
@@ -1188,6 +1248,9 @@ def assess(user: str, date: str, energy: dict[str, Any]) -> dict[str, Any]:
     tips = _suggestions(intake, targets, status, workout_kcal, workout_min, is_today, program, burn)
     cut = _eliminations(entries, intake, targets, program)
     tips[1:1] = cut["tips"]
+    review = ((_load(user).get("coach") or {}).get(date) or {}).get("review")
+    for e in entries:
+        _annotate(e["items"], program, review)
 
     result = {
         "date": date,

@@ -71,6 +71,39 @@ async function loadNutritionCoach(day) {
   } catch (_) {}
   const el = document.getElementById("nutri-coach");
   if (seq !== nutriCoachSeq || !el) return;
+  if (review && review.source === "gemini" && review.from === "gemini" && nutriApplyReview(day, review)) {
+    // A fresh review changed some food ratings: redraw the chips, keeping this review bubble.
+    renderNutritionMessages(day);
+  }
+  const target = document.getElementById("nutri-coach");
+  if (!target) return;
+  nutriFillCoach(target, day, review);
+  const box = document.getElementById("nutri-messages");
+  box.scrollTop = box.scrollHeight;
+}
+
+function nutriApplyReview(day, review) {
+  const match = (a, b) => a.includes(b) || b.includes(a);
+  let changed = false;
+  for (const e of day.entries) {
+    for (const i of e.items) {
+      const name = (i.name || "").toLowerCase();
+      const bad = (review.avoid || []).find((a) => match(name, a.item.toLowerCase()));
+      const good = !bad && (review.keep || []).find((k) => match(name, k.toLowerCase()));
+      const rating = bad ? "avoid" : good && i.rating !== "best" ? "best" : i.rating;
+      if (rating !== i.rating) {
+        i.rating = rating;
+        i.ratingWhy = bad
+          ? `${bad.reason}. Try ${bad.instead} instead (from today's review).`
+          : `Today's review says this helps your goal (${Math.round(i.protein || 0)} g protein, ${Math.round(i.kcal || 0)} kcal). Keep it up!`;
+        changed = true;
+      }
+    }
+  }
+  return changed;
+}
+
+function nutriFillCoach(el, day, review) {
   if (!review || review.source !== "gemini") {
     const tips = day.cutTips || [];
     if (!tips.length) return el.remove();
@@ -118,7 +151,7 @@ function renderNutritionMessages(day) {
           const act = i.revoked
             ? `<button class="nutri-act nutri-restore" data-id="${id}" data-item="${idx}" title="Restore">↩</button>`
             : `<button class="nutri-act nutri-revoke" data-id="${id}" data-item="${idx}" title="Remove">×</button>`;
-          return `<span class="nutri-chip${i.revoked ? " revoked" : ""}" title="${escapeAttr(tip)}">${escapeAttr(i.name)}
+          return `<span class="nutri-chip${i.revoked ? " revoked" : ""}" title="${escapeAttr(tip)}">${i.revoked ? "" : nutriRateIcon(i)}${escapeAttr(i.name)}
             ${i.revoked ? `×${i.qty}` : `<button class="nutri-qty" data-id="${id}" data-item="${idx}" data-qty="${i.qty}" title="Edit quantity (${escapeAttr(i.unit)})">×${i.qty} ✎</button>`}
             <b>${nutriFmt(i.kcal)}</b>${act}</span>`;
         })
@@ -139,6 +172,58 @@ function renderNutritionMessages(day) {
 
 const nutriOpen = new Set(); // keeps expanded nutrient tables open across re-renders
 
+const NUTRI_RATING = {
+  best: { icon: "★", title: "Highly recommended — keep eating this" },
+  good: { icon: "✔", title: "Good choice for your goal" },
+  avoid: { icon: "⊘", title: "Better to avoid" },
+};
+
+// ★ highly recommended, ✔ good, ⊘ avoid; neutral foods get no marker. Hover/tap shows why.
+function nutriRateIcon(i) {
+  const r = NUTRI_RATING[i.rating];
+  if (!r) return "";
+  return `<span class="nr ${i.rating}" tabindex="0" role="img" aria-label="${escapeAttr(`${r.title}. ${i.ratingWhy || ""}`)}"
+    data-tip-title="${escapeAttr(r.title)}" data-tip="${escapeAttr(i.ratingWhy || "")}">${r.icon}</span>`;
+}
+
+function nutriShowTip(el) {
+  let pop = document.getElementById("nutri-tip-pop");
+  if (!pop) {
+    pop = document.createElement("div");
+    pop.id = "nutri-tip-pop";
+    pop.className = "nutri-tip-pop";
+    document.body.appendChild(pop);
+  }
+  const kind = [...el.classList].find((c) => NUTRI_RATING[c]) || "";
+  pop.className = `nutri-tip-pop ${kind}`;
+  pop.innerHTML = `<b>${el.textContent} ${escapeAttr(el.dataset.tipTitle)}</b><div>${escapeAttr(el.dataset.tip)}</div>`;
+  pop.style.display = "block";
+  const r = el.getBoundingClientRect();
+  const w = pop.offsetWidth, h = pop.offsetHeight;
+  const left = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8);
+  const top = r.top - h - 8 < 8 ? r.bottom + 8 : r.top - h - 8;
+  pop.style.left = `${left}px`;
+  pop.style.top = `${top}px`;
+}
+
+function nutriHideTip() {
+  const pop = document.getElementById("nutri-tip-pop");
+  if (pop) pop.style.display = "none";
+}
+
+document.addEventListener("mouseover", (e) => {
+  const el = e.target.closest?.(".nr[data-tip]");
+  if (el) nutriShowTip(el);
+});
+document.addEventListener("mouseout", (e) => {
+  if (e.target.closest?.(".nr[data-tip]")) nutriHideTip();
+});
+document.addEventListener("focusin", (e) => {
+  if (e.target.matches?.(".nr[data-tip]")) nutriShowTip(e.target);
+});
+document.addEventListener("focusout", nutriHideTip);
+document.addEventListener("scroll", nutriHideTip, true);
+
 function nutriNum(v) {
   if (v == null) return "–";
   return Math.abs(v) < 10 ? (Math.round(v * 10) / 10).toString() : Math.round(v).toLocaleString();
@@ -148,7 +233,7 @@ function nutriFoodTable(items, key) {
   const rows = items
     .filter((i) => i.found !== false && !i.revoked)
     .map(
-      (i) => `<tr><td>${escapeAttr(i.name)} <small class="dim">${i.qty} ${escapeAttr(i.unit)}${i.grams ? ` · ${nutriFmt(i.grams)} g` : ""}</small></td>
+      (i) => `<tr><td>${nutriRateIcon(i)}${escapeAttr(i.name)} <small class="dim">${i.qty} ${escapeAttr(i.unit)}${i.grams ? ` · ${nutriFmt(i.grams)} g` : ""}</small></td>
         <td>${nutriFmt(i.kcal)}</td>${NUTRI_ROWS.map((r) => `<td>${nutriNum(i[r.key])}</td>`).join("")}</tr>`
     )
     .join("");
@@ -500,7 +585,7 @@ function renderNutritionHistory(days) {
       const st = NUTRI_STATUS[d.status];
       const label = new Date(`${d.date}T00:00`).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
       const items = (d.items || [])
-        .map((i) => `<span class="nutri-chip">${escapeAttr(i.name)} ×${i.qty}<b>${nutriFmt(i.kcal)}</b></span>`)
+        .map((i) => `<span class="nutri-chip">${nutriRateIcon(i)}${escapeAttr(i.name)} ×${i.qty}<b>${nutriFmt(i.kcal)}</b></span>`)
         .join("");
       return `
         <div class="nh-day">

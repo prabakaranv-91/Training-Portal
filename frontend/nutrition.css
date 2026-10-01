@@ -263,6 +263,44 @@
 .nh-foods li { display: flex; justify-content: space-between; gap: 6px; }
 .nh-foods li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nh-foods b { color: var(--accent); font-weight: 600; }
+.nr {
+  display: inline-grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  margin-right: 4px;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: -2px;
+  cursor: help;
+}
+.nr.good { background: rgba(52, 211, 153, 0.18); color: #34d399; }
+.nr.avoid { background: rgba(248, 113, 113, 0.18); color: #f87171; }
+.nr.best { background: #34d399; color: #062a26; font-size: 9px; }
+.nr:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.nutri-tip-pop {
+  position: fixed;
+  z-index: 200;
+  display: none;
+  max-width: 260px;
+  padding: 8px 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--text);
+  pointer-events: none;
+}
+.nutri-tip-pop b { display: block; margin-bottom: 2px; }
+.nutri-tip-pop.best, .nutri-tip-pop.good { border-left-color: #34d399; }
+.nutri-tip-pop.best b, .nutri-tip-pop.good b { color: #34d399; }
+.nutri-tip-pop.avoid { border-left-color: #f87171; }
+.nutri-tip-pop.avoid b { color: #f87171; }
 .nutri-coach { display: block; background: rgba(45, 212, 191, 0.07); border: 1px solid rgba(45, 212, 191, 0.35); border-radius: 12px 12px 12px 4px; padding: 8px 10px; line-height: 1.45; }
 .nutri-coach .nutri-typing { background: none; border: none; padding: 0; }
 .nutri-coach ul { margin: 2px 0 4px; padding-left: 16px; }
