@@ -1157,6 +1157,7 @@ def history(user: str, days: int) -> list[dict[str, Any]]:
             "entries": len(by_day[date]),
             "items": sorted(foods.values(), key=lambda f: -f["kcal"]),
             "burn": snap.get("burn"),
+            "targets": snap.get("targets"),
             "targetKcal": (snap.get("targets") or {}).get("kcal"),
             "deviationKcal": round(_sum([e["totals"] for e in by_day[date]])["kcal"] - snap["targets"]["kcal"]) if (snap.get("targets") or {}).get("kcal") else None,
             "weightKg": weight_for(user, date, data),

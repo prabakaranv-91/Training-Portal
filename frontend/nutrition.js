@@ -635,7 +635,12 @@ function renderNutritionHistory(days) {
             <span class="nh-f-qty dim">×${i.qty}</span><span class="nh-f-kcal">${nutriFmt(i.kcal)}</span></li>`
         )
         .join("");
-      const macro = (k, lbl) => `<span><i>${lbl}</i> ${nutriFmt(d.intake[k])} g</span>`;
+      const macro = (k, lbl) => {
+        const v = d.intake[k], t = (d.targets || {})[k];
+        const cls = t == null ? "" : v > t * 1.1 ? " over" : v < t * 0.85 ? " under" : " met";
+        return `<span class="${cls.trim()}" title="${escapeAttr(`${lbl}: ${nutriFmt(v)} g eaten${t != null ? ` of ${nutriFmt(t)} g planned` : ""}`)}">
+          <i>${lbl}</i> ${nutriFmt(v)}${t != null ? `<em>/${nutriFmt(t)}</em>` : ""} g</span>`;
+      };
       return `
         <div class="nh-day">
           <div class="nh-head">
