@@ -777,6 +777,8 @@ def sync_all_to_sheets(user: str) -> dict[str, int]:
         sheets_sync.push_program(user, p)
     for w in data.get("weights", []):
         sheets_sync.push_weight(user, w)
+    for date, c in (data.get("coach") or {}).items():
+        sheets_sync.push_review(user, date, c["sig"], c["review"])
     return {"entries": len(data["entries"]), "days": len(data["days"]), "programs": len(data.get("programs", [])),
             "weights": len(data.get("weights", []))}
 
@@ -804,16 +806,22 @@ def coach(user: str, date: str) -> dict[str, Any]:
     sig = uuid.uuid5(uuid.NAMESPACE_OID, json.dumps([day["program"], day["targets"], foods], sort_keys=True)).hex
     cached = (data.get("coach") or {}).get(date)
     if cached and cached.get("sig") == sig:
-        return {"source": "gemini", **cached["review"]}
-    review = food_parser_client.review(day)
-    if not review:
-        return {"source": None}
+        return {"source": "gemini", "from": "cache", **cached["review"]}
+    # The sheet keeps every review, so another PC / a fresh install doesn't spend Gemini quota again.
+    saved = sheets_sync.fetch_review(user, date)
+    if saved and saved.get("sig") == sig and saved.get("review"):
+        review, origin = saved["review"], "sheet"
+    else:
+        review, origin = food_parser_client.review(day), "gemini"
+        if not review:
+            return {"source": None}
+        sheets_sync.push_review(user, date, sig, review)
     with _LOCK:
         data = _load(user)
         data.setdefault("coach", {})[date] = {"sig": sig, "review": review,
                                               "at": dt.datetime.now().isoformat(timespec="seconds")}
         _save(user, data)
-    return {"source": "gemini", **review}
+    return {"source": "gemini", "from": origin, **review}
 
 
 def weight_for(user: str, date: str, data: dict[str, Any] | None = None) -> float | None:
@@ -884,20 +892,30 @@ def progress(user: str, days: int) -> dict[str, Any]:
 
 # ---------------------------------------------------------------- programs
 
-# kcal: adjustment vs. total burn; band: (low, high) ratio of target counted as "in limit".
+# pct/cap: calorie adjustment vs. total burn (capped kcal); protein g/kg (None = activity-based);
+# carbs: g/kg shift vs. the workout-based default; fat: share of calories; band: "in limit" ratio of target.
 PROGRAMS: dict[str, dict[str, Any]] = {
-    "loss": {"label": "Weight loss", "protein": 2.0, "band": (0.85, 1.05)},
-    "maintain": {"label": "Maintain weight", "protein": None, "band": (0.85, 1.10)},
-    "gain": {"label": "Weight gain", "protein": 1.8, "band": (0.92, 1.15)},
+    "loss": {"label": "Weight loss", "pct": -0.20, "cap": 500, "protein": 2.0, "carbs": -1, "fat": 0.27,
+             "band": (0.85, 1.05), "note": "Burn − 20% (max 500 kcal) · ~0.5 kg/week"},
+    "fat_loss": {"label": "Fat loss (cut)", "pct": -0.15, "cap": 500, "protein": 2.2, "carbs": -1, "fat": 0.25,
+                 "band": (0.90, 1.05), "note": "Burn − 15% · high protein to keep muscle"},
+    "recomp": {"label": "Body recomposition", "pct": -0.05, "cap": 200, "protein": 2.2, "carbs": 0, "fat": 0.27,
+               "band": (0.90, 1.07), "note": "Near burn · very high protein · lose fat, build muscle"},
+    "maintain": {"label": "Maintain weight", "pct": 0, "cap": 0, "protein": None, "carbs": 0, "fat": 0.27,
+                 "band": (0.85, 1.10), "note": "Target = calories burned"},
+    "endurance": {"label": "Endurance / race training", "pct": 0, "cap": 0, "protein": 1.6, "carbs": 1, "fat": 0.25,
+                  "band": (0.90, 1.10), "note": "Fuel every session · extra carbs on run days"},
+    "lean_gain": {"label": "Lean muscle gain", "pct": 0.10, "cap": 300, "protein": 2.0, "carbs": 0, "fat": 0.25,
+                  "band": (0.92, 1.12), "note": "Burn + 10% (max 300 kcal) · slow, lean gain"},
+    "gain": {"label": "Weight gain", "pct": 0.15, "cap": 500, "protein": 1.8, "carbs": 1, "fat": 0.28,
+              "band": (0.92, 1.15), "note": "Burn + 15% (max 500 kcal)"},
 }
 
 
 def _program_kcal(program: str, burn: float) -> int:
-    if program == "loss":
-        return round(burn - min(500, 0.2 * burn))  # ~0.5 kg/week, never more than 20% below burn
-    if program == "gain":
-        return round(burn + 300)  # lean-gain surplus
-    return round(burn)
+    p = PROGRAMS.get(program, PROGRAMS["maintain"])
+    delta = max(-p["cap"], min(p["cap"], p["pct"] * burn))
+    return round(burn + delta)
 
 
 def program_for(user: str, date: str, data: dict[str, Any] | None = None) -> str:
@@ -905,7 +923,7 @@ def program_for(user: str, date: str, data: dict[str, Any] | None = None) -> str
     progs = sorted((data or _load(user)).get("programs", []), key=lambda p: p["from"])
     current = "maintain"
     for p in progs:
-        if p["from"] <= date:
+        if p["from"] <= date and p["program"] in PROGRAMS:
             current = p["program"]
     return current
 
@@ -915,7 +933,7 @@ def programs(user: str) -> dict[str, Any]:
     today = dt.date.today().isoformat()
     return {
         "current": program_for(user, today, data),
-        "options": [{"key": k, "label": v["label"]} for k, v in PROGRAMS.items()],
+        "options": [{"key": k, "label": v["label"], "note": v["note"]} for k, v in PROGRAMS.items()],
         "history": sorted(data.get("programs", []), key=lambda p: p["from"], reverse=True),
     }
 
@@ -963,6 +981,7 @@ def history(user: str, days: int) -> list[dict[str, Any]]:
             "deviationKcal": round(_sum([e["totals"] for e in by_day[date]])["kcal"] - snap["targets"]["kcal"]) if (snap.get("targets") or {}).get("kcal") else None,
             "weightKg": weight_for(user, date, data),
             "program": snap.get("program") or program_for(user, date, data),
+            "programLabel": PROGRAMS.get(snap.get("program") or program_for(user, date, data), PROGRAMS["maintain"])["label"],
             "status": snap.get("status"),
         })
     return out
@@ -1023,7 +1042,7 @@ def _eliminations(entries: list[dict[str, Any]], intake: dict[str, float], targe
         swap = next((c for c in cuts if c["swap"]), None)
         if swap:
             tips.append(f"🔁 Next time, swap {swap['name']} for {swap['swap']}.")
-    elif program == "loss" and items:
+    elif PROGRAMS.get(program, {}).get("pct", 0) < 0 and items:
         top = max(items, key=lambda i: i["kcal"])
         hint = _swap_hint(top["name"])
         if hint and top["kcal"] >= 250:
@@ -1083,13 +1102,12 @@ def assess(user: str, date: str, energy: dict[str, Any]) -> dict[str, Any]:
     target_kcal = _program_kcal(program, burn)
     protein_per_kg = prog["protein"] or (1.8 if workout_kcal >= 500 else 1.6 if workouts else 1.4)
     carbs_per_kg = 3 if workout_min < 30 else 5 if workout_min < 75 else 6 if workout_min < 150 else 7
-    if program == "loss":
-        carbs_per_kg = max(2, carbs_per_kg - 1)
+    carbs_per_kg = max(2, carbs_per_kg + prog["carbs"])
     targets = {
         "kcal": target_kcal,
         "protein": round(protein_per_kg * weight),
         "carbs": round(carbs_per_kg * weight),
-        "fat": round(0.27 * target_kcal / 9),
+        "fat": round(prog["fat"] * target_kcal / 9),
         "fiber": round(14 * target_kcal / 1000),
         "sugar": round(0.10 * target_kcal / 4),
         "sodium": 2300,
@@ -1137,14 +1155,16 @@ def assess(user: str, date: str, energy: dict[str, Any]) -> dict[str, Any]:
 def _suggestions(intake, targets, status, workout_kcal, workout_min, is_today, program, burn) -> list[str]:
     tips: list[str] = []
     gap = targets["kcal"] - intake["kcal"]
-    goal = {"loss": "your weight-loss target", "gain": "your weight-gain target"}.get(program, "today's burn")
-    if program != "maintain":
-        tips.append(f"{PROGRAMS[program]['label']}: target {targets['kcal']} kcal = burn {burn} kcal {'−' if program == 'loss' else '+'} {abs(targets['kcal'] - burn)} kcal.")
+    deficit = targets["kcal"] < burn
+    label = PROGRAMS[program]["label"]
+    goal = "today's burn" if targets["kcal"] == burn else f"your {label.lower()} target"
+    if targets["kcal"] != burn:
+        tips.append(f"{label}: target {targets['kcal']} kcal = burn {burn} kcal {'−' if deficit else '+'} {abs(targets['kcal'] - burn)} kcal.")
     if status == "low":
         if is_today:
             extra = f" (incl. {workout_kcal} kcal of workouts)" if workout_kcal else ""
             tips.append(f"~{round(gap)} kcal left to reach {goal}{extra}. Spread it over balanced meals — don't skip post-workout refuelling.")
-        elif program == "loss":
+        elif deficit:
             tips.append(f"You were ~{round(gap)} kcal under target — a deficit this big can cost muscle and recovery.")
         elif workout_kcal >= 400:
             tips.append(f"You were ~{round(gap)} kcal short after a {workout_kcal} kcal workout — under-fuelling hurts recovery (add rice/idli + dal, banana, curd).")

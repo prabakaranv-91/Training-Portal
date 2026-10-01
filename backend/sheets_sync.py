@@ -158,6 +158,22 @@ def push_day(user: str, date: str, day: dict[str, Any]) -> None:
     _enqueue({"action": "upsertDay", "user": _sheet_user(user), "date": date, "day": day})
 
 
+def push_review(user: str, date: str, sig: str, review: dict[str, Any]) -> None:
+    _enqueue({"action": "upsertReview", "user": _sheet_user(user), "date": date, "sig": sig, "review": review})
+
+
+def fetch_review(user: str, date: str) -> dict[str, Any] | None:
+    """Saved Gemini review {sig, review} for a day from the sheet, or None (not found / unreachable)."""
+    if not is_configured():
+        return None
+    try:
+        body = _post({"action": "getReview", "user": _sheet_user(user), "date": date})
+    except Exception as exc:  # noqa: BLE001 - older script versions answer "unknown action"
+        logger.info("Sheet review lookup failed: %s", exc)
+        return None
+    return body.get("found") and {"sig": body.get("sig"), "review": body.get("review")} or None
+
+
 def push_program(user: str, program: dict[str, Any]) -> None:
     _enqueue({"action": "upsertProgram", "user": _sheet_user(user), "program": program})
 

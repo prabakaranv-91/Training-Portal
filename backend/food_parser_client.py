@@ -9,6 +9,7 @@ Returns None on any problem so callers can fall back to the built-in regex parse
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import json
 import logging
 import os
@@ -31,6 +32,25 @@ _loop: asyncio.AbstractEventLoop | None = None
 _queue: asyncio.Queue | None = None
 _cache: dict[str, list[dict[str, Any]]] = {}
 _status: dict[str, Any] = {"lastError": None, "lastOk": None}
+_USAGE_FILE = Path(os.environ.get("NUTRITION_DATA_DIR") or Path.home() / ".training_lab") / "gemini_usage.json"
+
+
+def _daily_limit() -> int:
+    return int(food_mcp_server._config().get("daily_limit", 200))
+
+
+def _usage_today() -> int:
+    try:
+        return int(json.loads(_USAGE_FILE.read_text(encoding="utf-8")).get(dt.date.today().isoformat(), 0))
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def _count_call() -> None:
+    with _lock:
+        today = dt.date.today().isoformat()
+        _USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _USAGE_FILE.write_text(json.dumps({today: _usage_today() + 1}), encoding="utf-8")
 
 
 def is_enabled() -> bool:
@@ -44,6 +64,8 @@ def status() -> dict[str, Any]:
         "model": cfg.get("model") or "gemini-flash-lite-latest",
         "keyConfigured": bool(food_mcp_server._api_key()),
         "running": _loop is not None,
+        "callsToday": _usage_today(),
+        "dailyLimit": _daily_limit(),
         **_status,
     }
 
@@ -91,9 +113,12 @@ def _ensure_started() -> None:
 
 
 def _call_tool(tool: str, args: dict[str, Any]) -> Any:
+    if _usage_today() >= _daily_limit():
+        raise RuntimeError(f"Daily Gemini budget of {_daily_limit()} calls used; using built-in logic until tomorrow.")
     _ensure_started()
     if _loop is None or _queue is None:
         raise RuntimeError("MCP client loop did not start")
+    _count_call()
     fut: Future = Future()
     loop, queue = _loop, _queue
 

@@ -13,7 +13,6 @@ import datetime as dt
 import os
 import secrets
 from pathlib import Path
-from typing import Literal
 
 from fastapi import Cookie, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -65,7 +64,7 @@ class NutritionQtyRequest(BaseModel):
 
 
 class NutritionProgramRequest(BaseModel):
-    program: Literal["loss", "maintain", "gain"]
+    program: str = Field(min_length=1, max_length=40)
     date: dt.date | None = None
 
 
@@ -614,6 +613,8 @@ def nutrition_program(garmin_session: str | None = Cookie(default=None)):
 @app.post("/api/nutrition/program")
 def nutrition_set_program(req: NutritionProgramRequest, garmin_session: str | None = Cookie(default=None)):
     user = _nutrition_user(garmin_session)
+    if req.program not in nutrition_service.PROGRAMS:
+        raise HTTPException(status_code=400, detail="Unknown program")
     nutrition_service.set_program(user, req.program, (req.date or dt.date.today()).isoformat())
     return nutrition_service.programs(user)
 

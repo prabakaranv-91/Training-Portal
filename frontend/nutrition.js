@@ -13,7 +13,6 @@ const NUTRI_ROWS = [
   { key: "sugar", label: "Sugar", unit: "g", limit: true },
   { key: "sodium", label: "Sodium", unit: "mg", limit: true },
 ];
-const NUTRI_PROGRAM_LABEL = { loss: "Weight loss", maintain: "Maintain", gain: "Weight gain" };
 const NUTRI_STATUS = {
   low: { label: "Low", cls: "low" },
   in_limit: { label: "In limit", cls: "ok" },
@@ -321,17 +320,19 @@ async function openNutritionHistory() {
   }
 }
 
-const NUTRI_PROGRAM_NOTE = {
-  loss: "Target = burn − up to 500 kcal · higher protein",
-  maintain: "Target = calories burned",
-  gain: "Target = burn + 300 kcal",
-};
+const NUTRI_PROGRAM_LABEL = {}; // filled from /api/nutrition/program
 
 function renderNutritionProgram(p) {
-  document.getElementById("nutri-program").value = p.current;
+  const select = document.getElementById("nutri-program");
+  const opts = p.options || [];
+  opts.forEach((o) => (NUTRI_PROGRAM_LABEL[o.key] = o.label));
+  if (select.options.length !== opts.length) {
+    select.innerHTML = opts.map((o) => `<option value="${escapeAttr(o.key)}">${escapeAttr(o.label)}</option>`).join("");
+  }
+  select.value = p.current;
+  const note = (opts.find((o) => o.key === p.current) || {}).note || "";
   const since = (p.history || []).find((h) => h.program === p.current);
-  document.getElementById("nutri-program-note").textContent =
-    `${NUTRI_PROGRAM_NOTE[p.current] || ""}${since ? ` · since ${since.from}` : ""}`;
+  document.getElementById("nutri-program-note").textContent = `${note}${since ? ` · since ${since.from}` : ""}`;
 }
 
 function renderNutritionWeight(w) {
@@ -475,7 +476,7 @@ function renderNutritionHistory(days) {
             ${st ? `<span class="nutri-status ${st.cls}">${st.label}</span>` : ""}
             ${d.deviationKcal != null ? `<span class="nh-dev ${d.deviationKcal > 0 ? "over" : "under"}" title="Intake vs program target">${d.deviationKcal > 0 ? "+" : ""}${nutriFmt(d.deviationKcal)} kcal</span>` : ""}
             ${d.weightKg ? `<span class="dim">⚖️ ${d.weightKg} kg</span>` : ""}
-            <small class="nutri-prog">${escapeAttr(NUTRI_PROGRAM_LABEL[d.program] || "")}</small>
+            <small class="nutri-prog">${escapeAttr(d.programLabel || NUTRI_PROGRAM_LABEL[d.program] || "")}</small>
           </div>
           <div class="nh-items">${items || '<span class="dim">No items</span>'}</div>
           ${nutriFoodTable(d.items || [], `d-${d.date}`)}

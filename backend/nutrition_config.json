@@ -7,6 +7,7 @@
   "gemini": {
     "enabled": true,
     "model": "gemini-flash-lite-latest",
-    "fallback_models": ["gemini-flash-latest", "gemini-3.8-flash"]
+    "fallback_models": ["gemini-flash-latest", "gemini-3.8-flash"],
+    "daily_limit": 200
   }
 }
