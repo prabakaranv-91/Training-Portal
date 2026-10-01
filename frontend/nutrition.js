@@ -86,6 +86,9 @@ async function loadNutritionCoach(day) {
       ${review.summary ? `<div>${escapeAttr(review.summary)}</div>` : ""}
       ${avoid ? `<div class="nc-sec">🚫 Avoid</div><ul>${avoid}</ul>` : ""}
       ${(review.keep || []).length ? `<div class="nc-sec">👍 Keep: <span>${review.keep.map(escapeAttr).join(", ")}</span></div>` : ""}
+      ${(review.add || []).length ? `<div class="nc-sec">🍛 Eat next</div><ul>${review.add
+        .map((a) => `<li><b>${escapeAttr(a.food)}</b> · ${escapeAttr(a.portion)}<span class="dim"> — ${escapeAttr(a.why)}</span></li>`)
+        .join("")}</ul>` : ""}
       ${review.next ? `<div class="dim nc-next">💡 ${escapeAttr(review.next)}</div>` : ""}`;
   }
   const box = document.getElementById("nutri-messages");
@@ -332,26 +335,25 @@ function renderNutritionProgram(p) {
   select.value = p.current;
   const note = (opts.find((o) => o.key === p.current) || {}).note || "";
   const since = (p.history || []).find((h) => h.program === p.current);
-  document.getElementById("nutri-program-note").textContent = `${note}${since ? ` · since ${since.from}` : ""}`;
+  document.getElementById("nutri-program-note").textContent =
+    `${note}${since ? ` · since ${nutriShortDate(since.from)}` : ""}`;
+}
+
+function nutriShortDate(s) {
+  return new Date(`${s}T00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
 function renderNutritionWeight(w) {
   const cur = w.current;
-  const prev = (w.history || [])[1];
   const fromGarmin = !!w.garminKg;
   const shown = document.getElementById("nutri-weight-garmin");
   shown.classList.toggle("hidden", !fromGarmin);
   shown.textContent = fromGarmin ? `${w.garminKg} kg` : "";
   document.getElementById("nutri-weight-edit").classList.toggle("hidden", fromGarmin);
   document.getElementById("nutri-weight").value = !fromGarmin && cur ? cur.kg : "";
-  let note;
-  if (fromGarmin) note = "from Garmin · update it in Garmin Connect";
-  else note = cur ? `last logged ${cur.date}` : "Not available from Garmin — please enter your weight";
-  if (cur && prev) {
-    const d = Math.round((cur.kg - prev.kg) * 10) / 10;
-    note += ` · ${d > 0 ? "+" : ""}${d} kg since ${prev.date}`;
-  }
-  document.getElementById("nutri-weight-note").textContent = note;
+  document.getElementById("nutri-weight-note").textContent = fromGarmin
+    ? "Synced from Garmin Connect"
+    : cur ? `Last logged ${nutriShortDate(cur.date)}` : "Not in Garmin — enter your weight";
 }
 
 async function saveNutritionWeight(e) {
@@ -373,40 +375,73 @@ async function saveNutritionWeight(e) {
   }
 }
 
+function nutriSparkline(points) {
+  if (points.length < 2) return "";
+  const w = 150, h = 34, kg = points.map((p) => p.kg);
+  const lo = Math.min(...kg) - 0.3, hi = Math.max(...kg) + 0.3;
+  const xy = points.map((p, i) => [
+    (i / (points.length - 1)) * w,
+    h - ((p.kg - lo) / (hi - lo)) * h,
+  ]);
+  const d = xy.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  const [lx, ly] = xy[xy.length - 1];
+  return `<svg class="nh-spark" viewBox="-3 -3 ${w + 6} ${h + 6}" preserveAspectRatio="none" aria-hidden="true">
+    <path d="${d}" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+    <circle cx="${lx}" cy="${ly}" r="3" fill="currentColor"/></svg>`;
+}
+
 function renderNutritionProgress(p) {
   const el = document.getElementById("nutri-progress");
   if (!p || !p.days) {
     el.innerHTML = "";
     return;
   }
-  const signed = (v) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toLocaleString()}`;
-  const avg = Math.round(p.vsTargetKcal / p.days);
-  const calCls = p.vsTargetKcal > 0 ? "over" : "under";
+  const fmtDate = (s) => new Date(`${s}T00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 
-  let weight;
-  if (p.actualKg != null) {
-    const diff = p.actualKg - p.expectedKg;
-    const ok = Math.abs(diff) < 0.5;
-    weight = `<div class="nh-val">${p.toKg} kg</div>
-      <div class="dim">${signed(p.actualKg)} kg · expected ${signed(p.expectedKg)}</div>
-      <span class="nutri-status ${ok ? "ok" : "high"}" title="${ok ? "" : "Weight is moving differently from what your logged food and workouts predict."}">${ok ? "On track" : "Check logging"}</span>`;
+  // Calories: average eaten vs average target, as a bar + one plain sentence.
+  const eat = p.avgIntakeKcal, tgt = p.avgTargetKcal, diff = eat - tgt;
+  const pct = tgt ? Math.min(100, Math.round((eat / tgt) * 100)) : 0;
+  const calCls = Math.abs(diff) <= tgt * 0.1 ? "ok" : diff > 0 ? "high" : "low";
+  const sentence = Math.abs(diff) <= tgt * 0.1
+    ? "Right on your target 👍"
+    : `${nutriFmt(Math.abs(diff))} kcal/day ${diff > 0 ? "over" : "under"} target`;
+  const calories = `
+    <div class="dim">Calories · daily avg (${p.days}d)</div>
+    <div class="nh-val">${nutriFmt(eat)} <small class="dim">/ ${nutriFmt(tgt)} kcal</small></div>
+    <div class="nutri-bar"><div class="nutri-fill ${calCls}" style="width:${pct}%"></div></div>
+    <div class="nh-sentence ${calCls}">${sentence}</div>`;
+
+  // Weight: current value, change since the first weigh-in, and a mini trend line.
+  const pts = p.weights || [];
+  let weight = `<div class="dim">Weight</div>`;
+  if (!pts.length) {
+    weight += `<div class="nh-val">–</div><div class="dim">No weigh-ins in this period</div>`;
   } else {
-    weight = `<div class="nh-val">${p.toKg ? `${p.toKg} kg` : "–"}</div>
-      <div class="dim">Expected ${signed(p.expectedKg)} kg · log 2+ weigh-ins to compare</div>`;
+    const change = p.actualKg ?? 0;
+    const arrow = change < 0 ? "↓" : change > 0 ? "↑" : "→";
+    weight += `<div class="nh-val">${p.toKg} kg</div>
+      ${nutriSparkline(pts)}
+      <div class="dim">${pts.length > 1 ? `${arrow} ${Math.abs(change)} kg since ${fmtDate(pts[0].date)}` : `Logged ${fmtDate(pts[0].date)} · add more weigh-ins to see a trend`}</div>`;
   }
 
   const foods = (p.contributors || [])
     .map((c) => `<li title="${escapeAttr(c.swap ? `Try ${c.swap}` : "")}"><span>${escapeAttr(c.name)}</span><b>${nutriFmt(c.kcal)}</b></li>`)
     .join("");
 
+  const adv = p.advice || {};
+  const avoid = (adv.avoid || [])
+    .map((a) => `<li title="${escapeAttr(a.why)}">🚫 <b>${escapeAttr(a.name)}</b><span class="dim"> → ${escapeAttr(a.instead)}</span></li>`)
+    .join("");
+  const add = (adv.add || [])
+    .map((a) => `<li title="${escapeAttr(a.why)}">➕ <b>${escapeAttr(a.name)}</b><span class="dim"> · ${escapeAttr(a.portion)}</span></li>`)
+    .join("");
+
   el.innerHTML = `
-    <div class="nh-tile">
-      <div class="dim">Calories vs target</div>
-      <div class="nh-val nh-dev ${calCls}">${signed(p.vsTargetKcal)} kcal</div>
-      <div class="dim">${p.days} day${p.days > 1 ? "s" : ""} · avg ${signed(avg)}/day</div>
-    </div>
-    <div class="nh-tile"><div class="dim">Weight</div>${weight}</div>
-    ${foods ? `<div class="nh-tile"><div class="dim">Top calorie foods</div><ul class="nh-foods">${foods}</ul></div>` : ""}`;
+    <div class="nh-tile">${calories}</div>
+    <div class="nh-tile nh-weight">${weight}</div>
+    ${foods ? `<div class="nh-tile"><div class="dim">Top calorie foods</div><ul class="nh-foods">${foods}</ul></div>` : ""}
+    ${avoid || add ? `<div class="nh-tile nh-advice"><div class="dim">To hit your target</div>
+      ${avoid ? `<ul class="nh-adv">${avoid}</ul>` : ""}${add ? `<ul class="nh-adv">${add}</ul>` : ""}</div>` : ""}`;
 }
 
 async function saveNutritionProgram(e) {

@@ -165,6 +165,9 @@ Rules:
   For each: item (exact name from the list), reason (max 6 words), instead (a concrete Indian swap, max 6 words).
   If nothing needs avoiding, return an empty list.
 - keep: up to 2 foods from the list that help the goal (e.g. high protein, fibre).
+- add: 2-3 everyday Indian foods to eat NEXT (rest of today, or tomorrow) that close the biggest gaps for the goal
+  (e.g. protein, fibre, or calories if under). Realistic, commonly available items with a portion:
+  food (e.g. "Sprouts sundal", "Paneer bhurji", "Curd with fruit"), portion (e.g. "1 cup", "2 pieces"), why (max 6 words).
 - next: one short tip for the rest of today or tomorrow (max 14 words).
 """
 
@@ -182,9 +185,17 @@ REVIEW_SCHEMA = {
             },
         },
         "keep": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "add": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {"food": {"type": "STRING"}, "portion": {"type": "STRING"}, "why": {"type": "STRING"}},
+                "required": ["food", "portion", "why"],
+            },
+        },
         "next": {"type": "STRING"},
     },
-    "required": ["verdict", "summary", "avoid", "keep", "next"],
+    "required": ["verdict", "summary", "avoid", "keep", "add", "next"],
 }
 
 
@@ -207,6 +218,7 @@ def gemini_review(day: dict[str, Any]) -> dict[str, Any]:
         "summary": str(res.get("summary") or "")[:160],
         "avoid": [{k: str(a.get(k) or "")[:60] for k in ("item", "reason", "instead")} for a in (res.get("avoid") or [])][:3],
         "keep": [str(k)[:40] for k in (res.get("keep") or [])][:2],
+        "add": [{k: str(a.get(k) or "")[:50] for k in ("food", "portion", "why")} for a in (res.get("add") or [])][:3],
         "next": str(res.get("next") or "")[:160],
     }
 
@@ -228,7 +240,7 @@ def review_day(day_json: str) -> str:
     """Review a full day of eating against the user's program and say which foods to avoid.
 
     day_json: {program, targets, intake, burn, workoutKcal, inProgress, foods:[{name,qty,unit,kcal,protein,fat,sugar,sodium}]}
-    Returns JSON {verdict, summary, avoid:[{item,reason,instead}], keep:[...], next}.
+    Returns JSON {verdict, summary, avoid:[{item,reason,instead}], keep:[...], add:[{food,portion,why}], next}.
     """
     return json.dumps(gemini_review(json.loads(day_json)))
 

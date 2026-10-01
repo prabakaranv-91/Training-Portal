@@ -6,7 +6,7 @@
     <title>Training Lab — Running Portal</title>
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="analysis.css" />
-    <link rel="stylesheet" href="nutrition.css?v=2026100103" />
+    <link rel="stylesheet" href="nutrition.css?v=2026100106" />
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   </head>
@@ -311,13 +311,23 @@
           <h2>🍽️ Nutrition plan &amp; progress</h2>
           <button id="nutri-history-close" class="modal-close" title="Close">×</button>
         </div>
-        <div class="nh-program">
-          <label for="nutri-program">🎯 Program</label>
-          <select id="nutri-program">
-            <option value="loss">Weight loss</option>
-            <option value="maintain">Maintain weight</option>
-          </select>
-          <span id="nutri-program-note" class="dim"></span>
+        <div class="nh-settings">
+          <div class="nh-setting">
+            <label class="nh-label" for="nutri-program">🎯 Program</label>
+            <select id="nutri-program">
+              <option value="maintain">Maintain weight</option>
+            </select>
+            <div id="nutri-program-note" class="nh-note dim"></div>
+          </div>
+          <form id="nutri-weight-form" class="nh-setting">
+            <label class="nh-label" for="nutri-weight">⚖️ Weight</label>
+            <b id="nutri-weight-garmin" class="nh-weight-val hidden"></b>
+            <span id="nutri-weight-edit" class="nh-weight-edit">
+              <input id="nutri-weight" type="number" min="25" max="350" step="0.1" placeholder="kg" />
+              <button type="submit" class="btn-primary btn-sm">Save</button>
+            </span>
+            <div id="nutri-weight-note" class="nh-note dim"></div>
+          </form>
         </div>
         <form id="nutri-weight-form" class="nh-program">
           <label for="nutri-weight">⚖️ Weight</label>
@@ -376,6 +386,6 @@
     </div>
 
     <script src="app.js"></script>
-    <script src="nutrition.js?v=2026100104"></script>
+    <script src="nutrition.js?v=2026100106"></script>
   </body>
 </html>

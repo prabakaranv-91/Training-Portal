@@ -803,7 +803,7 @@ def coach(user: str, date: str) -> dict[str, Any]:
         "burn": (snap.get("burn") or {}).get("total"), "workoutKcal": (snap.get("burn") or {}).get("workoutKcal", 0),
         "inProgress": date == dt.date.today().isoformat(), "foods": foods,
     }
-    sig = uuid.uuid5(uuid.NAMESPACE_OID, json.dumps([day["program"], day["targets"], foods], sort_keys=True)).hex
+    sig = uuid.uuid5(uuid.NAMESPACE_OID, json.dumps(["v2", day["program"], day["targets"], foods], sort_keys=True)).hex
     cached = (data.get("coach") or {}).get(date)
     if cached and cached.get("sig") == sig:
         return {"source": "gemini", "from": "cache", **cached["review"]}
@@ -851,13 +851,14 @@ def weights(user: str, garmin_kg: float | None = None) -> dict[str, Any]:
 
 
 def progress(user: str, days: int) -> dict[str, Any]:
-    """Actual weight change vs. the change expected from logged intake − burn over the window."""
+    """Period summary: average calories vs target, weight trend, top foods and what to avoid/add."""
     data = _load(user)
     start = (dt.date.today() - dt.timedelta(days=days - 1)).isoformat()
     ws = sorted((w for w in data.get("weights", []) if w["date"] >= start), key=lambda w: w["date"])
     balance = 0.0
     target_gap = 0.0
     counted = 0
+    sums = {k: 0.0 for k in ("intake", "target", "protein", "proteinT", "fiber", "fiberT")}
     for date, snap in data["days"].items():
         burn = (snap.get("burn") or {}).get("total")
         target = (snap.get("targets") or {}).get("kcal")
@@ -865,6 +866,14 @@ def progress(user: str, days: int) -> dict[str, Any]:
             balance += snap["intake"]["kcal"] - burn
             target_gap += snap["intake"]["kcal"] - (target or burn)
             counted += 1
+            t = snap.get("targets") or {}
+            sums["intake"] += snap["intake"]["kcal"]
+            sums["target"] += target or burn
+            sums["protein"] += snap["intake"].get("protein") or 0
+            sums["proteinT"] += t.get("protein") or 0
+            sums["fiber"] += snap["intake"].get("fiber") or 0
+            sums["fiberT"] += t.get("fiber") or 0
+    avg = {k: v / counted for k, v in sums.items()} if counted else {k: 0.0 for k in sums}
     foods: dict[str, dict[str, Any]] = {}
     for e in _active(data["entries"]):
         if e.get("date", "") < start:
@@ -882,12 +891,65 @@ def progress(user: str, days: int) -> dict[str, Any]:
         "days": counted,
         "balanceKcal": round(balance),
         "vsTargetKcal": round(target_gap),
+        "avgIntakeKcal": round(avg["intake"]),
+        "avgTargetKcal": round(avg["target"]),
         "expectedKg": round(balance / KCAL_PER_KG, 2),
         "actualKg": round(ws[-1]["kg"] - ws[0]["kg"], 1) if len(ws) >= 2 else None,
         "fromKg": ws[0]["kg"] if ws else None,
         "toKg": ws[-1]["kg"] if ws else None,
+        "weights": [{"date": w["date"], "kg": w["kg"]} for w in ws],
         "contributors": contributors,
+        "advice": _period_advice(data, start, contributors, avg, target_gap),
     }
+
+
+# Everyday Indian foods used when there is no Gemini review to draw from.
+_ADD_PROTEIN = [("Sprouts / chana sundal", "1 cup", "~9 g protein, high fibre"),
+                ("Paneer bhurji", "100 g", "~18 g protein"),
+                ("Boiled eggs", "2", "~12 g protein"),
+                ("Hung curd / Greek yogurt", "1 cup", "~18 g protein")]
+_ADD_FIBER = [("Vegetable poriyal or salad", "1 bowl", "fibre, few calories"),
+              ("Guava or papaya", "1 fruit / 1 cup", "~5 g fibre"),
+              ("Dal or rajma", "1 cup", "fibre + protein")]
+_ADD_FUEL = [("Banana + peanut butter", "1 + 1 tbsp", "quick clean calories"),
+             ("Idli with sambar", "3 + 1 cup", "easy carbs for training")]
+
+
+def _period_advice(data: dict[str, Any], start: str, contributors: list[dict[str, Any]],
+                   avg: dict[str, float], target_gap: float) -> dict[str, Any]:
+    """Foods to avoid/add over the period: Gemini day reviews first, rule-based Indian picks to fill."""
+    avoid: dict[str, dict[str, Any]] = {}
+    add: dict[str, dict[str, Any]] = {}
+    for date, c in sorted((data.get("coach") or {}).items()):
+        if date < start:
+            continue
+        for a in c["review"].get("avoid") or []:
+            row = avoid.setdefault(a["item"].lower(), {"name": a["item"], "why": a["reason"], "instead": a["instead"], "times": 0})
+            row["times"] += 1
+        for a in c["review"].get("add") or []:
+            row = add.setdefault(a["food"].lower(), {"name": a["food"], "portion": a["portion"], "why": a["why"], "times": 0})
+            row["times"] += 1
+    out_avoid = sorted(avoid.values(), key=lambda r: -r["times"])[:3]
+    for c in contributors:
+        if len(out_avoid) >= 3:
+            break
+        if c["swap"] and c["name"].lower() not in avoid and (target_gap > 0 or not out_avoid):
+            out_avoid.append({"name": c["name"], "why": f"{c['kcal']:,} kcal this period", "instead": c["swap"], "times": c["times"]})
+    out_add = sorted(add.values(), key=lambda r: -r["times"])[:3]
+    picks: list[tuple[str, str, str]] = []
+    if avg["proteinT"] - avg["protein"] > 15:
+        picks += _ADD_PROTEIN
+    if avg["fiberT"] - avg["fiber"] > 8:
+        picks += _ADD_FIBER
+    if target_gap < 0 and avg["target"] - avg["intake"] > 300:
+        picks += _ADD_FUEL
+    for name, portion, why in picks:
+        if len(out_add) >= 3:
+            break
+        if name.lower() not in add:
+            out_add.append({"name": name, "portion": portion, "why": why, "times": 0})
+    return {"avoid": out_avoid, "add": out_add, "proteinGap": round(avg["proteinT"] - avg["protein"]),
+            "fiberGap": round(avg["fiberT"] - avg["fiber"])}
 
 
 # ---------------------------------------------------------------- programs
