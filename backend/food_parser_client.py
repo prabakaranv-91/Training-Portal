@@ -41,7 +41,7 @@ def status() -> dict[str, Any]:
     cfg = food_mcp_server._config()
     return {
         "enabled": bool(cfg.get("enabled", True)),
-        "model": cfg.get("model") or "gemini-2.5-flash",
+        "model": cfg.get("model") or "gemini-flash-lite-latest",
         "keyConfigured": bool(food_mcp_server._api_key()),
         "running": _loop is not None,
         **_status,

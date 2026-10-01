@@ -33,6 +33,8 @@ Messages are often Indian English with typos, slang and Tamil/Hindi food words.
 Rules:
 - Return one item per distinct food; keep composite dishes together ("paneer sandwich", "chicken biryani", "masala dosa").
 - Fix spelling to the common name: "ildli"->"idli", "panner sanwitch"->"paneer sandwich", "briyani"->"biryani", "chapathi"->"chapati".
+- Translate regional words to the common English/Indian name: "mor"/"moru"/"chaas"->"buttermilk", "thayir"/"dahi"->"curd",
+  "muttai"/"anda"->"egg", "sadam"/"chawal"->"rice", "paruppu"->"dal", "kozhi"->"chicken". Number words like "oru"/"ek" mean 1.
 - "iso whey" / "whey isolate" -> name "whey isolate"; plain whey/protein shake -> "whey protein".
 - "cut" means a cup ("1 cut sambar" -> qty 1, unit "cup", name "sambar").
 - Milk or sugar that is only part of a drink ("coffee with milk") is NOT a separate item.
@@ -88,7 +90,22 @@ def gemini_parse(text: str) -> list[dict[str, Any]]:
     key = _api_key()
     if not key:
         raise RuntimeError("Gemini API key not configured (GEMINI_API_KEY or nutrition_secrets.json).")
-    model = _config().get("model") or "gemini-2.5-flash"
+    cfg = _config()
+    models = [cfg.get("model") or "gemini-flash-lite-latest", *cfg.get("fallback_models", [])]
+    last = ""
+    for model in models:
+        try:
+            return _call(model, key, text)
+        except _Retryable as exc:  # overloaded / quota / retired model -> try the next one
+            last = str(exc)
+    raise RuntimeError(last or "No Gemini model available")
+
+
+class _Retryable(RuntimeError):
+    pass
+
+
+def _call(model: str, key: str, text: str) -> list[dict[str, Any]]:
     gen: dict[str, Any] = {
         "temperature": 0,
         "responseMimeType": "application/json",
@@ -105,6 +122,8 @@ def gemini_parse(text: str) -> list[dict[str, Any]]:
         },
         timeout=30,
     )
+    if r.status_code in (404, 429, 500, 503):
+        raise _Retryable(f"{model}: HTTP {r.status_code}: {r.text[:200]}")
     if r.status_code != 200:
         raise RuntimeError(f"Gemini HTTP {r.status_code}: {r.text[:300]}")
     parts = (((r.json().get("candidates") or [{}])[0].get("content") or {}).get("parts") or [{}])

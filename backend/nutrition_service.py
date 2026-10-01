@@ -126,7 +126,7 @@ FOODS: dict[str, dict[str, Any]] = {
     "Butter": _f(["butter"], 717, 0.9, 0.1, 81, 0, 0.1, 640, {"tsp": 5, "tbsp": 14}, "tsp"),
     "Honey": _f(["honey"], 304, 0.3, 82, 0, 0.2, 82, 4, {"tsp": 7, "tbsp": 21}, "tsp"),
     "Coconut water": _f(["coconut water", "tender coconut", "elaneer"], 19, 0.7, 3.7, 0.2, 1.1, 2.6, 105, {"glass": 240, "piece": 300}, "glass"),
-    "Buttermilk": _f(["buttermilk", "chaas", "moru"], 25, 1.5, 2.5, 1.0, 0, 2.5, 150, {"glass": 250, "cup": 200}, "glass"),
+    "Buttermilk": _f(["buttermilk", "chaas", "moru", "mor"], 25, 1.5, 2.5, 1.0, 0, 2.5, 150, {"glass": 250, "cup": 200}, "glass"),
     "Ragi (finger millet)": _f(["ragi", "ragi malt", "ragi kanji", "ragi mudde"], 100, 2.5, 21, 0.6, 2.5, 0.5, 5, {"cup": 200, "glass": 250, "bowl": 250}, "cup"),
     # --- Indian dishes (approx. home/restaurant recipes, IFCT-style values)
     "Veg sandwich": _f(["sandwich", "veg sandwich", "vegetable sandwich", "bread sandwich"], 200, 5.5, 28, 7.5, 3.0, 4.0, 450, {"piece": 150}),
@@ -602,7 +602,9 @@ def _analyse_ai(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out = []
     for it in items:
         name, qty, unit = it["name"], it["qty"], it["unit"]
-        local = _local_match(name)  # model already fixed spelling; fuzzy matching here causes false hits
+        # Exact alias match only: partial hits mislabel dishes ("paneer biryani" -> chicken biryani).
+        norm = _norm(name)
+        local = next((food for alias, food in _ALIAS_INDEX if alias == norm), None)
         if local:
             food = FOODS[local]
             # Generic "serving" from the model -> use the dish's own default portion.

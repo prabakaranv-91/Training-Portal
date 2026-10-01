@@ -6,6 +6,7 @@
   },
   "gemini": {
     "enabled": true,
-    "model": "gemini-2.5-flash"
+    "model": "gemini-flash-lite-latest",
+    "fallback_models": ["gemini-flash-latest", "gemini-3.8-flash"]
   }
 }
