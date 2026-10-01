@@ -387,7 +387,18 @@
 .nh-sentence.low { color: #60a5fa; }
 .nh-sentence.high { color: #f87171; }
 .nh-weight { color: var(--text); }
-.nh-forecast .nh-fc-note { margin-top: 2px; line-height: 1.35; }
+.nh-cap { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); }
+.nh-tile .nh-cap + .nh-cap, .nh-more .nh-cap { margin-top: 6px; }
+.nh-act { display: flex; align-items: baseline; gap: 6px; width: 100%; }
+.nh-act-i { flex: none; font-size: 0.72rem; }
+.nh-act .nh-adv { margin: 0; }
+.nh-more { width: 100%; margin-top: 6px; }
+.nh-more > summary { cursor: pointer; color: var(--text-dim); font-size: 0.7rem; list-style: none; }
+.nh-more > summary::-webkit-details-marker { display: none; }
+.nh-more > summary::before { content: "▸ "; }
+.nh-more[open] > summary::before { content: "▾ "; }
+.nh-more > summary:hover { color: var(--accent); }
+.nh-more .nh-adv li { white-space: normal; }
 .nh-spark { width: 100%; height: 26px; color: var(--accent); margin: 1px 0; }
 .nh-adv { list-style: none; margin: 2px 0 0; padding: 0; width: 100%; }
 .nh-adv li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.45; }

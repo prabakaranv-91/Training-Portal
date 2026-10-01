@@ -490,46 +490,52 @@ function renderNutritionProgress(p) {
   const pct = tgt ? Math.min(100, Math.round((eat / tgt) * 100)) : 0;
   const calCls = Math.abs(diff) <= tgt * 0.1 ? "ok" : diff > 0 ? "high" : "low";
   const sentence = Math.abs(diff) <= tgt * 0.1
-    ? "Right on your target 👍"
-    : `${nutriFmt(Math.abs(diff))} kcal/day ${diff > 0 ? "over" : "under"} target`;
+    ? "On target"
+    : `${nutriFmt(Math.abs(diff))} ${diff > 0 ? "over" : "under"} / day`;
   const calories = `
-    <div class="dim">Calories · daily avg (${p.days}d)</div>
+    <div class="nh-cap">Calories · ${p.days}-day avg</div>
     <div class="nh-val">${nutriFmt(eat)} <small class="dim">/ ${nutriFmt(tgt)} kcal</small></div>
     <div class="nutri-bar"><div class="nutri-fill ${calCls}" style="width:${pct}%"></div></div>
     <div class="nh-sentence ${calCls}">${sentence}</div>`;
 
   // Weight: current value, change since the first weigh-in, and a mini trend line.
   const pts = p.weights || [];
-  let weight = `<div class="dim">Weight</div>`;
+  let weight = `<div class="nh-cap">Weight</div>`;
   if (!pts.length) {
-    weight += `<div class="nh-val">–</div><div class="dim">No weigh-ins in this period</div>`;
+    weight += `<div class="nh-val">–</div><div class="dim">No weigh-ins yet</div>`;
   } else {
     const change = p.actualKg ?? 0;
     const arrow = change < 0 ? "↓" : change > 0 ? "↑" : "→";
     weight += `<div class="nh-val">${p.toKg} kg</div>
       ${nutriSparkline(pts)}
-      <div class="dim">${pts.length > 1 ? `${arrow} ${Math.abs(change)} kg since ${fmtDate(pts[0].date)}` : `Logged ${fmtDate(pts[0].date)} · add more weigh-ins to see a trend`}</div>`;
+      <div class="dim">${pts.length > 1
+        ? `${change ? `${arrow} ${Math.abs(change)} kg` : "No change"} since ${fmtDate(pts[0].date)}`
+        : `Since ${fmtDate(pts[0].date)} · add weigh-ins for a trend`}</div>`;
   }
 
-  const foods = (p.contributors || [])
-    .map((c) => `<li title="${escapeAttr(c.swap ? `Try ${c.swap}` : "")}"><span>${escapeAttr(c.name)}</span><b>${nutriFmt(c.kcal)}</b></li>`)
-    .join("");
-
   const adv = p.advice || {};
-  const avoid = (adv.avoid || [])
-    .map((a) => `<li title="${escapeAttr(a.why)}">🚫 <b>${escapeAttr(a.name)}</b><span class="dim"> → ${escapeAttr(a.instead)}</span></li>`)
-    .join("");
-  const add = (adv.add || [])
-    .map((a) => `<li title="${escapeAttr(a.why)}">➕ <b>${escapeAttr(a.name)}</b><span class="dim"> · ${escapeAttr(a.portion)}</span></li>`)
-    .join("");
+  const line = (a) => `<li title="${escapeAttr(a.why)}"><b>${escapeAttr(a.name)}</b><span class="dim"> ${escapeAttr(a.instead ? `→ ${a.instead}` : a.portion)}</span></li>`;
+  const avoid = adv.avoid || [], add = adv.add || [], foods = p.contributors || [];
+  const actions = avoid.length || add.length
+    ? `<div class="nh-tile nh-advice">
+        <div class="nh-cap">To hit your target</div>
+        ${avoid.length ? `<div class="nh-act"><span class="nh-act-i">🚫</span><ul class="nh-adv">${line(avoid[0])}</ul></div>` : ""}
+        ${add.length ? `<div class="nh-act"><span class="nh-act-i">➕</span><ul class="nh-adv">${line(add[0])}</ul></div>` : ""}
+        <details class="nh-more"><summary>All suggestions</summary>
+          ${avoid.length > 1 ? `<div class="nh-cap">Eat less</div><ul class="nh-adv">${avoid.slice(1).map(line).join("")}</ul>` : ""}
+          ${add.length > 1 ? `<div class="nh-cap">Eat more</div><ul class="nh-adv">${add.slice(1).map(line).join("")}</ul>` : ""}
+          ${foods.length ? `<div class="nh-cap">Top calorie foods</div><ul class="nh-foods">${foods
+            .map((c) => `<li title="${escapeAttr(c.swap ? `Try ${c.swap}` : "")}"><span>${escapeAttr(c.name)}</span><b>${nutriFmt(c.kcal)}</b></li>`)
+            .join("")}</ul>` : ""}
+        </details>
+      </div>`
+    : "";
 
   el.innerHTML = `
     <div class="nh-tile">${calories}</div>
     <div class="nh-tile nh-weight">${weight}</div>
     ${nutriForecastTile(p.forecast)}
-    ${foods ? `<div class="nh-tile"><div class="dim">Top calorie foods</div><ul class="nh-foods">${foods}</ul></div>` : ""}
-    ${avoid || add ? `<div class="nh-tile nh-advice"><div class="dim">To hit your target</div>
-      ${avoid ? `<ul class="nh-adv">${avoid}</ul>` : ""}${add ? `<ul class="nh-adv">${add}</ul>` : ""}</div>` : ""}`;
+    ${actions}`;
 }
 
 // Weight you land on if the last few days of eating + training continue, next to the program's own pace.
@@ -537,20 +543,23 @@ function nutriForecastTile(f) {
   if (!f) return "";
   const rate = f.actual.perWeekKg;
   const cls = Math.abs(rate) < 0.05 ? "ok" : rate < 0 ? "low" : "high";
-  const pace = Math.abs(rate) < 0.05
-    ? "Holding steady at this pace"
-    : `${rate < 0 ? "↓" : "↑"} ${Math.abs(rate).toFixed(2)} kg/week at this pace`;
+  const pace = Math.abs(rate) < 0.05 ? "Holding steady" : `${rate < 0 ? "↓" : "↑"} ${Math.abs(rate).toFixed(2)} kg / week`;
   const note = f.lowData
-    ? `Based on ${f.basisDays} logged day${f.basisDays === 1 ? "" : "s"} — log more for a reliable trend.`
+    ? `Based on ${f.basisDays} logged day${f.basisDays === 1 ? "" : "s"} only.`
     : f.tooFast
-      ? "Faster than 1 kg/week — consider easing the deficit/surplus."
-      : `If you follow the plan: ${f.plan.in4wKg} kg in 4 weeks.`;
+      ? "Faster than 1 kg/week — ease the deficit."
+      : "At your current eating and training pace.";
   return `<div class="nh-tile nh-forecast">
-    <div class="dim">Projected weight</div>
+    <div class="nh-cap">Projected weight</div>
     <div class="nh-val">${f.actual.in4wKg} kg <small class="dim">in 4 weeks</small></div>
-    <div class="dim">${f.actual.in12wKg} kg in 12 weeks · now ${f.currentKg} kg</div>
     <div class="nh-sentence ${cls}">${pace}</div>
-    <div class="dim nh-fc-note">${escapeAttr(note)}</div>
+    <details class="nh-more"><summary>How it's worked out</summary>
+      <ul class="nh-adv">
+        <li>Now <b>${f.currentKg} kg</b> · 12 weeks <b>${f.actual.in12wKg} kg</b></li>
+        <li>Following the plan: <b>${f.plan.in4wKg} kg</b> in 4 weeks (${f.plan.perWeekKg} kg/wk)</li>
+        <li>${escapeAttr(note)}</li>
+      </ul>
+    </details>
   </div>`;
 }
 
