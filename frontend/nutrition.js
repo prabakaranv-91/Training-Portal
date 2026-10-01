@@ -422,8 +422,9 @@ function renderNutritionProgram(p) {
   select.value = p.current;
   const note = (opts.find((o) => o.key === p.current) || {}).note || "";
   const since = (p.history || []).find((h) => h.program === p.current);
-  document.getElementById("nutri-program-note").textContent =
-    `${note}${since ? ` · since ${nutriShortDate(since.from)}` : ""}`;
+  const noteEl = document.getElementById("nutri-program-note");
+  noteEl.textContent = `${note}${since ? ` · since ${nutriShortDate(since.from)}` : ""}`;
+  noteEl.title = noteEl.textContent;
 }
 
 function nutriShortDate(s) {
