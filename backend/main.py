@@ -21,6 +21,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+import food_parser_client
 import nutrition_service
 import sheets_sync
 import strava_service
@@ -556,6 +557,12 @@ def nutrition_item_qty(
     if not nutrition_service.set_item_qty(user, entry_id, item, req.qty):
         raise HTTPException(status_code=404, detail="Item not found")
     return {"status": "updated"}
+
+
+@app.get("/api/nutrition/parser")
+def nutrition_parser_status(garmin_session: str | None = Cookie(default=None)):
+    _valid_session(garmin_session)
+    return food_parser_client.status()
 
 
 @app.get("/api/nutrition/sheets")

@@ -4,3 +4,7 @@ garminconnect==0.2.25
 itsdangerous==2.2.0
 python-dateutil==2.9.0.post0
 requests==2.34.2
+# MCP 1.x: 2.x needs a newer Starlette than FastAPI 0.115 supports
+mcp>=1.9,<2
+sse-starlette<3
+starlette==0.41.3

@@ -29,6 +29,7 @@ from typing import Any
 
 import requests
 
+import food_parser_client
 import sheets_sync
 
 logger = logging.getLogger("nutrition.service")
@@ -89,7 +90,7 @@ FOODS: dict[str, dict[str, Any]] = {
     "Whole egg": _f(["egg", "whole egg", "boiled egg", "egg boiled", "fried egg", "poached egg"], 143, 12.6, 0.7, 9.5, 0, 0.4, 142, {"piece": 50}),
     "Egg white": _f(["egg white", "white egg", "egg whites only"], 52, 10.9, 0.7, 0.2, 0, 0.7, 166, {"piece": 33}),
     "Omelette": _f(["omelette", "omelet", "omlet"], 154, 10.6, 0.6, 12, 0, 0.4, 300, {"piece": 110}),
-    "Whey isolate": _f(["iso whey", "whey isolate", "isolate", "iso"], 367, 83, 3.3, 1.0, 0, 1.0, 230, {"scoop": 30}, "scoop"),
+    "Whey isolate": _f(["iso whey", "whey isolate", "whey protein isolate", "isolate", "iso"], 367, 83, 3.3, 1.0, 0, 1.0, 230, {"scoop": 30}, "scoop"),
     "Whey protein": _f(["whey", "whey protein", "protein powder", "protein shake"], 395, 79, 10, 5.0, 0, 5.0, 200, {"scoop": 30}, "scoop"),
     "Chicken breast (cooked)": _f(["chicken breast", "grilled chicken", "chicken"], 165, 31, 0, 3.6, 0, 0, 74, {"piece": 120, "cup": 140}, "serving"),
     "Chicken curry": _f(["chicken curry", "chicken gravy", "chicken masala"], 140, 13, 4.0, 8.0, 1.0, 1.5, 400, {"cup": 200, "bowl": 200}, "cup"),
@@ -567,6 +568,9 @@ def _grams(qty: float, unit: str | None, food: dict[str, Any]) -> float:
 
 
 def analyse(text: str) -> list[dict[str, Any]]:
+    ai = food_parser_client.parse(text)
+    if ai is not None:
+        return _analyse_ai(ai)
     out = []
     for p in parse_text(text):
         food = _lookup(p["item"])
@@ -589,6 +593,38 @@ def analyse(text: str) -> list[dict[str, Any]]:
             "source": food["source"],
             "found": True,
             **{k: round(food["per100"][k] * factor, 1) for k in NUTRIENTS},
+        })
+    return out
+
+
+def _analyse_ai(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Items understood by Gemini: built-in table values when we know the food, else Gemini's estimate."""
+    out = []
+    for it in items:
+        name, qty, unit = it["name"], it["qty"], it["unit"]
+        local = _local_match(name)  # model already fixed spelling; fuzzy matching here causes false hits
+        if local:
+            food = FOODS[local]
+            # Generic "serving" from the model -> use the dish's own default portion.
+            use_unit = None if unit == "serving" and "serving" not in food["units"] else unit
+            grams = _grams(qty, use_unit, {"units": food["units"], "default": food["default"]})
+            per100, label, source = food["per100"], local, "Built-in table"
+            unit = use_unit or food["default"]
+        else:
+            grams = it.get("total_grams") or _grams(qty, unit, {"units": {}})
+            per100, label, source = it["per100g"], name.capitalize(), "Gemini estimate"
+        factor = grams / 100
+        said = " ".join(w for w in _norm(it["input"]).split() if w not in UNIT_ALIASES and w not in WORD_NUMBERS)
+        out.append({
+            "input": it["input"],
+            "readAs": name if said and _norm(name) != said else None,
+            "name": label,
+            "qty": qty,
+            "unit": unit,
+            "grams": round(grams),
+            "source": f"{source} · parsed by Gemini",
+            "found": True,
+            **{k: round((per100.get(k) or 0) * factor, 1) for k in NUTRIENTS},
         })
     return out
 
