@@ -361,6 +361,10 @@
 .nc-head { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
 .nc-stale { font-size: 11px; font-style: italic; }
 .nc-head .nutri-review-refresh { margin-left: auto; font-size: 11px; white-space: nowrap; }
+.nc-details { margin-top: 4px; }
+.nc-details > summary { width: max-content; cursor: pointer; color: var(--text-dim); font-size: 0.72rem; }
+.nc-details > summary:hover { color: var(--accent); }
+.nc-detail-body { padding-top: 3px; }
 .nc-sec { margin-top: 4px; font-weight: 600; }
 .nc-sec span { font-weight: 400; }
 .nc-next { margin-top: 4px; }

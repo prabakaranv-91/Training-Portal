@@ -123,17 +123,18 @@ function nutriFillCoach(el, day, review) {
     const avoid = (review.avoid || [])
       .map((a) => `<li><b>${escapeAttr(a.item)}</b> — ${escapeAttr(a.reason)}<span class="dim"> → ${escapeAttr(a.instead)}</span></li>`)
       .join("");
-    el.innerHTML = `
-      <div class="nc-head">🤖 <b>Day review</b> <span class="nutri-status ${v.cls}">${v.label}</span>
-        ${review.stale ? `<span class="dim nc-stale" title="You logged food after this review">outdated</span>
-        <button class="nutri-act nutri-review-refresh" title="Review the day again with Gemini (uses 1 request)">↻ Update</button>` : ""}</div>
-      ${review.summary ? `<div>${escapeAttr(review.summary)}</div>` : ""}
-      ${avoid ? `<div class="nc-sec">🚫 Avoid</div><ul>${avoid}</ul>` : ""}
+    const details = `${avoid ? `<div class="nc-sec">🚫 Avoid</div><ul>${avoid}</ul>` : ""}
       ${(review.keep || []).length ? `<div class="nc-sec">👍 Keep: <span>${review.keep.map(escapeAttr).join(", ")}</span></div>` : ""}
       ${(review.add || []).length ? `<div class="nc-sec">🍛 Eat next</div><ul>${review.add
         .map((a) => `<li><b>${escapeAttr(a.food)}</b> · ${escapeAttr(a.portion)}<span class="dim"> — ${escapeAttr(a.why)}</span></li>`)
         .join("")}</ul>` : ""}
       ${review.next ? `<div class="dim nc-next">💡 ${escapeAttr(review.next)}</div>` : ""}`;
+    el.innerHTML = `
+      <div class="nc-head">🤖 <b>Day review</b> <span class="nutri-status ${v.cls}">${v.label}</span>
+        ${review.stale ? `<span class="dim nc-stale" title="You logged food after this review">outdated</span>
+        <button class="nutri-act nutri-review-refresh" title="Review the day again with Gemini (uses 1 request)">↻ Update</button>` : ""}</div>
+      ${review.summary ? `<div>${escapeAttr(review.summary)}</div>` : ""}
+      ${details.trim() ? `<details class="nc-details"><summary>Show more</summary><div class="nc-detail-body">${details}</div></details>` : ""}`;
   }
   const box = document.getElementById("nutri-messages");
   box.scrollTop = box.scrollHeight;
