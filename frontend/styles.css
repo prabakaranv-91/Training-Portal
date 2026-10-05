@@ -1619,16 +1619,16 @@ select:focus {
 /* Activity rows: fixed title/type hierarchy and predictable metric placement. */
 .activity {
   grid-template-columns: 38px minmax(210px, 1.8fr) repeat(4, minmax(74px, 0.75fr));
-  gap: 10px 14px;
-  padding: 12px 14px;
+  gap: 7px 14px;
+  padding: 9px 12px;
 }
 .activity .a-icon { grid-column: 1; grid-row: 1; text-align: center; }
 .activity .a-info { grid-column: 2; min-width: 0; }
 .activity .a-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }
 .activity .a-name { display: block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .activity .a-kind { flex: none; color: var(--text-dim); font-size: 10px; line-height: 1.4; }
-.activity .a-date { margin-top: 3px; }
-.activity .a-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; min-height: 0; }
+.activity .a-date { margin-top: 2px; }
+.activity .a-tags { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; min-height: 0; }
 .activity .a-tags:empty { display: none; }
 .activity .metric { min-width: 0; text-align: left; }
 .activity .metric .m-val { white-space: nowrap; font-size: 14px; }
@@ -1662,7 +1662,7 @@ select:focus {
 
 @media (max-width: 520px) {
   .activities { gap: 8px; padding-right: 2px; }
-  .activity { grid-template-columns: 30px minmax(0, 1fr) minmax(72px, 0.55fr); gap: 8px 10px; padding: 11px; }
+  .activity { grid-template-columns: 30px minmax(0, 1fr) minmax(72px, 0.55fr); gap: 5px 10px; padding: 8px; }
   .activity .a-info { grid-column: 2 / -1; }
   .activity .a-heading { align-items: flex-start; flex-direction: column; gap: 1px; }
   .activity .a-name { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
