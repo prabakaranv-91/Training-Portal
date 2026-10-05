@@ -18,6 +18,11 @@ const NUTRI_STATUS = {
   in_limit: { label: "In limit", cls: "ok" },
   high: { label: "Exceeds", cls: "high" },
 };
+const NUTRI_UNIT_SHORT = {
+  pieces: "pcs", piece: "pc", servings: "serv", serving: "serv",
+  tablespoons: "tbsp", tablespoon: "tbsp", teaspoons: "tsp", teaspoon: "tsp",
+  grams: "g", gram: "g", milliliters: "ml", milliliter: "ml",
+};
 
 function nutriLocalDate(d = new Date()) {
   const off = d.getTimezoneOffset() * 60000;
@@ -642,10 +647,14 @@ function renderNutritionHistory(days) {
       const st = NUTRI_STATUS[d.status];
       const label = new Date(`${d.date}T00:00`).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
       const foods = (d.items || [])
-        .map(
-          (i) => `<li><span class="nh-f-name">${nutriRateIcon(i)}${escapeAttr(i.name)}</span>
-            <span class="nh-f-qty dim">×${i.qty}</span><span class="nh-f-kcal">${nutriFmt(i.kcal)}</span></li>`
-        )
+        .map((i) => {
+          const qty = Number.isInteger(Number(i.qty)) ? Number(i.qty) : Number(i.qty).toFixed(1).replace(/\.0$/, "");
+          const unit = NUTRI_UNIT_SHORT[(i.unit || "").toLowerCase()] || i.unit || "";
+          return `<li title="${escapeAttr(`${i.name}: ${qty} ${i.unit || ""} · ${nutriFmt(i.kcal)} kcal`)}">
+            <span class="nh-f-name">${nutriRateIcon(i)}${escapeAttr(i.name)}</span>
+            <span class="nh-f-qty dim">×${escapeAttr(qty)}${unit ? ` ${escapeAttr(unit)}` : ""}</span>
+            <span class="nh-f-kcal">${nutriFmt(i.kcal)} <small>kcal</small></span></li>`;
+        })
         .join("");
       const macro = (k, lbl) => {
         const v = d.intake[k], t = (d.targets || {})[k];
