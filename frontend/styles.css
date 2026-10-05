@@ -1616,6 +1616,72 @@ select:focus {
   background: var(--card-hover);
 }
 
+/* Activity rows: fixed title/type hierarchy and predictable metric placement. */
+.activity {
+  grid-template-columns: 38px minmax(210px, 1.8fr) repeat(4, minmax(74px, 0.75fr));
+  gap: 10px 14px;
+  padding: 12px 14px;
+}
+.activity .a-icon { grid-column: 1; grid-row: 1; text-align: center; }
+.activity .a-info { grid-column: 2; min-width: 0; }
+.activity .a-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }
+.activity .a-name { display: block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity .a-kind { flex: none; color: var(--text-dim); font-size: 10px; line-height: 1.4; }
+.activity .a-date { margin-top: 3px; }
+.activity .a-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; min-height: 0; }
+.activity .a-tags:empty { display: none; }
+.activity .metric { min-width: 0; text-align: left; }
+.activity .metric .m-val { white-space: nowrap; font-size: 14px; }
+.activity .metric .m-lab { margin-top: 2px; }
+.activities.compare-on .activity {
+  grid-template-columns: 28px 38px minmax(190px, 1.8fr) repeat(4, minmax(70px, 0.75fr));
+}
+.activities.compare-on .activity .a-check { grid-column: 1; grid-row: 1; }
+.activities.compare-on .activity .a-icon { grid-column: 2; }
+.activities.compare-on .activity .a-info { grid-column: 3; }
+
+@media (max-width: 900px) {
+  .activity { grid-template-columns: 34px minmax(0, 1fr) repeat(2, minmax(74px, 0.65fr)); }
+  .activity .a-icon { grid-column: 1; grid-row: 1; }
+  .activity .a-info { grid-column: 2 / -1; grid-row: 1; }
+  .activity .metric-distance { grid-column: 2; }
+  .activity .metric-time { grid-column: 3; }
+  .activity .metric-pace { grid-column: 4; }
+  .activity .metric-hr { grid-column: 2; }
+  .activities.compare-on .activity {
+    grid-template-columns: 28px 34px minmax(0, 1fr) repeat(2, minmax(70px, 0.65fr));
+  }
+  .activities.compare-on .activity .a-check { grid-column: 1; grid-row: 1 / span 3; }
+  .activities.compare-on .activity .a-icon { grid-column: 2; }
+  .activities.compare-on .activity .a-info { grid-column: 3 / -1; }
+  .activities.compare-on .activity .metric-distance { grid-column: 3; }
+  .activities.compare-on .activity .metric-time { grid-column: 4; }
+  .activities.compare-on .activity .metric-pace { grid-column: 5; }
+  .activities.compare-on .activity .metric-hr { grid-column: 3; }
+}
+
+@media (max-width: 520px) {
+  .activities { gap: 8px; padding-right: 2px; }
+  .activity { grid-template-columns: 30px minmax(0, 1fr) minmax(72px, 0.55fr); gap: 8px 10px; padding: 11px; }
+  .activity .a-info { grid-column: 2 / -1; }
+  .activity .a-heading { align-items: flex-start; flex-direction: column; gap: 1px; }
+  .activity .a-name { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+  .activity .a-kind { font-size: 10px; }
+  .activity .metric-distance { grid-column: 2; }
+  .activity .metric-time { grid-column: 3; }
+  .activity .metric-pace { grid-column: 2; }
+  .activity .metric-hr { grid-column: 3; }
+  .activities.compare-on .activity { grid-template-columns: 24px 30px minmax(0, 1fr) minmax(72px, 0.55fr); }
+  .activities.compare-on .activity .a-info { grid-column: 3 / -1; }
+  .activities.compare-on .activity .a-check { grid-column: 1; grid-row: 1 / span 3; }
+  .activities.compare-on .activity .a-icon { grid-column: 2; }
+  .activities.compare-on .activity .metric-distance { grid-column: 3; }
+  .activities.compare-on .activity .metric-time { grid-column: 4; }
+  .activities.compare-on .activity .metric-pace { grid-column: 3; }
+  .activities.compare-on .activity .metric-hr { grid-column: 4; }
+}
+
+
 /* Multi-activity compare: selection UI */
 .btn-sm {
   width: auto;
@@ -1666,6 +1732,20 @@ select:focus {
 .activity.selected {
   border-color: var(--accent);
   background: rgba(45, 212, 191, 0.1);
+}
+
+#activities-list.activities.compare-on .activity {
+  grid-template-columns: 28px 38px minmax(190px, 1.8fr) repeat(4, minmax(70px, 0.75fr));
+}
+@media (max-width: 900px) {
+  #activities-list.activities.compare-on .activity {
+    grid-template-columns: 28px 34px minmax(0, 1fr) repeat(2, minmax(70px, 0.65fr));
+  }
+}
+@media (max-width: 520px) {
+  #activities-list.activities.compare-on .activity {
+    grid-template-columns: 24px 30px minmax(0, 1fr) minmax(72px, 0.55fr);
+  }
 }
 
 /* Multi-compare modal table */

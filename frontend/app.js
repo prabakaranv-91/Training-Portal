@@ -146,6 +146,19 @@ function sportIcon(type) {
   return SPORT_ICONS[type] || "🏅";
 }
 
+
+function activityTypeLabel(type) {
+  const raw = String(type || "");
+  const fused = {
+    weighttraining: "Weight Training",
+    strengthtraining: "Strength Training",
+    trailrunning: "Trail Running",
+    treadmillrunning: "Treadmill Running",
+    virtualride: "Virtual Ride",
+  }[raw.replace(/[^a-z]/gi, "").toLowerCase()];
+  return fused || prettyLabel(raw.replace(/([a-z])([A-Z])/g, "$1_$2")) || "Activity";
+}
+
 // Strava workout_type tags (race / long run / workout) shown as row badges.
 const TAG_META = {
   race: { icon: "🏁", label: "Race", cls: "tag-race" },
@@ -1774,9 +1787,14 @@ function activityRowHtml(a) {
   }>
         ${checkbox}
         <div class="a-icon">${sportIcon(a.type)}</div>
-        <div>
-          <div class="a-name">${a.name || a.type || "Activity"}${
-    isStrava ? ' <span class="list-tag strava">Strava</span>' : ""
+        <div class="a-info">
+          <div class="a-heading">
+            <div class="a-name">${a.name || activityTypeLabel(a.type)}</div>
+            <span class="a-kind">${activityTypeLabel(a.type)}</span>
+          </div>
+          <div class="a-date">${date}</div>
+          <div class="a-tags">${
+    isStrava ? '<span class="list-tag strava">Strava</span>' : ""
   }${
     a.tag && TAG_META[a.tag]
       ? ` <span class="list-tag ${TAG_META[a.tag].cls}">${TAG_META[a.tag].icon} ${TAG_META[a.tag].label}</span>`
@@ -1788,12 +1806,11 @@ function activityRowHtml(a) {
       ? ` <span class="list-tag benefit ${benefitClass(a.benefit)}">${prettyLabel(a.benefit)}</span>`
       : ""
   }</div>
-          <div class="a-date">${date}</div>
         </div>
-        <div class="metric"><div class="m-val">${a.distanceKm ?? "–"} km</div><div class="m-lab">Distance</div></div>
-        <div class="metric"><div class="m-val">${fmtDuration(a.durationSec)}</div><div class="m-lab">Time</div></div>
-        <div class="metric"><div class="m-val">${fmtPace(a.paceMinPerKm)}</div><div class="m-lab">Pace</div></div>
-        <div class="metric"><div class="m-val">${a.averageHR ? num(a.averageHR) : "–"}</div><div class="m-lab">Avg HR</div></div>
+        <div class="metric metric-distance"><div class="m-val">${a.distanceKm ?? "–"} km</div><div class="m-lab">Distance</div></div>
+        <div class="metric metric-time"><div class="m-val">${fmtDuration(a.durationSec)}</div><div class="m-lab">Time</div></div>
+        <div class="metric metric-pace"><div class="m-val">${fmtPace(a.paceMinPerKm)}</div><div class="m-lab">Pace</div></div>
+        <div class="metric metric-hr"><div class="m-val">${a.averageHR ? num(a.averageHR) : "–"}</div><div class="m-lab">Avg HR</div></div>
       </div>`;
 }
 
