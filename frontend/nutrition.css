@@ -123,6 +123,10 @@
 .nutri-table th small { opacity: 0.7; }
 .nutri-table tbody tr:first-child td { font-weight: 600; }
 .nutri-table td.over { color: var(--danger); }
+.nutri-table td.nutri-balance { font-size: 0.72rem; font-weight: 600; }
+.nutri-table td.nutri-balance.left { color: var(--text-dim); }
+.nutri-table td.nutri-balance.met { color: #34d399; }
+.nutri-table td.nutri-balance.over { color: var(--danger); }
 .nutri-status {
   padding: 2px 8px;
   border-radius: 999px;

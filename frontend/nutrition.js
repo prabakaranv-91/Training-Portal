@@ -268,18 +268,29 @@ function renderNutritionSummary(day) {
     const bad = key === "sugar" || key === "sodium" ? v > t : v > t * 1.25;
     return `<td class="${bad ? "over" : ""}">${nutriFmt(v)}</td>`;
   };
+  const balanceCell = (key, limit = false) => {
+    const current = intake[key] || 0, target = targets[key] || 0;
+    const remaining = target - current;
+    if (remaining > 0) return `<td class="nutri-balance left">${nutriFmt(remaining)} to go</td>`;
+    if (limit || key === "kcal") {
+      return remaining < 0
+        ? `<td class="nutri-balance over">${nutriFmt(-remaining)} over</td>`
+        : `<td class="nutri-balance met">At limit</td>`;
+    }
+    return `<td class="nutri-balance met">Met</td>`;
+  };
   const tips = day.entries.length ? day.suggestions.join("\n\n") : "";
   const rows = [{ key: "kcal", label: "Calories", unit: "kcal" }, ...NUTRI_ROWS];
   el.innerHTML = `
     <table class="nutri-table">
       <thead><tr><th><span class="nutri-status ${st.cls}" title="${escapeAttr(tips)}">${st.label}${tips ? " ⓘ" : ""}</span>
         <small class="nutri-prog">${escapeAttr(day.programLabel || "")} · ${day.weightKg} kg${day.weightSource === "default" ? "?" : ""}</small></th>
-        <th>Today</th><th>Target</th></tr></thead>
+        <th>Today</th><th>Target</th><th>Balance</th></tr></thead>
       <tbody>
         ${rows
           .map(
             (r) => `<tr><td>${r.label} <small>${r.unit}</small></td>${cell(r.key)}
-              <td class="dim">${r.limit ? "≤" : ""}${nutriFmt(targets[r.key])}</td></tr>`
+              <td class="dim">${r.limit ? "≤" : ""}${nutriFmt(targets[r.key])}</td>${balanceCell(r.key, r.limit)}</tr>`
           )
           .join("")}
       </tbody>
