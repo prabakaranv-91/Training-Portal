@@ -271,7 +271,7 @@ function renderNutritionSummary(day) {
   const balanceCell = (key, limit = false) => {
     const current = intake[key] || 0, target = targets[key] || 0;
     const remaining = target - current;
-    if (remaining > 0) return `<td class="nutri-balance left">${nutriFmt(remaining)} to go</td>`;
+    if (remaining > 0) return `<td class="nutri-balance left">${nutriFmt(remaining)}</td>`;
     if (limit || key === "kcal") {
       return remaining < 0
         ? `<td class="nutri-balance over">${nutriFmt(-remaining)} over</td>`
