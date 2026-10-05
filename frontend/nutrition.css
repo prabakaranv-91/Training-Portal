@@ -474,10 +474,13 @@
 .nh-macros span.under { border-color: rgba(96, 165, 250, 0.4); }
 .nh-wt { color: var(--text); }
 .nh-food-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 14px; font-size: 0.78rem; }
-.nh-food-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 3px 0; border-bottom: 1px dashed var(--border); }
+.nh-food-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto 20px; align-items: center; gap: 6px; padding: 3px 0; border-bottom: 1px dashed var(--border); }
 .nh-f-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nh-f-qty { font-size: 0.72rem; }
 .nh-f-kcal { font-weight: 600; color: var(--accent); min-width: 42px; text-align: right; }
+.nh-food-delete { width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--text-dim); cursor: pointer; line-height: 1; }
+.nh-food-delete:hover { background: rgba(248, 113, 113, 0.14); color: #f87171; }
+.nh-food-delete:disabled { opacity: 0.45; cursor: wait; }
 .nh-empty-day { font-size: 0.78rem; }
 @media (max-width: 640px) {
   .nh-food-list { grid-template-columns: minmax(0, 1fr); }

@@ -1141,12 +1141,16 @@ def history(user: str, days: int) -> list[dict[str, Any]]:
         snap = data["days"].get(date) or {}
         foods: dict[tuple, dict[str, Any]] = {}
         for e in by_day[date]:
-            for i in e["items"]:
+            for item_index, i in enumerate(e["items"]):
                 if not i.get("found") or i.get("revoked"):
                     continue
-                f = foods.setdefault((i["name"], i["unit"]), {"name": i["name"], "unit": i["unit"], "qty": 0, "grams": 0, **{k: 0 for k in NUTRIENTS}})
+                f = foods.setdefault((i["name"], i["unit"]), {
+                    "name": i["name"], "unit": i["unit"], "qty": 0, "grams": 0, "sources": [],
+                    **{k: 0 for k in NUTRIENTS},
+                })
                 f["qty"] = round(f["qty"] + (i.get("qty") or 0), 2)
                 f["grams"] = round(f["grams"] + (i.get("grams") or 0))
+                f["sources"].append({"id": e["id"], "item": item_index})
                 for k in NUTRIENTS:
                     f[k] = round(f[k] + (i.get(k) or 0), 1)
         program = snap.get("program") or program_for(user, date, data)

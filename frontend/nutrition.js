@@ -653,7 +653,9 @@ function renderNutritionHistory(days) {
           return `<li title="${escapeAttr(`${i.name}: ${qty} ${i.unit || ""} · ${nutriFmt(i.kcal)} kcal`)}">
             <span class="nh-f-name">${nutriRateIcon(i)}${escapeAttr(i.name)}</span>
             <span class="nh-f-qty dim">×${escapeAttr(qty)}${unit ? ` ${escapeAttr(unit)}` : ""}</span>
-            <span class="nh-f-kcal">${nutriFmt(i.kcal)} <small>kcal</small></span></li>`;
+            <span class="nh-f-kcal">${nutriFmt(i.kcal)} <small>kcal</small></span>
+            <button class="nh-food-delete" type="button" title="Remove this food from the day" aria-label="Remove ${escapeAttr(i.name)} from this day"
+              data-name="${escapeAttr(i.name)}" data-qty="${escapeAttr(qty)}" data-unit="${escapeAttr(i.unit || "")}" data-sources="${escapeAttr(JSON.stringify(i.sources || []))}">×</button></li>`;
         })
         .join("");
       const macro = (k, lbl) => {
@@ -687,6 +689,37 @@ function closeNutritionHistory() {
   document.getElementById("nutri-history-modal").classList.add("hidden");
 }
 
+
+async function deleteNutritionHistoryFood(button) {
+  let sources;
+  try {
+    sources = JSON.parse(button.dataset.sources || "[]");
+  } catch (_) {
+    toast("Could not identify the logged food items");
+    return;
+  }
+  if (!sources.length) {
+    toast("Could not identify the logged food items");
+    return;
+  }
+  const name = button.dataset.name || "this food";
+  const portion = `${button.dataset.qty || ""} ${button.dataset.unit || ""}`.trim();
+  if (!window.confirm(`Remove ${portion} ${name} from this day?`)) return;
+  button.disabled = true;
+  try {
+    await Promise.all(sources.map((source) =>
+      api(`/api/nutrition/entries/${encodeURIComponent(source.id)}?item=${encodeURIComponent(source.item)}`, {
+        method: "DELETE",
+      })
+    ));
+    toast(`${name} removed from this day`);
+    loadNutrition();
+    openNutritionHistory();
+  } catch (ex) {
+    toast(`Could not remove food: ${ex.message}`);
+    button.disabled = false;
+  }
+}
 // ------------------------------------------------------------- wiring
 
 document.addEventListener(
@@ -804,6 +837,11 @@ document.getElementById("nutri-ideas-modal").addEventListener("click", (e) => {
 });
 document.getElementById("nutri-history-close").addEventListener("click", closeNutritionHistory);
 document.getElementById("nutri-history-modal").addEventListener("click", (e) => {
+  const deleteBtn = e.target.closest(".nh-food-delete");
+  if (deleteBtn) {
+    deleteNutritionHistoryFood(deleteBtn);
+    return;
+  }
   if (e.target.id === "nutri-history-modal") closeNutritionHistory();
 });
 document.getElementById("nutri-program").addEventListener("change", saveNutritionProgram);
