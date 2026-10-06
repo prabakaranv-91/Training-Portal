@@ -1,8 +1,7 @@
 """
 Thin wrapper around the `garminconnect` library.
 
-Handles login (including MFA), token caching to disk so the app does not have to
-re-authenticate on every restart, and provides convenience methods to fetch the
+Handles login (including MFA), in-memory token export/restore, and methods to fetch the
 training / wellness data the portal displays.
 """
 
@@ -10,7 +9,6 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-import os
 import queue
 import statistics
 import threading
@@ -24,12 +22,6 @@ from garminconnect import (
 )
 
 logger = logging.getLogger("garmin.service")
-
-# Folder where Garth stores the OAuth1/OAuth2 tokens after a successful login.
-TOKEN_STORE = os.environ.get(
-    "GARMIN_TOKENSTORE",
-    os.path.join(os.path.expanduser("~"), ".garmin_portal_tokens"),
-)
 
 
 def _strength_exercises(raw: Any) -> list[dict[str, Any]]:
@@ -78,6 +70,8 @@ class GarminService:
         self.client: Garmin | None = None
         self.email: str | None = None
         self.nutrition_user: str | None = None
+        self.auth_expires_at: int = 0
+        self.sheet_token_snapshot: str | None = None
 
         # The garminconnect login is synchronous and asks for the MFA code via a
         # `prompt_mfa` callback. To make that work in a web flow we run login in a
@@ -134,7 +128,6 @@ class GarminService:
 
         if self._login_error is not None:
             raise self._login_error
-        self._persist_tokens()
         return "success"
 
     def submit_mfa(self, code: str) -> str:
@@ -149,32 +142,26 @@ class GarminService:
             raise self._login_error
         if not self._ready:
             raise RuntimeError("Login did not complete")
-        self._persist_tokens()
         return "success"
 
-    def login_from_cache(self) -> bool:
-        """Try to restore a session from previously saved tokens."""
-        try:
-            garmin = Garmin()
-            garmin.login(TOKEN_STORE)
-            self.client = garmin
-            self._ready = True
-            return True
-        except Exception:  # noqa: BLE001 - any failure means "not cached"
-            return False
+    def export_account(self) -> dict[str, Any]:
+        client = self._require_client()
+        return {"email": self.email, "user": self.nutrition_user or client.full_name,
+                "tokens": client.garth.dumps()}
+
+    def restore_account(self, account: dict[str, Any]) -> None:
+        client = Garmin()
+        client.login(account["tokens"])
+        self.client = client
+        self.email = account.get("email")
+        self.nutrition_user = account.get("user") or client.full_name
+        self._ready = True
 
     def logout(self) -> None:
         self.client = None
         self._ready = False
         self._mfa_needed.clear()
         self._login_done.clear()
-
-    def _persist_tokens(self) -> None:
-        try:
-            if self.client is not None:
-                self.client.garth.dump(TOKEN_STORE)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not persist Garmin tokens: %s", exc)
 
     # ------------------------------------------------------------------ data
 

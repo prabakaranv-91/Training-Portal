@@ -11,6 +11,7 @@ Mirror nutrition entries/day summaries to a Google Sheet via an Apps Script Web 
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import os
 import queue
@@ -21,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import requests
+from cryptography.fernet import Fernet
 
 logger = logging.getLogger("nutrition.sheets")
 
@@ -115,6 +117,38 @@ def script_info() -> dict[str, Any]:
         if "unknown action" in msg:
             msg = "Deployed Apps Script is an old version (no per-user support) — redeploy a new version."
         return {"ok": False, "error": msg}
+
+
+def _auth_key(session_id: str) -> str:
+    return hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+
+
+def save_garmin_auth(session_id: str, account: dict[str, Any], expires_at: int) -> None:
+    if not is_configured():
+        raise RuntimeError("Google Sheets login storage is not configured.")
+    key = Fernet.generate_key()
+    ciphertext = Fernet(key).encrypt(json.dumps(account).encode("utf-8")).decode("ascii")
+    _post({"action": "upsertAuth", "sessionKey": _auth_key(session_id), "provider": "garmin",
+           "ciphertext": ciphertext, "encryptionKey": key.decode("ascii"), "expiresAt": expires_at})
+
+
+def fetch_garmin_auth(session_id: str) -> dict[str, Any] | None:
+    if not is_configured():
+        return None
+    body = _post({"action": "getAuth", "sessionKey": _auth_key(session_id), "provider": "garmin"})
+    if not body.get("found"):
+        return None
+    record = body["record"]
+    expires_at = int(record["expiresAt"])
+    if expires_at <= time.time():
+        return None
+    plaintext = Fernet(record["encryptionKey"].encode("ascii")).decrypt(record["ciphertext"].encode("ascii"))
+    return {"account": json.loads(plaintext), "expiresAt": expires_at}
+
+
+def delete_garmin_auth(session_id: str) -> None:
+    if is_configured():
+        _post({"action": "deleteAuth", "sessionKey": _auth_key(session_id), "provider": "garmin"})
 
 
 def _run() -> None:

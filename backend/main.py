@@ -12,6 +12,8 @@ from __future__ import annotations
 import datetime as dt
 import os
 import secrets
+import threading
+import time
 from pathlib import Path
 
 from fastapi import Cookie, FastAPI, HTTPException, Request, Response
@@ -50,6 +52,8 @@ async def no_stale_frontend(request: Request, call_next):
 # Fine for a single-user, locally-run personal app.
 SESSIONS: dict[str, GarminService] = {}
 COOKIE_NAME = "garmin_session"
+_SESSION_LOCK = threading.RLock()
+SESSION_LIFETIME = 60 * 60 * 24 * 7
 
 
 # --------------------------------------------------------------------- models
@@ -86,10 +90,51 @@ class NutritionWeightRequest(BaseModel):
 # ------------------------------------------------------------------- helpers
 
 
+def _save_login(session_id: str, service: GarminService) -> None:
+    account = service.export_account()
+    if account["tokens"] != service.sheet_token_snapshot:
+        try:
+            sheets_sync.save_garmin_auth(session_id, account, service.auth_expires_at)
+        except Exception:
+            raise HTTPException(status_code=503, detail="Could not save Garmin login to Google Sheets. Deploy Apps Script v6 and check sheet access.") from None
+        service.sheet_token_snapshot = account["tokens"]
+
+
+def _sheet_session(session_id: str | None) -> GarminService | None:
+    if not session_id:
+        return None
+    with _SESSION_LOCK:
+        service = SESSIONS.get(session_id)
+        if service:
+            if service.auth_expires_at <= time.time():
+                SESSIONS.pop(session_id, None)
+                service.logout()
+                return None
+            if service.is_authenticated:
+                _save_login(session_id, service)
+            return service
+        try:
+            saved = sheets_sync.fetch_garmin_auth(session_id)
+        except Exception:
+            raise HTTPException(status_code=503, detail="Google Sheets login storage is unavailable. Please retry.") from None
+        if not saved:
+            return None
+        service = GarminService()
+        try:
+            service.restore_account(saved["account"])
+        except Exception:
+            return None
+        service.auth_expires_at = saved["expiresAt"]
+        service.sheet_token_snapshot = saved["account"]["tokens"]
+        _save_login(session_id, service)
+        SESSIONS[session_id] = service
+        return service
+
+
 def _get_session(session_id: str | None) -> GarminService:
-    if not session_id or session_id not in SESSIONS:
+    service = _sheet_session(session_id)
+    if service is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    service = SESSIONS[session_id]
     if not service.is_authenticated:
         raise HTTPException(status_code=401, detail="Login incomplete")
     return service
@@ -102,7 +147,7 @@ def _valid_session(session_id: str | None) -> GarminService | None:
     Strava-only login) or None. Raises 401 only if neither Garmin nor Strava is
     connected.
     """
-    service = SESSIONS.get(session_id) if session_id else None
+    service = _sheet_session(session_id)
     garmin_ok = bool(service and service.is_authenticated)
     if garmin_ok or strava_service.is_connected():
         return service
@@ -121,15 +166,18 @@ def _garmin(session_id: str | None) -> GarminService | None:
 
 
 def _new_session(response: Response) -> tuple[str, GarminService]:
+    if not sheets_sync.is_configured():
+        raise HTTPException(status_code=503, detail="Configure Google Sheets login storage before signing in with Garmin.")
     session_id = secrets.token_urlsafe(32)
     service = GarminService()
+    service.auth_expires_at = int(time.time()) + SESSION_LIFETIME
     SESSIONS[session_id] = service
     response.set_cookie(
         COOKIE_NAME,
         session_id,
         httponly=True,
         samesite="lax",
-        max_age=60 * 60 * 24 * 7,
+        max_age=SESSION_LIFETIME,
     )
     return session_id, service
 
@@ -149,6 +197,13 @@ def login(req: LoginRequest, response: Response):
     except Exception as exc:  # noqa: BLE001
         SESSIONS.pop(session_id, None)
         raise HTTPException(status_code=401, detail=f"Login failed: {exc}") from exc
+    if result == "success":
+        try:
+            _save_login(session_id, service)
+        except HTTPException:
+            SESSIONS.pop(session_id, None)
+            service.logout()
+            raise
     return {"status": result}
 
 
@@ -161,13 +216,26 @@ def mfa(req: MfaRequest, garmin_session: str | None = Cookie(default=None)):
         result = service.submit_mfa(req.code)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=401, detail=f"MFA failed: {exc}") from exc
+    try:
+        _save_login(garmin_session, service)
+    except HTTPException:
+        SESSIONS.pop(garmin_session, None)
+        service.logout()
+        raise
     return {"status": result}
 
 
 @app.post("/api/logout")
-def logout(garmin_session: str | None = Cookie(default=None)):
+def logout(response: Response, garmin_session: str | None = Cookie(default=None)):
     if garmin_session:
-        SESSIONS.pop(garmin_session, None)
+        try:
+            sheets_sync.delete_garmin_auth(garmin_session)
+        except Exception:
+            raise HTTPException(status_code=503, detail="Could not remove the saved login from Google Sheets. Retry sign-out.") from None
+        service = SESSIONS.pop(garmin_session, None)
+        if service:
+            service.logout()
+    response.delete_cookie(COOKIE_NAME)
     # A full sign-out also disconnects Strava so the login screen returns.
     strava_service.disconnect()
     return {"status": "logged_out"}
@@ -175,11 +243,8 @@ def logout(garmin_session: str | None = Cookie(default=None)):
 
 @app.get("/api/session")
 def session_status(garmin_session: str | None = Cookie(default=None)):
-    garmin = bool(
-        garmin_session
-        and garmin_session in SESSIONS
-        and SESSIONS[garmin_session].is_authenticated
-    )
+    service = _sheet_session(garmin_session)
+    garmin = bool(service and service.is_authenticated)
     strava = strava_service.is_connected()
     return {"authenticated": garmin or strava, "garmin": garmin, "strava": strava}
 

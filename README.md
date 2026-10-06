@@ -46,11 +46,25 @@ Open <http://127.0.0.1:8000>.
 1. Enter your **Garmin Connect email and password** in the web UI.
 2. If your account has **multi-factor authentication (MFA)** enabled, you'll be
    prompted for the code from your authenticator app / email.
-3. On success, tokens are cached locally in `~/.garmin_portal_tokens` so you stay
-   signed in across restarts. Delete that folder to fully sign out.
+3. Deploy version 6 of `backend/apps_script/Code.gs` to the existing Google Sheets
+  Web App, preserving its shared `TOKEN` and deployment URL. Garmin login now
+  requires the configured sheet to accept the login-storage actions.
+4. Successful login stores encrypted Garmin tokens, email and display name in
+  the sheet's `Login storage` tab. The encryption key is also in that tab, as
+  requested: anyone who can read the sheet can therefore decrypt the tokens.
+  Keep the sheet private and treat its access as access to your Garmin account.
+5. The browser keeps only an opaque, HTTP-only session cookie. Its hashed lookup
+  is stored in the sheet. After a backend restart, the app restores the matching
+  Garmin login from the sheet; sessions expire after seven days.
+6. Sign-out deletes that session's sheet record and clears the cookie. Token
+  writes are synchronous and never enter the local nutrition retry queue. If the
+  sheet is unavailable, the app reports an error instead of saving tokens locally.
 
-> Your credentials are sent only to your own local backend and are **not stored**
-> anywhere — only the resulting Garmin session token is cached on your machine.
+> Garmin passwords and MFA codes are not stored in the sheet. The old local
+> `.garmin_portal_tokens` cache is no longer read or written by this application;
+> pre-existing files are not automatically deleted. Strava token storage and the
+> local nutrition log are unchanged. First-login selection of a different sheet
+> per user is not implemented yet; this uses the currently configured Web App.
 
 ---
 
