@@ -127,6 +127,16 @@
 .nutri-table td.nutri-balance.left { color: var(--text-dim); }
 .nutri-table td.nutri-balance.met { color: #34d399; }
 .nutri-table td.nutri-balance.over { color: var(--danger); }
+.nutri-energy { margin-top: 5px; padding-top: 5px; border-top: 1px solid var(--border); font-size: 0.72rem; }
+.nutri-energy > summary { display: flex; align-items: center; gap: 6px; width: fit-content; cursor: pointer; list-style: none; color: var(--text-dim); }
+.nutri-energy > summary::-webkit-details-marker { display: none; }
+.nutri-energy > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.nutri-energy-info { color: var(--accent); font-size: 14px; }
+.nutri-energy dl { margin: 6px 0; }
+.nutri-energy dl > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; padding: 2px 0; }
+.nutri-energy dt { color: var(--text-dim); }
+.nutri-energy dd { margin: 0; overflow-wrap: anywhere; }
+.nutri-energy > small { display: block; line-height: 1.4; }
 .nutri-status {
   padding: 2px 8px;
   border-radius: 999px;

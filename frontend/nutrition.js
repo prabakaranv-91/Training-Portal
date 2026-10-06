@@ -286,6 +286,21 @@ function renderNutritionSummary(day) {
   };
   const tips = day.entries.length ? day.suggestions.join("\n\n") : "";
   const rows = [{ key: "kcal", label: "Calories", unit: "kcal" }, ...NUTRI_ROWS];
+  const burn = day.burn || {};
+  const adjustment = targets.kcal - burn.total;
+  const burnDetails = burn.total != null ? `
+    <details class="nutri-energy">
+      <summary><span>Burn ${nutriFmt(burn.total)} kcal</span><span class="nutri-energy-info" title="Calorie burn and target calculation" aria-label="Calorie burn and target calculation">&#9432;</span></summary>
+      <dl>
+        <div><dt>Resting</dt><dd>${nutriFmt(burn.bmr)} kcal</dd></div>
+        <div><dt>Active</dt><dd>${nutriFmt(burn.active)} kcal</dd></div>
+        <div><dt>Total burn</dt><dd>${nutriFmt(burn.bmr)} + ${nutriFmt(burn.active)} = ${nutriFmt(burn.total)} kcal</dd></div>
+        <div><dt>Workout (included in active)</dt><dd>${nutriFmt(burn.workoutKcal)} kcal</dd></div>
+        <div><dt>${escapeAttr(day.programLabel || "Program")} adjustment</dt><dd>${adjustment < 0 ? "-" : "+"}${nutriFmt(Math.abs(adjustment))} kcal</dd></div>
+        <div><dt>Calorie target</dt><dd>${nutriFmt(burn.total)} ${adjustment < 0 ? "-" : "+"} ${nutriFmt(Math.abs(adjustment))} = ${nutriFmt(targets.kcal)} kcal</dd></div>
+      </dl>
+      <small class="dim">${burn.source === "garmin" ? "Garmin activity data; resting burn uses a full-day baseline." : `${burn.source === "strava" ? "Strava workouts" : "Estimated activity"}; resting burn is estimated at 23.5 kcal/kg, with a 20% lifestyle allowance.`}${day.inProgress ? " Today's activity burn may increase as more activity syncs." : ""}</small>
+    </details>` : "";
   el.innerHTML = `
     <table class="nutri-table">
       <thead><tr><th><span class="nutri-status ${st.cls}" title="${escapeAttr(tips)}">${st.label}${tips ? " ⓘ" : ""}</span>
@@ -300,6 +315,7 @@ function renderNutritionSummary(day) {
           .join("")}
       </tbody>
     </table>
+    ${burnDetails}
     ${nutriCutsHtml(day)}`;
 }
 
