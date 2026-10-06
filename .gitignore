@@ -7,6 +7,8 @@ env/
 
 # Garmin auth tokens (never commit!)
 .garmin_portal_tokens/
+garmin_auth.json
+garmin_auth_*.tmp
 *.token
 
 # Strava OAuth tokens + API credentials (never commit!)

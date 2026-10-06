@@ -1,5 +1,5 @@
 /**
- * Training Lab — nutrition and login storage (Google Apps Script Web App), version 6.
+ * Training Lab — nutrition storage (Google Apps Script Web App), version 7.
  *
  * Deploy: Extensions ▸ Apps Script ▸ paste this file ▸ set TOKEN to the value in
  * backend/nutrition_secrets.json ("sheets_token") ▸ Deploy ▸ Manage deployments ▸
@@ -10,7 +10,7 @@
  */
 
 const TOKEN = "PASTE_SHEETS_TOKEN_HERE"; // must match backend/nutrition_secrets.json
-const VERSION = 6;
+const VERSION = 7;
 const ENTRY_HEADERS = ["user","entryId","itemIndex","date","time","text","food","qty","unit","grams",
   "kcal","protein","carbs","fat","fiber","sugar","sodium","source","revoked","updatedAt"];
 const DAY_HEADERS = ["user","date","intakeKcal","protein","carbs","fat","fiber","sugar","sodium",
@@ -18,7 +18,6 @@ const DAY_HEADERS = ["user","date","intakeKcal","protein","carbs","fat","fiber",
 const PROGRAM_HEADERS = ["user","from","program","label","setAt","updatedAt"];
 const WEIGHT_HEADERS = ["user","date","kg","setAt","updatedAt"];
 const REVIEW_HEADERS = ["user","date","reviewed","sig","verdict","summary","avoid","keep","next","json","updatedAt"];
-const AUTH_HEADERS = ["sessionKey","provider","ciphertext","encryptionKey","expiresAt","updatedAt"];
 
 function doPost(e) {
   const body = JSON.parse(e.postData.contents);
@@ -32,7 +31,6 @@ function doPost(e) {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    if (["upsertAuth", "getAuth", "deleteAuth"].includes(body.action)) return json(authRecord(body));
     if (body.action === "upsertEntry") upsertEntry(user, body.entry);
     else if (body.action === "upsertDay") upsertDay(user, body.date, body.day);
     else if (body.action === "upsertProgram") upsertProgram(user, body.program);
@@ -54,41 +52,6 @@ function sheet(name, headers) {
   }
   sh.getRange(1, 1, 1, headers.length).setValues([headers]);
   return sh;
-}
-
-function authRecord(body) {
-  if (body.provider !== "garmin" || !/^[a-f0-9]{64}$/.test(String(body.sessionKey || ""))) {
-    return { ok: false, error: "invalid login lookup" };
-  }
-  const sh = sheet("Login storage", AUTH_HEADERS);
-  const rows = sh.getLastRow() > 1
-    ? sh.getRange(2, 1, sh.getLastRow() - 1, AUTH_HEADERS.length).getValues() : [];
-  const index = rows.findIndex((row) => row[0] === body.sessionKey && row[1] === body.provider);
-  if (body.action === "deleteAuth") {
-    if (index >= 0) sh.deleteRow(index + 2);
-    return { ok: true, version: VERSION };
-  }
-  if (body.action === "getAuth") {
-    if (index < 0) return { ok: true, found: false };
-    const row = rows[index];
-    if (Number(row[4]) <= Date.now() / 1000) {
-      sh.deleteRow(index + 2);
-      return { ok: true, found: false };
-    }
-    return { ok: true, found: true, record: {
-      ciphertext: row[2], encryptionKey: row[3], expiresAt: Number(row[4])
-    } };
-  }
-  if (!/^[A-Za-z0-9_-]{43}=$/.test(String(body.encryptionKey || "")) ||
-      !/^gAAAA[A-Za-z0-9_=-]+$/.test(String(body.ciphertext || "")) ||
-      body.ciphertext.length > 45000 || !Number.isFinite(body.expiresAt) ||
-      body.expiresAt <= Date.now() / 1000) {
-    return { ok: false, error: "invalid login record" };
-  }
-  const row = [body.sessionKey, body.provider, body.ciphertext, body.encryptionKey, body.expiresAt, new Date()];
-  if (index >= 0) sh.getRange(index + 2, 1, 1, AUTH_HEADERS.length).setValues([row]);
-  else sh.appendRow(row);
-  return { ok: true, version: VERSION };
 }
 
 function upsertEntry(user, entry) {

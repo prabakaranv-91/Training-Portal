@@ -2,7 +2,7 @@
 FastAPI backend for the personal Garmin training portal.
 
 - Strava uses consent-based OAuth with encrypted browser credentials.
-- Garmin uses the existing Garmin Connect login with sheet-backed token persistence.
+- Garmin uses the existing Garmin Connect login with per-user local JSON tokens.
 - Data endpoints proxy Garmin Connect data for the dashboard.
 """
 
@@ -24,6 +24,7 @@ from starlette.concurrency import run_in_threadpool
 
 import auth_cookies
 import food_parser_client
+import garmin_auth_store
 import nutrition_service
 import sheets_sync
 import strava_service
@@ -91,6 +92,10 @@ class MfaRequest(BaseModel):
     code: str
 
 
+class SavedGarminRequest(BaseModel):
+    email: str = Field(min_length=1, max_length=254)
+
+
 class NutritionLogRequest(BaseModel):
     text: str = Field(min_length=1, max_length=1000)
     date: dt.date | None = None
@@ -115,15 +120,15 @@ class NutritionWeightRequest(BaseModel):
 
 def _save_login(session_id: str, service: GarminService) -> None:
     account = service.export_account()
-    if account["tokens"] != service.sheet_token_snapshot:
+    if account["tokens"] != service.token_snapshot:
         try:
-            sheets_sync.save_garmin_auth(session_id, account, service.auth_expires_at)
+            garmin_auth_store.save_garmin_auth(session_id, account, service.auth_expires_at)
         except Exception:
-            raise HTTPException(status_code=503, detail="Could not save Garmin login to Google Sheets. Deploy Apps Script v6 and check sheet access.") from None
-        service.sheet_token_snapshot = account["tokens"]
+            raise HTTPException(status_code=503, detail="Could not save Garmin login to the local JSON file. Check file permissions and available disk space.") from None
+        service.token_snapshot = account["tokens"]
 
 
-def _sheet_session(session_id: str | None) -> GarminService | None:
+def _local_session(session_id: str | None) -> GarminService | None:
     if not session_id:
         return None
     with _SESSION_LOCK:
@@ -137,9 +142,9 @@ def _sheet_session(session_id: str | None) -> GarminService | None:
                 _save_login(session_id, service)
             return service
         try:
-            saved = sheets_sync.fetch_garmin_auth(session_id)
+            saved = garmin_auth_store.fetch_garmin_auth(session_id)
         except Exception:
-            raise HTTPException(status_code=503, detail="Google Sheets login storage is unavailable. Please retry.") from None
+            raise HTTPException(status_code=503, detail="The local Garmin authentication JSON file could not be read.") from None
         if not saved:
             return None
         service = GarminService()
@@ -148,14 +153,14 @@ def _sheet_session(session_id: str | None) -> GarminService | None:
         except Exception:
             return None
         service.auth_expires_at = saved["expiresAt"]
-        service.sheet_token_snapshot = saved["account"]["tokens"]
+        service.token_snapshot = saved["account"]["tokens"]
         _save_login(session_id, service)
         SESSIONS[session_id] = service
         return service
 
 
 def _get_session(session_id: str | None) -> GarminService:
-    service = _sheet_session(session_id)
+    service = _local_session(session_id)
     if service is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
     if not service.is_authenticated:
@@ -171,7 +176,7 @@ def _valid_session(session_id: str | None) -> GarminService | None:
     connected.
     """
     try:
-        service = _sheet_session(session_id)
+        service = _local_session(session_id)
     except HTTPException:
         if not strava_service.is_connected():
             raise
@@ -194,8 +199,6 @@ def _garmin(session_id: str | None) -> GarminService | None:
 
 
 def _new_session(response: Response, request: Request | None = None) -> tuple[str, GarminService]:
-    if not sheets_sync.is_configured():
-        raise HTTPException(status_code=503, detail="Configure Google Sheets login storage before signing in with Garmin.")
     session_id = secrets.token_urlsafe(32)
     service = GarminService()
     service.auth_expires_at = int(time.time()) + SESSION_LIFETIME
@@ -249,17 +252,20 @@ def mfa(req: MfaRequest, garmin_session: str | None = Cookie(default=None)):
 
 
 @app.post("/api/garmin/import-local")
-def garmin_import_local(request: Request, response: Response):
+def garmin_import_local(req: SavedGarminRequest, request: Request, response: Response):
     if not request.client or request.client.host not in ("127.0.0.1", "::1") or request.url.hostname not in ("localhost", "127.0.0.1", "::1"):
         raise HTTPException(status_code=403, detail="Existing token import is available only on localhost.")
     if request.headers.get("x-local-token-import") != "1" or request.headers.get("origin") not in (None, str(request.base_url).rstrip("/")):
         raise HTTPException(status_code=403, detail="Start token import from the local application.")
-    info = sheets_sync.script_info()
-    if not info.get("ok") or info.get("version", 0) < 6:
-        raise HTTPException(status_code=503, detail="Deploy Apps Script v6 before importing existing Garmin tokens.")
+    try:
+        account = garmin_auth_store.account_for(req.email)
+    except Exception:
+        raise HTTPException(status_code=503, detail="The local Garmin authentication JSON file could not be read.") from None
+    if not account:
+        raise HTTPException(status_code=404, detail="No saved Garmin login for this email. Sign in once to save it locally.")
     session_id, service = _new_session(response, request)
     try:
-        service.import_local_account()
+        service.restore_account(account)
         _save_login(session_id, service)
     except HTTPException:
         SESSIONS.pop(session_id, None)
@@ -268,17 +274,17 @@ def garmin_import_local(request: Request, response: Response):
     except Exception:
         SESSIONS.pop(session_id, None)
         service.logout()
-        raise HTTPException(status_code=401, detail="Existing Garmin tokens could not be restored. The original cache was left unchanged.") from None
-    return {"status": "success", "storage": "google_sheet"}
+        raise HTTPException(status_code=401, detail="Saved Garmin tokens could not be restored. Sign in again; the local JSON file was left unchanged.") from None
+    return {"status": "success", "storage": "local_json"}
 
 
 @app.post("/api/logout")
 def logout(response: Response, garmin_session: str | None = Cookie(default=None)):
     if garmin_session:
         try:
-            sheets_sync.delete_garmin_auth(garmin_session)
+            garmin_auth_store.delete_garmin_auth(garmin_session)
         except Exception:
-            raise HTTPException(status_code=503, detail="Could not remove the saved login from Google Sheets. Retry sign-out.") from None
+            raise HTTPException(status_code=503, detail="Could not invalidate the Garmin session in the local JSON file. Retry sign-out.") from None
         service = SESSIONS.pop(garmin_session, None)
         if service:
             service.logout()
@@ -291,7 +297,7 @@ def logout(response: Response, garmin_session: str | None = Cookie(default=None)
 @app.get("/api/session")
 def session_status(garmin_session: str | None = Cookie(default=None)):
     try:
-        service = _sheet_session(garmin_session)
+        service = _local_session(garmin_session)
     except HTTPException:
         if not strava_service.is_connected():
             raise

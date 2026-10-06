@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-import os
 import queue
 import statistics
 import threading
@@ -72,7 +71,7 @@ class GarminService:
         self.email: str | None = None
         self.nutrition_user: str | None = None
         self.auth_expires_at: int = 0
-        self.sheet_token_snapshot: str | None = None
+        self.token_snapshot: str | None = None
 
         # The garminconnect login is synchronous and asks for the MFA code via a
         # `prompt_mfa` callback. To make that work in a web flow we run login in a
@@ -156,16 +155,6 @@ class GarminService:
         self.client = client
         self.email = account.get("email")
         self.nutrition_user = account.get("user") or client.full_name
-        self._ready = True
-
-    def import_local_account(self) -> None:
-        token_store = os.environ.get("GARMIN_TOKENSTORE") or os.path.join(os.path.expanduser("~"), ".garmin_portal_tokens")
-        if not os.path.isdir(token_store):
-            raise FileNotFoundError("No existing Garmin token cache was found.")
-        client = Garmin()
-        client.login(token_store)
-        self.client = client
-        self.nutrition_user = client.full_name
         self._ready = True
 
     def logout(self) -> None:

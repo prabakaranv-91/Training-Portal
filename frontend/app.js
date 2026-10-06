@@ -195,11 +195,19 @@ function setBtnLoading(btn, loading, loadingText, idleText) {
 
 document.getElementById("garmin-cache-btn").addEventListener("click", async () => {
   const button = document.getElementById("garmin-cache-btn");
+  const email = document.getElementById("email").value.trim();
+  if (!email) {
+    toast("Enter your Garmin email to use its saved local login.");
+    document.getElementById("email").focus();
+    return;
+  }
   button.disabled = true;
   try {
-    await api("/api/garmin/import-local", { method: "POST", headers: { "X-Local-Token-Import": "1" } });
+    await api("/api/garmin/import-local", {
+      method: "POST", headers: { "X-Local-Token-Import": "1" }, body: JSON.stringify({ email }),
+    });
     if (typeof closeSettings === "function") closeSettings();
-    toast("Garmin login saved to your Google Sheet");
+    toast("Saved local Garmin login restored");
     await loadDashboard();
   } catch (error) {
     toast(error.message);
