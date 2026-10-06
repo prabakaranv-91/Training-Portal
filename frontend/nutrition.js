@@ -458,15 +458,17 @@ function nutriShortDate(s) {
 
 function renderNutritionWeight(w) {
   const cur = w.current;
-  const fromGarmin = !!w.garminKg;
+  const externalKg = w.externalKg || w.garminKg;
+  const fromExternal = !!externalKg;
+  const sourceLabel = w.weightSource === "strava" ? "Strava" : "Garmin Connect";
   const shown = document.getElementById("nutri-weight-garmin");
-  shown.classList.toggle("hidden", !fromGarmin);
-  shown.textContent = fromGarmin ? `${w.garminKg} kg` : "";
-  document.getElementById("nutri-weight-edit").classList.toggle("hidden", fromGarmin);
-  document.getElementById("nutri-weight").value = !fromGarmin && cur ? cur.kg : "";
-  document.getElementById("nutri-weight-note").textContent = fromGarmin
-    ? "Synced from Garmin Connect"
-    : cur ? `Last logged ${nutriShortDate(cur.date)}` : "Not in Garmin — enter your weight";
+  shown.classList.toggle("hidden", !fromExternal);
+  shown.textContent = fromExternal ? `${externalKg} kg` : "";
+  document.getElementById("nutri-weight-edit").classList.toggle("hidden", fromExternal);
+  document.getElementById("nutri-weight").value = !fromExternal && cur ? cur.kg : "";
+  document.getElementById("nutri-weight-note").textContent = fromExternal
+    ? `Synced from ${sourceLabel}`
+    : cur ? `Last logged ${nutriShortDate(cur.date)}` : "Not synced — enter your weight";
 }
 
 async function saveNutritionWeight(e) {

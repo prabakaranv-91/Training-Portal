@@ -859,10 +859,16 @@ def set_weight(user: str, kg: float, date: str, source: str = "manual") -> dict[
     return entry
 
 
-def weights(user: str, garmin_kg: float | None = None) -> dict[str, Any]:
+def weights(user: str, external_kg: float | None = None, source: str | None = None) -> dict[str, Any]:
     data = _load(user)
     hist = sorted(data.get("weights", []), key=lambda w: w["date"], reverse=True)
-    return {"current": hist[0] if hist else None, "history": hist, "garminKg": garmin_kg}
+    return {
+        "current": hist[0] if hist else None,
+        "history": hist,
+        "garminKg": external_kg if source == "garmin" else None,
+        "externalKg": external_kg,
+        "weightSource": source,
+    }
 
 
 def progress(user: str, days: int) -> dict[str, Any]:
@@ -1320,12 +1326,11 @@ def assess(user: str, date: str, energy: dict[str, Any]) -> dict[str, Any]:
     entries = entries_for(user, date)
     intake = _sum([e["totals"] for e in _active(entries)])
     logged_kg = weight_for(user, date)
-    garmin_kg = energy.get("weightKg")
-    # Garmin's weight wins when available; the user is only asked when Garmin has none.
-    weight = garmin_kg or logged_kg or DEFAULT_WEIGHT_KG
-    weight_source = "garmin" if garmin_kg else "logged" if logged_kg else "default"
-    if garmin_kg and logged_kg != garmin_kg:
-        set_weight(user, garmin_kg, date, source="garmin")  # builds a weight history for progress
+    external_kg = energy.get("weightKg")
+    weight = external_kg or logged_kg or DEFAULT_WEIGHT_KG
+    weight_source = (energy.get("weightSource") or energy.get("source") or "garmin") if external_kg else "logged" if logged_kg else "default"
+    if external_kg and logged_kg != external_kg:
+        set_weight(user, external_kg, date, source=weight_source)
     workouts = [
         {**w, "kcal": round(_estimate_workout_kcal(w, weight)), "estimated": not w.get("kcal")}
         for w in energy.get("workouts") or []

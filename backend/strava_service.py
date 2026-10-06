@@ -49,6 +49,8 @@ TOKEN_STORE = Path(
 )
 _ACTIVITY_CACHE: dict[tuple[int, int | None], tuple[float, list[dict[str, Any]]]] = {}
 _ACTIVITY_CACHE_TTL = 60
+_ATHLETE_WEIGHT_CACHE: tuple[float, float | None] = (0.0, None)
+_ATHLETE_WEIGHT_CACHE_TTL = 900
 
 
 # ------------------------------------------------------------------- config
@@ -225,6 +227,28 @@ def athlete_name() -> str | None:
     return name or None
 
 
+
+def athlete_weight_kg() -> float | None:
+    """Return the connected Strava athlete's profile weight in kg, cached briefly."""
+    global _ATHLETE_WEIGHT_CACHE
+    if not is_connected():
+        return None
+    cached_at, cached_weight = _ATHLETE_WEIGHT_CACHE
+    if time.time() - cached_at < _ATHLETE_WEIGHT_CACHE_TTL:
+        return cached_weight
+    try:
+        token = _valid_access_token()
+        response = requests.get(f"{API_BASE}/athlete", headers={"Authorization": f"Bearer {token}"}, timeout=20)
+        response.raise_for_status()
+        raw = response.json().get("weight")
+        weight = float(raw) if raw else None
+        if weight is not None and not 25 <= weight <= 350:
+            weight = None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Strava athlete weight fetch failed: %s", exc)
+        weight = None
+    _ATHLETE_WEIGHT_CACHE = (time.time(), round(weight, 1) if weight else None)
+    return _ATHLETE_WEIGHT_CACHE[1]
 def athlete_avatar() -> str | None:
     """Profile picture URL of the connected Strava athlete, if any."""
     athlete = _load_tokens().get("athlete") or {}

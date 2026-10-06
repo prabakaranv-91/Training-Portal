@@ -511,7 +511,11 @@ def _energy_for(garmin_session: str | None, day: str) -> dict:
             for a in acts
             if (a.get("startTime") or "")[:10] == day
         ]
-        return {"source": "strava", "bmr": None, "active": None, "workouts": workouts, "weightKg": None}
+        weight = strava_service.athlete_weight_kg() if day == dt.date.today().isoformat() else None
+        return {
+            "source": "strava", "bmr": None, "active": None, "workouts": workouts,
+            "weightKg": weight, "weightSource": "strava" if weight else None,
+        }
     return {"source": "estimate", "bmr": None, "active": None, "workouts": [], "weightKg": None}
 
 
@@ -646,17 +650,28 @@ def _garmin_weight(garmin_session: str | None) -> float | None:
         return None
 
 
+def _nutrition_external_weight(garmin_session: str | None) -> tuple[float | None, str | None]:
+    garmin_kg = _garmin_weight(garmin_session)
+    if garmin_kg:
+        return garmin_kg, "garmin"
+    if strava_service.is_connected():
+        return strava_service.athlete_weight_kg(), "strava"
+    return None, None
+
+
 @app.get("/api/nutrition/weight")
 def nutrition_weight(garmin_session: str | None = Cookie(default=None)):
-    return nutrition_service.weights(_nutrition_user(garmin_session), _garmin_weight(garmin_session))
+    weight_kg, source = _nutrition_external_weight(garmin_session)
+    return nutrition_service.weights(_nutrition_user(garmin_session), weight_kg, source)
 
 
 @app.post("/api/nutrition/weight")
 def nutrition_set_weight(req: NutritionWeightRequest, garmin_session: str | None = Cookie(default=None)):
     user = _nutrition_user(garmin_session)
-    garmin_kg = _garmin_weight(garmin_session)
-    if garmin_kg:
-        raise HTTPException(status_code=400, detail="Weight comes from Garmin; update it in Garmin Connect.")
+    external_kg, source = _nutrition_external_weight(garmin_session)
+    if external_kg:
+        provider = "Garmin Connect" if source == "garmin" else "Strava"
+        raise HTTPException(status_code=400, detail=f"Weight comes from {provider}; update it there.")
     nutrition_service.set_weight(user, req.kg, (req.date or dt.date.today()).isoformat())
     return nutrition_service.weights(user)
 
