@@ -1,9 +1,8 @@
 """
 FastAPI backend for the personal Garmin training portal.
 
-- Users log in with their Garmin Connect email + password (MFA supported).
-- A server-side session keeps the authenticated client; the browser only holds
-  an opaque, signed session id cookie.
+- Strava uses consent-based OAuth with encrypted browser credentials.
+- Garmin uses the existing Garmin Connect login with sheet-backed token persistence.
 - Data endpoints proxy Garmin Connect data for the dashboard.
 """
 
@@ -18,10 +17,12 @@ from pathlib import Path
 
 from fastapi import Cookie, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
+import auth_cookies
 import food_parser_client
 import nutrition_service
 import sheets_sync
@@ -32,11 +33,33 @@ app = FastAPI(title="Training Lab Portal", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[origin.strip() for origin in os.environ.get(
+        "AUTH_ALLOWED_ORIGINS", "http://127.0.0.1:8000,http://localhost:8000"
+    ).split(",") if origin.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def browser_auth(request: Request, call_next):
+    context = auth_cookies.bind(request)
+    try:
+        response = await call_next(request)
+        if response.status_code < 400:
+            session_id = request.cookies.get("garmin_session")
+            service = SESSIONS.get(session_id) if session_id else None
+            if session_id and service and service.is_authenticated:
+                await run_in_threadpool(_save_login, session_id, service)
+        auth_cookies.finish(response)
+        return response
+    except (ValueError, UnicodeError):
+        return JSONResponse(status_code=503, content={"detail": "Authentication cookie could not be created. Check AUTH_COOKIE_KEY and cookie size limits."})
+    except HTTPException as exc:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    finally:
+        auth_cookies.reset(context)
 
 
 @app.middleware("http")
@@ -147,7 +170,12 @@ def _valid_session(session_id: str | None) -> GarminService | None:
     Strava-only login) or None. Raises 401 only if neither Garmin nor Strava is
     connected.
     """
-    service = _sheet_session(session_id)
+    try:
+        service = _sheet_session(session_id)
+    except HTTPException:
+        if not strava_service.is_connected():
+            raise
+        service = None
     garmin_ok = bool(service and service.is_authenticated)
     if garmin_ok or strava_service.is_connected():
         return service
@@ -165,20 +193,15 @@ def _garmin(session_id: str | None) -> GarminService | None:
     return None
 
 
-def _new_session(response: Response) -> tuple[str, GarminService]:
+def _new_session(response: Response, request: Request | None = None) -> tuple[str, GarminService]:
     if not sheets_sync.is_configured():
         raise HTTPException(status_code=503, detail="Configure Google Sheets login storage before signing in with Garmin.")
     session_id = secrets.token_urlsafe(32)
     service = GarminService()
     service.auth_expires_at = int(time.time()) + SESSION_LIFETIME
     SESSIONS[session_id] = service
-    response.set_cookie(
-        COOKIE_NAME,
-        session_id,
-        httponly=True,
-        samesite="lax",
-        max_age=SESSION_LIFETIME,
-    )
+    response.set_cookie(COOKIE_NAME, session_id, httponly=True, samesite="lax", max_age=SESSION_LIFETIME,
+                        secure=auth_cookies.secure_cookie(request) if request else False)
     return session_id, service
 
 
@@ -190,20 +213,20 @@ def _today() -> str:
 
 
 @app.post("/api/login")
-def login(req: LoginRequest, response: Response):
-    session_id, service = _new_session(response)
+def login(req: LoginRequest, response: Response, request: Request):
+    session_id, service = _new_session(response, request)
     try:
         result = service.login(req.email, req.password)
-    except Exception as exc:  # noqa: BLE001
-        SESSIONS.pop(session_id, None)
-        raise HTTPException(status_code=401, detail=f"Login failed: {exc}") from exc
-    if result == "success":
-        try:
+        if result == "success":
             _save_login(session_id, service)
-        except HTTPException:
-            SESSIONS.pop(session_id, None)
-            service.logout()
-            raise
+    except HTTPException:
+        SESSIONS.pop(session_id, None)
+        service.logout()
+        raise
+    except Exception:
+        SESSIONS.pop(session_id, None)
+        service.logout()
+        raise HTTPException(status_code=401, detail="Garmin login failed. Please check your credentials.") from None
     return {"status": result}
 
 
@@ -214,8 +237,8 @@ def mfa(req: MfaRequest, garmin_session: str | None = Cookie(default=None)):
     service = SESSIONS[garmin_session]
     try:
         result = service.submit_mfa(req.code)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=401, detail=f"MFA failed: {exc}") from exc
+    except Exception:
+        raise HTTPException(status_code=401, detail="Garmin MFA failed. Please try again.") from None
     try:
         _save_login(garmin_session, service)
     except HTTPException:
@@ -223,6 +246,30 @@ def mfa(req: MfaRequest, garmin_session: str | None = Cookie(default=None)):
         service.logout()
         raise
     return {"status": result}
+
+
+@app.post("/api/garmin/import-local")
+def garmin_import_local(request: Request, response: Response):
+    if not request.client or request.client.host not in ("127.0.0.1", "::1") or request.url.hostname not in ("localhost", "127.0.0.1", "::1"):
+        raise HTTPException(status_code=403, detail="Existing token import is available only on localhost.")
+    if request.headers.get("x-local-token-import") != "1" or request.headers.get("origin") not in (None, str(request.base_url).rstrip("/")):
+        raise HTTPException(status_code=403, detail="Start token import from the local application.")
+    info = sheets_sync.script_info()
+    if not info.get("ok") or info.get("version", 0) < 6:
+        raise HTTPException(status_code=503, detail="Deploy Apps Script v6 before importing existing Garmin tokens.")
+    session_id, service = _new_session(response, request)
+    try:
+        service.import_local_account()
+        _save_login(session_id, service)
+    except HTTPException:
+        SESSIONS.pop(session_id, None)
+        service.logout()
+        raise
+    except Exception:
+        SESSIONS.pop(session_id, None)
+        service.logout()
+        raise HTTPException(status_code=401, detail="Existing Garmin tokens could not be restored. The original cache was left unchanged.") from None
+    return {"status": "success", "storage": "google_sheet"}
 
 
 @app.post("/api/logout")
@@ -243,7 +290,12 @@ def logout(response: Response, garmin_session: str | None = Cookie(default=None)
 
 @app.get("/api/session")
 def session_status(garmin_session: str | None = Cookie(default=None)):
-    service = _sheet_session(garmin_session)
+    try:
+        service = _sheet_session(garmin_session)
+    except HTTPException:
+        if not strava_service.is_connected():
+            raise
+        service = None
     garmin = bool(service and service.is_authenticated)
     strava = strava_service.is_connected()
     return {"authenticated": garmin or strava, "garmin": garmin, "strava": strava}
@@ -500,21 +552,40 @@ def strava_connect(request: Request):
             status_code=400,
             detail="Strava API credentials are not configured on the server.",
         )
-    url = strava_service.auth_url(_strava_redirect_uri(request))
-    return RedirectResponse(url)
+    auth_cookies.cipher()
+    state = secrets.token_urlsafe(32)
+    url = strava_service.auth_url(_strava_redirect_uri(request), state)
+    response = RedirectResponse(url, status_code=302)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.set_cookie("strava_oauth_state", state, max_age=600, httponly=True,
+                        secure=auth_cookies.secure_cookie(request), samesite="lax")
+    return response
 
 
 @app.get("/api/strava/callback")
 def strava_callback(
-    request: Request, code: str | None = None, error: str | None = None
+    request: Request, code: str | None = None, error: str | None = None, state: str | None = None,
+    scope: str | None = None,
 ):
-    if error or not code:
-        return RedirectResponse("/?strava=denied")
-    try:
-        strava_service.exchange_code(code)
-    except Exception:  # noqa: BLE001
-        return RedirectResponse("/?strava=error")
-    return RedirectResponse("/?strava=connected")
+    expected = request.cookies.get("strava_oauth_state")
+    destination = "/?strava=state_error"
+    if state and expected and secrets.compare_digest(state, expected):
+        destination = "/?strava=denied"
+    if not error and code and state and expected and secrets.compare_digest(state, expected):
+        try:
+            strava_service.exchange_code(code, scope or "")
+            destination = "/?strava=connected"
+        except Exception:
+            destination = "/?strava=error"
+    response = RedirectResponse(destination, status_code=302)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.delete_cookie("strava_oauth_state", httponly=True,
+                           secure=auth_cookies.secure_cookie(request), samesite="lax")
+    return response
 
 
 @app.post("/api/strava/disconnect")

@@ -61,10 +61,31 @@ Open <http://127.0.0.1:8000>.
   sheet is unavailable, the app reports an error instead of saving tokens locally.
 
 > Garmin passwords and MFA codes are not stored in the sheet. The old local
-> `.garmin_portal_tokens` cache is no longer read or written by this application;
-> pre-existing files are not automatically deleted. Strava token storage and the
-> local nutrition log are unchanged. First-login selection of a different sheet
-> per user is not implemented yet; this uses the currently configured Web App.
+> `.garmin_portal_tokens` cache is not read or written during ordinary login.
+> The localhost-only **Use saved
+> Garmin login** action performs a one-time import after verifying Apps Script v6
+> support. It leaves the original cache unchanged if the import fails or succeeds.
+> First-login selection of a different sheet per user is not implemented yet;
+> this uses the currently configured Web App. The local nutrition log is unchanged.
+
+Strava continues to use its official consent-based OAuth flow. Access and refresh
+tokens are kept in encrypted HTTP-only browser cookies, not in a token file or
+the Google Sheet. OAuth callbacks verify a browser-specific state, and activity
+and weight caches are isolated by session. Start authorization from the local
+app in the same browser, not from a bookmarked Strava login/authorization link.
+
+Supply a stable Fernet key through `AUTH_COOKIE_KEY` in the deployment environment
+to preserve Strava cookie validity after restarts and across workers. Without it,
+the key lives only in process memory and Strava requires authorization again after
+a backend restart. Production cookies require HTTPS (`Secure`, `HttpOnly`,
+`SameSite=Lax`); localhost HTTP is supported. Cookies expire after seven days.
+Sign-out clears the cookies; a stolen cookie remains a bearer credential until
+expiry or provider revocation. The former `.strava_portal_tokens.json` file is
+ignored, not automatically deleted. Cross-origin clients must be listed explicitly
+in `AUTH_ALLOWED_ORIGINS` (comma-separated).
+
+Run the isolated authentication checks from `backend` with
+`..\.venv\Scripts\python.exe -m unittest test_sheet_auth test_browser_auth -v`.
 
 ---
 

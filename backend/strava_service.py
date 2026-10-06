@@ -5,7 +5,7 @@ Unlike Garmin (email/password login), Strava uses OAuth2:
 
   1. The browser is redirected to Strava's authorize page ("Connect Strava").
   2. Strava redirects back to /api/strava/callback with a short-lived `code`.
-  3. We exchange that code for an access token + refresh token, cached to disk.
+    3. We exchange that code for browser-cookie access and refresh tokens.
   4. Access tokens expire (~6h) and are refreshed automatically before use.
 
 You must create a Strava API application at https://www.strava.com/settings/api
@@ -25,11 +25,13 @@ import datetime as dt
 import json
 import logging
 import os
+import secrets
 import time
 from pathlib import Path
 from typing import Any
 
 import requests
+import auth_cookies
 
 logger = logging.getLogger("strava.service")
 
@@ -41,15 +43,9 @@ API_BASE = "https://www.strava.com/api/v3"
 SCOPE = "read,activity:read_all,profile:read_all"
 
 _CONFIG_FILE = Path(__file__).resolve().parent / "strava_config.json"
-TOKEN_STORE = Path(
-    os.environ.get(
-        "STRAVA_TOKENSTORE",
-        os.path.join(os.path.expanduser("~"), ".strava_portal_tokens.json"),
-    )
-)
-_ACTIVITY_CACHE: dict[tuple[int, int | None], tuple[float, list[dict[str, Any]]]] = {}
+_ACTIVITY_CACHE: dict[tuple[str, int, int | None], tuple[float, list[dict[str, Any]]]] = {}
 _ACTIVITY_CACHE_TTL = 60
-_ATHLETE_WEIGHT_CACHE: tuple[float, float | None] = (0.0, None)
+_ATHLETE_WEIGHT_CACHE: dict[str, tuple[float, float | None]] = {}
 _ATHLETE_WEIGHT_CACHE_TTL = 900
 
 
@@ -108,38 +104,29 @@ def yearly_goal_km() -> float | None:
 
 
 def _load_tokens() -> dict[str, Any]:
-    if TOKEN_STORE.exists():
-        try:
-            return json.loads(TOKEN_STORE.read_text(encoding="utf-8"))
-        except (ValueError, OSError):
-            return {}
-    return {}
+    record = auth_cookies.record("strava")
+    return dict(record.get("account") or {}) if record else {}
 
 
-def _save_tokens(tokens: dict[str, Any]) -> None:
-    try:
-        TOKEN_STORE.write_text(json.dumps(tokens), encoding="utf-8")
-    except OSError as exc:  # noqa: BLE001
-        logger.warning("Could not persist Strava tokens: %s", exc)
+def _save_tokens(tokens: dict[str, Any], new_session: bool = False) -> None:
+    auth_cookies.update("strava", tokens,
+                        sid=secrets.token_urlsafe(32) if new_session else None,
+                        expires_at=int(time.time()) + auth_cookies.SESSION_LIFETIME if new_session else None)
 
 
 def is_connected() -> bool:
-    """Whether we have (refreshable) Strava tokens on disk."""
+    """Whether this browser has refreshable Strava tokens."""
     return bool(_load_tokens().get("refresh_token"))
 
 
 def disconnect() -> None:
-    """Forget the stored Strava tokens."""
-    try:
-        TOKEN_STORE.unlink(missing_ok=True)
-    except OSError:
-        pass
+    auth_cookies.update("strava", None)
 
 
 # ---------------------------------------------------------------- oauth flow
 
 
-def auth_url(redirect_uri: str) -> str:
+def auth_url(redirect_uri: str, state: str) -> str:
     """Build the Strava authorize URL to send the browser to."""
     cfg = _load_config()
     if not cfg:
@@ -150,12 +137,13 @@ def auth_url(redirect_uri: str) -> str:
         "redirect_uri": redirect_uri,
         "approval_prompt": "auto",
         "scope": SCOPE,
+        "state": state,
     }
     query = "&".join(f"{k}={requests.utils.quote(str(v), safe='')}" for k, v in params.items())
     return f"{AUTHORIZE_URL}?{query}"
 
 
-def exchange_code(code: str) -> None:
+def exchange_code(code: str, scope: str = "") -> None:
     """Exchange an authorization code for access + refresh tokens."""
     cfg = _load_config()
     if not cfg:
@@ -172,13 +160,16 @@ def exchange_code(code: str) -> None:
     )
     resp.raise_for_status()
     data = resp.json()
+    athlete = data.get("athlete") or {}
     _save_tokens(
         {
             "access_token": data["access_token"],
             "refresh_token": data["refresh_token"],
             "expires_at": data["expires_at"],
-            "athlete": data.get("athlete") or {},
-        }
+            "scope": scope,
+            "athlete": {key: athlete.get(key) for key in ("id", "firstname", "lastname", "profile_medium", "profile")},
+        },
+        new_session=True,
     )
 
 
@@ -230,10 +221,13 @@ def athlete_name() -> str | None:
 
 def athlete_weight_kg() -> float | None:
     """Return the connected Strava athlete's profile weight in kg, cached briefly."""
-    global _ATHLETE_WEIGHT_CACHE
     if not is_connected():
         return None
-    cached_at, cached_weight = _ATHLETE_WEIGHT_CACHE
+    record = auth_cookies.record("strava")
+    if record is None:
+        return None
+    cache_key = record["sid"]
+    cached_at, cached_weight = _ATHLETE_WEIGHT_CACHE.get(cache_key, (0.0, None))
     if time.time() - cached_at < _ATHLETE_WEIGHT_CACHE_TTL:
         return cached_weight
     try:
@@ -247,8 +241,10 @@ def athlete_weight_kg() -> float | None:
     except Exception as exc:  # noqa: BLE001
         logger.warning("Strava athlete weight fetch failed: %s", exc)
         weight = None
-    _ATHLETE_WEIGHT_CACHE = (time.time(), round(weight, 1) if weight else None)
-    return _ATHLETE_WEIGHT_CACHE[1]
+    _ATHLETE_WEIGHT_CACHE[cache_key] = (time.time(), round(weight, 1) if weight else None)
+    return _ATHLETE_WEIGHT_CACHE[cache_key][1]
+
+
 def athlete_avatar() -> str | None:
     """Profile picture URL of the connected Strava athlete, if any."""
     athlete = _load_tokens().get("athlete") or {}
@@ -276,7 +272,10 @@ def activities(limit: int = 50, days: int | None = None) -> list[dict[str, Any]]
     paging until it reaches an activity older than the window, returning every
     activity inside it; otherwise it stops once ``limit`` items are collected.
     """
-    cache_key = (limit, days)
+    record = auth_cookies.record("strava")
+    if not record or not is_connected():
+        raise RuntimeError("Strava is not connected.")
+    cache_key = (record["sid"], limit, days)
     cached = _ACTIVITY_CACHE.get(cache_key)
     if cached and time.time() - cached[0] < _ACTIVITY_CACHE_TTL:
         return cached[1]

@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from cryptography.fernet import InvalidToken
-from fastapi import HTTPException, Response
+from fastapi import HTTPException, Request, Response
 
 import main
 import sheets_sync
@@ -99,6 +99,27 @@ class SheetAuthTests(unittest.TestCase):
             main.logout(response, "test-cookie")
             delete.assert_called_once_with("test-cookie")
             self.assertIn("Max-Age=0", response.headers["set-cookie"])
+
+    def test_local_import_requires_sheet_support_before_reading_tokens(self):
+        request = Request({"type": "http", "scheme": "http", "server": ("127.0.0.1", 8000),
+                           "client": ("127.0.0.1", 12345), "path": "/api/garmin/import-local",
+                           "headers": [(b"x-local-token-import", b"1")], "query_string": b""})
+        with patch.object(sheets_sync, "script_info", return_value={"ok": True, "version": 5}), \
+             patch.object(GarminService, "import_local_account") as import_tokens:
+            with self.assertRaises(HTTPException) as error:
+                main.garmin_import_local(request, Response())
+            self.assertEqual(error.exception.status_code, 503)
+            import_tokens.assert_not_called()
+
+    def test_remote_import_is_rejected(self):
+        request = Request({"type": "http", "scheme": "https", "server": ("example.test", 443),
+                           "client": ("203.0.113.1", 12345), "path": "/api/garmin/import-local",
+                           "headers": [(b"x-local-token-import", b"1")], "query_string": b""})
+        with patch.object(GarminService, "import_local_account") as import_tokens:
+            with self.assertRaises(HTTPException) as error:
+                main.garmin_import_local(request, Response())
+            self.assertEqual(error.exception.status_code, 403)
+            import_tokens.assert_not_called()
 
 
 if __name__ == "__main__":

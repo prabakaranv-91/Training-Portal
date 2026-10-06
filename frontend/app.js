@@ -193,6 +193,21 @@ function setBtnLoading(btn, loading, loadingText, idleText) {
   }
 }
 
+document.getElementById("garmin-cache-btn").addEventListener("click", async () => {
+  const button = document.getElementById("garmin-cache-btn");
+  button.disabled = true;
+  try {
+    await api("/api/garmin/import-local", { method: "POST", headers: { "X-Local-Token-Import": "1" } });
+    if (typeof closeSettings === "function") closeSettings();
+    toast("Garmin login saved to your Google Sheet");
+    await loadDashboard();
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+  }
+});
+
 document.getElementById("login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const btn = document.getElementById("login-btn");
@@ -3889,6 +3904,7 @@ function renderCadencePaceChart(points) {
     const msgs = {
       connected: "✓ Strava connected",
       denied: "Strava connection was cancelled",
+      state_error: "Strava login link expired or changed browser. Start again with the Strava button in this browser.",
       error: "Strava connection failed",
     };
     toast(msgs[strava] || "");
