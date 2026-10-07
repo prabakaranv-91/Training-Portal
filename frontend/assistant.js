@@ -271,8 +271,8 @@ function renderFoodPanel(food, sources) {
 function renderEntry(entry) {
   const entryId = escapeHtml(entry.id);
   if (entry.revoked) {
-    return `<article class="entry-thread"><div class="user-message revoked-message">${escapeHtml(entry.text)}</div>
-      <div class="thread-meta"><span>Entry removed</span><button class="thread-action" data-action="restore-entry" data-id="${entryId}">Restore</button></div></article>`;
+    return `<article class="entry-thread"><header class="entry-heading"><div class="user-message revoked-message">${escapeHtml(entry.text)}</div>
+      <div class="thread-meta"><span>Entry removed</span><button class="thread-action" data-action="restore-entry" data-id="${entryId}">Restore</button></div></header></article>`;
   }
   const items = (entry.items || []).map((item, index) => {
     if (!item.found) {
@@ -291,10 +291,9 @@ function renderEntry(entry) {
       <div id="${escapeHtml(panelId)}" class="food-inline-details" hidden>${renderFoodPanel(item, item.revoked ? [] : [{ entryId: entry.id, index, item }])}</div></div>`;
   }).join("");
   return `<article class="entry-thread" data-entry="${entryId}">
-    <div class="user-message">${escapeHtml(entry.text)}</div>
-    <div class="food-response"><div class="response-head"><span class="response-glyph">✳</span><span>Meal breakdown</span>
-      <span class="response-total">${number(entry.totals?.kcal)} kcal</span></div><div class="food-list">${items}</div></div>
-    <div class="thread-meta"><span>${escapeHtml(entry.time || "Logged")}</span><button class="thread-action" data-action="remove-entry" data-id="${entryId}">Remove entry</button></div>
+    <header class="entry-heading"><div class="user-message">${escapeHtml(entry.text)}</div>
+      <div class="thread-meta"><span class="response-total">${number(entry.totals?.kcal)} kcal</span><span>${escapeHtml(entry.time || "Logged")}</span><button class="thread-action" data-action="remove-entry" data-id="${entryId}">Remove entry</button></div></header>
+    <div class="food-response"><div class="food-list">${items}</div></div>
   </article>`;
 }
 

@@ -87,8 +87,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .conversation-empty h2 { margin: 0 0 6px; font-size: 20px; font-weight: 500; }
 .conversation-empty p { max-width: 390px; margin: 0 auto; color: var(--fc-muted); font-size: 13px; line-height: 1.65; }
 .entry-thread { margin: 0 0 6px; animation: rise-in .24s ease both; }
+.entry-heading { display: flex; flex-direction: column; align-items: stretch; gap: 2px; margin-bottom: 3px; }
+.entry-heading .user-message { margin-bottom: 0; }
+.entry-heading .thread-meta { width: 100%; max-width: 720px; margin: 0; padding: 0; white-space: nowrap; }
+.entry-heading .response-total { margin: 0 auto 0 0; font-size: 11px; }
 .user-message { width: fit-content; max-width: min(84%, 72ch); margin: 0 0 4px auto; padding: 6px 10px; border: 1px solid #3a5870; border-radius: 14px 14px 4px 14px; background: #1d3447; color: var(--fc-text); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
-.food-response { max-width: 640px; }
+.food-response { width: 100%; max-width: 720px; }
 .response-head { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; color: var(--fc-muted); font-size: 11px; }
 .response-glyph { width: 21px; height: 21px; display: grid; place-items: center; border: 1px solid #4a647c; border-radius: 7px; color: var(--fc-mint); }
 .response-total { margin-left: auto; color: var(--fc-text); font-weight: 700; }
