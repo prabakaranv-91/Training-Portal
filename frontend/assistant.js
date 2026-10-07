@@ -2,6 +2,7 @@ let today = localDate();
 let selectedDate = today;
 let currentDay = null;
 let busy = false;
+let foodDetailsVisible = false;
 let toastTimer;
 
 const $ = (selector) => document.querySelector(selector);
@@ -85,6 +86,10 @@ async function loadRecentDays() {
 }
 
 async function loadDay(date) {
+  if (date > today) return;
+  foodDetailsVisible = false;
+  $("#food-details-btn").setAttribute("aria-expanded", "false");
+  $("#food-details-btn").querySelector("span:nth-child(2)").textContent = "Show food details";
   selectedDate = date;
   $("#food-date").value = date;
   $("#day-caption").textContent = `${friendlyDate(date)}${date === today ? " · Today" : ""}`;
@@ -114,16 +119,38 @@ function renderDay(day) {
   renderBalance(day);
   const entries = day.entries || [];
   const dateLabel = friendlyDate(day.date, { weekday: "long", day: "numeric", month: "long" });
-  if (!entries.length) {
-    $("#conversation").innerHTML = `<div class="day-intro">${escapeHtml(dateLabel)}</div>
-      <div class="conversation-empty"><div class="empty-orbit" aria-hidden="true">✳</div>
-        <h2>What have you eaten?</h2>
-        <p>Describe a meal in your own words. Portions, ingredients, or a quick snack—all are welcome.</p>
-      </div>`;
-    return;
-  }
-  $("#conversation").innerHTML = `<div class="day-intro">${escapeHtml(dateLabel)}</div>` + entries.map(renderEntry).join("");
+  const empty = `<div class="conversation-empty"><div class="empty-orbit" aria-hidden="true">✳</div>
+    <h2>What have you eaten?</h2>
+    <p>Describe a meal in your own words. Portions, ingredients, or a quick snack—all are welcome.</p>
+  </div>`;
+  $("#conversation").innerHTML = `<div class="day-intro">${escapeHtml(dateLabel)}</div>` +
+    (entries.length ? entries.map(renderEntry).join("") : empty) +
+    (foodDetailsVisible ? renderFoodDetails(day) : "");
   $("#conversation").scrollTop = $("#conversation").scrollHeight;
+}
+
+function renderFoodDetails(day) {
+  const grouped = new Map();
+  for (const entry of day.entries || []) {
+    if (entry.revoked) continue;
+    for (const item of entry.items || []) {
+      if (!item.found || item.revoked) continue;
+      const key = `${item.name}\u0000${item.unit || ""}`;
+      const food = grouped.get(key) || { name: item.name, unit: item.unit || "", qty: 0, kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
+      food.qty += Number(item.qty) || 0;
+      for (const nutrient of ["kcal", "protein", "carbs", "fat", "fiber"]) food[nutrient] += Number(item[nutrient]) || 0;
+      grouped.set(key, food);
+    }
+  }
+  const foods = [...grouped.values()].sort((a, b) => b.kcal - a.kcal);
+  const rows = foods.map(food => `<div class="day-food-row">
+    <b>${escapeHtml(food.name)}</b><span class="day-food-portion">×${escapeHtml(number(food.qty))} ${escapeHtml(food.unit)}</span>
+    <span class="day-food-kcal">${number(food.kcal)} kcal</span>
+    <small>P ${number(food.protein)} · C ${number(food.carbs)} · F ${number(food.fat)} · Fib ${number(food.fiber)} g</small>
+  </div>`).join("");
+  return `<article class="day-food-details"><header><div><span class="eyebrow">${escapeHtml(friendlyDate(day.date))}</span><h2>Food details</h2></div>
+    <span class="day-food-total">${foods.length} ${foods.length === 1 ? "item" : "items"} · ${number(day.intake?.kcal)} kcal</span></header>
+    ${foods.length ? `<div class="day-food-list">${rows}</div>` : `<p class="day-food-empty">No matched foods logged for this day.</p>`}</article>`;
 }
 
 function renderEntry(entry) {
@@ -160,7 +187,7 @@ function renderBalance(day) {
   const kcal = intake.kcal || 0, target = targets.kcal || 0;
   const statusClass = { low: "low", in_limit: "ok", high: "high" }[day.status] || "";
   $("#status-badge").className = `status-badge ${statusClass}`;
-  $("#status-badge").textContent = ({ low: "Below target", in_limit: "On plan", high: "Over target" })[day.status] || "—";
+  $("#status-badge").textContent = ({ low: "↓ Below target", in_limit: "✓ On plan", high: "↑ Over target" })[day.status] || "—";
   $("#calorie-count").textContent = `${number(kcal)} / ${number(target)}`;
   $("#target-count").textContent = `Target ${number(target)} kcal`;
   const difference = target - kcal;
@@ -201,28 +228,6 @@ async function loadReview(day, refresh = false) {
       ${(avoid || add || review.next) ? `<details class="review-details"><summary>Show details</summary>${avoid ? `<b>Avoid</b><ul>${avoid}</ul>` : ""}${add ? `<b>Eat next</b><ul>${add}</ul>` : ""}${review.next ? `<div class="review-next">${escapeHtml(review.next)}</div>` : ""}</details>` : ""}`;
   } catch (_) {
     card.textContent = "Day review is temporarily unavailable.";
-  }
-}
-
-async function loadDay(date) {
-  if (date > today) return;
-  selectedDate = date;
-  $("#food-date").value = date;
-  $("#composer-wrap").hidden = false;
-  $("#auth-notice").hidden = true;
-  $("#day-caption").textContent = friendlyDate(date) + (date === today ? " · Today" : "");
-  $("#conversation").innerHTML = `<div class="loading-state"><span class="spinner"></span><span>Loading food log…</span></div>`;
-  try {
-    currentDay = await api(`/api/nutrition/day?date=${encodeURIComponent(date)}`);
-    renderDay(currentDay);
-    loadReview(currentDay);
-    loadRecentDays();
-  } catch (error) {
-    if (error.message.includes("session expired")) {
-      $("#conversation").innerHTML = "";
-      $("#auth-notice").hidden = false;
-      $("#composer-wrap").hidden = true;
-    } else showError(error.message);
   }
 }
 
@@ -301,6 +306,16 @@ $("#food-input").addEventListener("keydown", event => {
 });
 $("#food-date").addEventListener("change", event => loadDay(event.target.value));
 $("#today-btn").addEventListener("click", () => loadDay(today));
+$("#food-details-btn").addEventListener("click", () => {
+  if (!currentDay) return;
+  foodDetailsVisible = !foodDetailsVisible;
+  $("#food-details-btn").setAttribute("aria-expanded", String(foodDetailsVisible));
+  $("#food-details-btn").querySelector("span:nth-child(2)").textContent = foodDetailsVisible ? "Hide food details" : "Show food details";
+  const existing = $("#conversation .day-food-details");
+  if (foodDetailsVisible && !existing) $("#conversation").insertAdjacentHTML("beforeend", renderFoodDetails(currentDay));
+  else if (!foodDetailsVisible) existing?.remove();
+  if (foodDetailsVisible) $("#conversation .day-food-details")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+});
 $("#recent-days").addEventListener("click", event => {
   const button = event.target.closest("[data-date]");
   if (button) loadDay(button.dataset.date);
