@@ -145,11 +145,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .day-food-row .day-food-kcal { color: var(--fc-mint); font-weight: 600; }
 .day-food-mobile-unit { display: none; }
 .day-food-empty { color: var(--fc-muted); font-size: 11px; }
-.nutrient-contributors { width: fit-content; max-width: min(100%, 520px); margin: 10px 0; padding-top: 6px; border-top: 1px solid var(--fc-line); }
+.nutrient-contributors { width: 100%; max-width: 760px; margin: 10px 0; padding-top: 6px; border-top: 1px solid var(--fc-line); }
 .nutrient-contributors > header { display: flex; align-items: start; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
 .nutrient-contributors h2 { margin: 0; color: var(--fc-text); font-size: 15px; font-weight: 600; }
 .nutrient-contributors header p { margin: 2px 0 0; color: var(--fc-muted); font-size: 12px; }
-.contributor-list { width: fit-content; max-width: 100%; margin: 0; padding: 0; list-style: none; }
+.contributor-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 240px)); gap: 0 12px; margin: 0; padding: 0; list-style: none; }
 .contributor-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; padding: 4px 0; border-bottom: 1px solid var(--fc-line); font-size: 13px; line-height: 1.4; }
 .contributor-list li > div { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
 .contributor-list b { max-width: 100%; overflow-wrap: anywhere; font-weight: 600; }
