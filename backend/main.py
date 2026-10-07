@@ -17,7 +17,7 @@ from pathlib import Path
 
 from fastapi import Cookie, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
@@ -829,6 +829,14 @@ def nutrition_history(days: int = 30, garmin_session: str | None = Cookie(defaul
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 if FRONTEND_DIR.exists():
+    @app.get("/", include_in_schema=False)
+    def assistant_home():
+        return FileResponse(FRONTEND_DIR / "assistant.html", headers={"Cache-Control": "no-cache"})
+
+    @app.get("/dashboard.html", include_in_schema=False)
+    def dashboard_page():
+        return FileResponse(FRONTEND_DIR / "index.html", headers={"Cache-Control": "no-cache"})
+
     app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="static")
 
 
