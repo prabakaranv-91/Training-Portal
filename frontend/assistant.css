@@ -48,10 +48,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .sidebar-label, .eyebrow { color: var(--fc-dim); font-size: 9px; font-weight: 800; letter-spacing: .16em; }
 .sidebar-label { padding: 20px 8px 8px; color: var(--fc-muted); font-size: 11px; font-weight: 600; letter-spacing: 0; }
 .recent-days { min-height: 0; display: flex; flex-direction: column; gap: 3px; margin-top: 12px; overflow-y: auto; }
-.recent-day { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 8px; border: 0; border-radius: 6px; background: transparent; color: var(--fc-text); font-size: 13px; text-align: left; cursor: pointer; }
+.recent-day { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--fc-text); font-size: 13px; text-align: left; cursor: pointer; }
+.recent-day > span:first-child { white-space: nowrap; }
 .recent-day:hover { background: #1d2b3a; color: var(--fc-text); }
 .recent-day.active { background: #24384c; color: var(--fc-text); }
-.recent-day .recent-kcal { flex: none; color: var(--fc-muted); font-size: 12px; }
+.recent-day .recent-kcal { color: var(--fc-muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.recent-kcal strong { color: var(--fc-text); font-weight: 600; }
+.recent-day.active .recent-kcal strong { color: var(--fc-mint); }
 .recent-day.active .recent-kcal { color: var(--fc-mint); }
 .sidebar-empty { padding: 8px; color: var(--fc-muted); font-size: 12px; line-height: 1.5; }
 .sidebar-bottom { margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--fc-line); }

@@ -133,8 +133,12 @@ async function loadRecentDays() {
     const items = [...days].reverse().slice(0, 12);
     $("#recent-days").innerHTML = items.length ? items.map((day) => {
       const dateLabel = friendlyDate(day.date, { weekday: "short", day: "numeric", month: "short" });
-      return `<button class="recent-day${day.date === selectedDate ? " active" : ""}" type="button" data-date="${escapeHtml(day.date)}">
-        <span>${escapeHtml(dateLabel)}</span><span class="recent-kcal">${number(day.intake.kcal)} kcal</span>
+      const compactDate = friendlyDate(day.date, { day: "numeric", month: "short" });
+      const logged = day.intake.kcal;
+      const target = day.targetKcal ?? day.targets?.kcal;
+      const aim = target > 0 ? `${number(target)} kcal` : "unavailable";
+      return `<button class="recent-day${day.date === selectedDate ? " active" : ""}" type="button" data-date="${escapeHtml(day.date)}" aria-label="${escapeHtml(`${dateLabel}: ${number(logged)} kcal logged, target ${aim}`)}" title="${escapeHtml(dateLabel)} · Logged / target calories">
+        <span>${escapeHtml(compactDate)}</span><span class="recent-kcal"><strong>${number(logged)}</strong><span class="recent-target"> / ${target > 0 ? number(target) : "—"} kcal</span></span>
       </button>`;
     }).join("") : `<div class="sidebar-empty">Your logged days will appear here.</div>`;
   } catch (_) {
