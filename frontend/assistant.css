@@ -21,8 +21,16 @@ button, input, textarea { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid var(--fc-mint); outline-offset: 2px; }
 
-.food-shell { width: 100%; min-width: 0; min-height: 100vh; display: grid; grid-template-columns: 238px minmax(390px, 1fr) 302px; }
+.food-shell { --sidebar-width: 238px; width: 100%; min-width: 0; min-height: 100vh; display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr) 302px; }
 .food-shell > * { min-width: 0; }
+.food-shell.sidebar-collapsed { grid-template-columns: minmax(0, 1fr) 302px; }
+.food-shell:has(.insight-rail[hidden]) { grid-template-columns: var(--sidebar-width) minmax(0, 1fr); }
+.food-shell.sidebar-collapsed:has(.insight-rail[hidden]) { grid-template-columns: minmax(0, 1fr); }
+.food-sidebar[hidden] { display: none !important; }
+.sidebar-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
+.sidebar-toggle { flex: none; width: 30px; height: 30px; font-size: 18px; }
+.sidebar-toggle[hidden] { display: none !important; }
+.chat-heading { flex: 1; min-width: 0; }
 .food-sidebar { position: sticky; top: 0; height: 100vh; padding: 25px 15px 16px; display: flex; flex-direction: column; background: #111b28; border-right: 1px solid var(--fc-line); }
 .food-brand { display: flex; align-items: center; gap: 10px; padding: 0 7px; text-decoration: none; color: var(--fc-text); font-size: 12px; font-weight: 800; letter-spacing: .08em; }
 .food-brand small { display: block; margin-top: 3px; color: var(--fc-dim); font-size: 9px; font-weight: 600; letter-spacing: .16em; }
@@ -44,21 +52,30 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .sidebar-bottom a { color: var(--fc-muted); text-decoration: none; }
 .sidebar-bottom a:hover { color: var(--fc-mint); }
 
-.food-main { width: 100%; max-width: 920px; height: 100vh; min-height: 0; display: flex; flex-direction: column; margin-inline: auto; padding: 0 34px; background: radial-gradient(ellipse at 50% 0%, rgba(100, 135, 89, .10), transparent 44%); }
-.chat-header { min-height: 100px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid rgba(43, 57, 48, .72); }
-.chat-heading h1 { margin: 5px 0 3px; font-family: Georgia, "Times New Roman", serif; font-size: 24px; font-weight: 500; letter-spacing: .01em; }
-.chat-heading p { margin: 0; color: var(--fc-muted); font-size: 12px; }
-.date-control { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--fc-line); border-radius: 9px; background: rgba(20, 31, 45, .92); color: var(--fc-mint); }
+.food-main { width: 100%; height: 100dvh; min-height: 0; display: flex; flex-direction: column; background: radial-gradient(ellipse at 50% 0%, rgba(100, 135, 89, .10), transparent 44%); }
+.chat-header { min-height: 56px; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-inline: 18px; border-bottom: 1px solid var(--fc-line); }
+.chat-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+.chat-heading h1 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: 0; }
+.chat-heading p { margin: 0; color: var(--fc-muted); font-size: 11px; }
+.date-control { flex: none; display: flex; align-items: center; padding: 5px 7px; border: 1px solid var(--fc-line); border-radius: 4px; background: transparent; color: var(--fc-mint); }
 .date-control input { width: 122px; border: 0; background: transparent; color: var(--fc-text); color-scheme: dark; font-size: 12px; }
-.conversation { flex: 1; min-height: 0; overflow-y: auto; padding: 28px 0 24px; scroll-behavior: smooth; }
-.day-intro { display: flex; align-items: center; gap: 10px; margin: 0 auto 25px; color: var(--fc-dim); font-size: 10px; }
+.conversation { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 18px 20px; scroll-behavior: smooth; scrollbar-width: thin; scrollbar-color: #40566a transparent; scrollbar-gutter: stable; container-type: inline-size; }
+.conversation::-webkit-scrollbar { width: 6px; }
+.conversation::-webkit-scrollbar-track { background: transparent; }
+.conversation::-webkit-scrollbar-thumb { border-radius: 3px; background: #40566a; }
+.conversation::-webkit-scrollbar-thumb:hover { background: #71859a; }
+.conversation::-webkit-scrollbar-button { display: none; }
+@supports selector(::-webkit-scrollbar) {
+  .conversation { scrollbar-width: auto; scrollbar-color: auto; }
+}
+.day-intro { display: flex; align-items: center; gap: 10px; margin: 0 auto 14px; color: var(--fc-dim); font-size: 10px; }
 .day-intro::before, .day-intro::after { content: ""; height: 1px; flex: 1; background: var(--fc-line); }
 .conversation-empty { max-width: 530px; margin: 10vh auto 0; text-align: center; animation: rise-in .35s ease both; }
 .empty-orbit { width: 55px; height: 55px; display: grid; place-items: center; margin: 0 auto 18px; border: 1px solid #4b6880; border-radius: 18px 18px 18px 5px; background: linear-gradient(145deg, #28445c, #172738); color: var(--fc-mint); font-size: 24px; transform: rotate(-4deg); }
 .conversation-empty h2 { margin: 0 0 8px; font-family: Georgia, "Times New Roman", serif; font-size: 27px; font-weight: 400; }
 .conversation-empty p { max-width: 390px; margin: 0 auto; color: var(--fc-muted); font-size: 13px; line-height: 1.65; }
-.entry-thread { max-width: 670px; margin: 0 auto 24px; animation: rise-in .24s ease both; }
-.user-message { width: fit-content; max-width: 84%; margin: 0 0 10px auto; padding: 11px 14px; border: 1px solid #3a5870; border-radius: 14px 14px 4px 14px; background: #1d3447; color: var(--fc-text); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.entry-thread { margin: 0 0 18px; animation: rise-in .24s ease both; }
+.user-message { width: fit-content; max-width: min(84%, 72ch); margin: 0 0 10px auto; padding: 11px 14px; border: 1px solid #3a5870; border-radius: 14px 14px 4px 14px; background: #1d3447; color: var(--fc-text); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .food-response { padding: 0 4px; }
 .response-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--fc-muted); font-size: 11px; }
 .response-glyph { width: 21px; height: 21px; display: grid; place-items: center; border: 1px solid #4a647c; border-radius: 7px; color: var(--fc-mint); }
@@ -73,18 +90,39 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .food-kcal small { color: var(--fc-dim); font-size: 9px; font-weight: 500; }
 .food-action { width: 25px; height: 25px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--fc-dim); cursor: pointer; }
 .food-action:hover { background: rgba(240, 154, 118, .13); color: var(--fc-coral); }
-.day-food-details { max-width: 670px; margin: 24px auto; padding: 18px 0 0; border-top: 1px solid var(--fc-line); animation: rise-in .2s ease both; }
-.day-food-details > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.food-inspect-btn { display: inline-flex; align-items: baseline; gap: 3px; max-width: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.food-inspect-btn > span:last-child { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.food-inspect-btn > span:first-child { flex: none; color: var(--fc-mint); transition: transform .15s; }
+.food-inspect-btn[aria-expanded="true"] > span:first-child { transform: rotate(90deg); }
+.food-qty-btn { padding: 1px 0; border: 0; border-bottom: 1px dotted var(--fc-dim); background: transparent; color: inherit; font: inherit; text-align: inherit; cursor: pointer; }
+.food-qty-btn:hover { color: var(--fc-mint); }
+.food-inline-details { grid-column: 1 / -1; min-width: 0; }
+.food-info-panel { padding: 8px 0 4px; color: var(--fc-muted); font-size: 11px; font-weight: 400; text-align: left; }
+.food-info-panel h3 { margin: 0 0 7px; color: var(--fc-text); font-size: 12px; font-weight: 600; }
+.food-info-macros { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 0 0 7px; }
+.food-info-macros dt { color: var(--fc-dim); font-size: 10px; }
+.food-info-macros dd { margin: 2px 0 0; color: var(--fc-text); }
+.food-quantity-list { display: grid; gap: 6px; }
+.food-quantity-form { display: flex; align-items: end; flex-wrap: wrap; gap: 6px; }
+.food-quantity-form label { display: grid; gap: 4px; }
+.food-quantity-form input { width: 95px; padding: 5px 7px; border: 1px solid var(--fc-line); border-radius: 4px; background: var(--fc-bg); color: var(--fc-text); font-size: 12px; }
+.food-quantity-form > span { padding-bottom: 6px; }
+.food-save-btn { padding: 5px 10px; border: 1px solid #527a98; border-radius: 4px; background: #20364a; color: var(--fc-blue); font-size: 12px; cursor: pointer; }
+.food-save-btn:disabled { opacity: .5; cursor: wait; }
+.food-inline-details[hidden], .day-food-expanded[hidden], .food-nutrition-view[hidden], .food-quantity-list[hidden] { display: none !important; }
+.day-food-list .day-food-expanded > td { padding: 0 3px 8px; }
+.day-food-details { margin: 14px 0; padding: 10px 0 0; border-top: 1px solid var(--fc-line); animation: rise-in .2s ease both; }
+.day-food-details > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
 .day-food-details h2 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: 0; }
-.day-food-details header p { margin: 5px 0 0; color: var(--fc-muted); font-size: 11px; }
+.day-food-details header p { margin: 3px 0 0; color: var(--fc-muted); font-size: 11px; }
 .day-food-total { flex: none; display: grid; gap: 2px; text-align: right; }
 .day-food-total b { color: var(--fc-mint); font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .day-food-total span { color: var(--fc-muted); font-size: 10px; }
 .day-food-list { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 11px; }
-.day-food-list th, .day-food-list td { padding: 10px 4px; border-bottom: 1px solid var(--fc-line); text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.day-food-list thead th { padding-top: 0; padding-bottom: 8px; color: var(--fc-muted); font-size: 10px; font-weight: 500; }
-.day-food-list th:first-child { width: 26%; padding-left: 0; text-align: left; }
-.day-food-list th:nth-child(2) { width: 17%; }
+.day-food-list th, .day-food-list td { padding: 5px 3px; border-bottom: 1px solid var(--fc-line); text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.day-food-list thead th { padding-top: 0; padding-bottom: 5px; color: var(--fc-muted); font-size: 10px; font-weight: 500; }
+.day-food-list th:first-child { width: 29%; padding-left: 0; text-align: left; }
+.day-food-list th:nth-child(2) { width: 14%; }
 .day-food-row th { color: var(--fc-text); font-weight: 500; line-height: 1.5; }
 .day-food-row td { color: var(--fc-muted); }
 .day-food-row .day-food-kcal { color: var(--fc-mint); font-weight: 600; }
@@ -93,8 +131,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .thread-meta { display: flex; align-items: center; gap: 8px; margin-top: 7px; padding-left: 4px; color: var(--fc-dim); font-size: 10px; }
 .thread-action { padding: 2px 0; border: 0; background: transparent; color: var(--fc-dim); font-size: 10px; cursor: pointer; }
 .thread-action:hover { color: var(--fc-mint); }
-.composer-wrap { flex: none; padding: 12px 0 19px; background: linear-gradient(0deg, var(--fc-bg) 76%, transparent); }
-.composer { max-width: 710px; min-height: 61px; display: flex; align-items: end; gap: 12px; margin: 0 auto; padding: 11px 11px 11px 17px; border: 1px solid #435b70; border-radius: 17px; background: #182737; box-shadow: var(--fc-shadow); transition: border-color .18s, box-shadow .18s; }
+.composer-wrap { flex: none; padding: 10px 18px 14px; background: linear-gradient(0deg, var(--fc-bg) 76%, transparent); }
+.composer { min-height: 61px; display: flex; align-items: end; gap: 12px; margin: 0; padding: 11px 11px 11px 17px; border: 1px solid #435b70; border-radius: 17px; background: #182737; box-shadow: var(--fc-shadow); transition: border-color .18s, box-shadow .18s; }
 .composer:focus-within { border-color: #66b8e1; box-shadow: 0 0 0 3px rgba(117, 201, 242, .10), var(--fc-shadow); }
 .composer textarea { flex: 1; max-height: 150px; min-height: 31px; resize: none; padding: 6px 0 2px; border: 0; outline: 0; background: transparent; color: var(--fc-text); font-size: 13px; line-height: 1.45; }
 .composer textarea::placeholder { color: #829184; }
@@ -174,7 +212,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 @keyframes rise-in { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
 
 @media (max-width: 1120px) {
-  .food-shell { grid-template-columns: 208px minmax(0, 1fr); }
+  .food-shell { --sidebar-width: 208px; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); }
+  .food-shell.sidebar-collapsed { grid-template-columns: minmax(0, 1fr); }
   .insight-rail:not([hidden]) { height: auto; display: grid; grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; overflow: visible; border-top: 1px solid var(--fc-line); border-left: 0; }
   .rail-section { min-width: 0; }
   .rail-section + .rail-section { padding-top: 0; border-bottom: 0; }
@@ -189,20 +228,20 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .today-btn span { font-size: 16px; }
   .sidebar-label, .recent-days { display: none; }
   .sidebar-bottom { grid-column: 1 / -1; display: grid; grid-template-columns: 14px 1fr auto; margin-top: 0; padding: 7px 0 0; border-top: 1px solid var(--fc-line); }
-  .food-main { order: 2; width: 100%; max-width: 100%; min-width: 0; height: auto; min-height: calc(100dvh - 50px); flex: 1; padding: 0 14px; }
-  .chat-header { min-height: 80px; gap: 8px; }
-  .chat-heading h1 { font-size: 21px; }
-  .chat-heading p { max-width: 185px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .date-control { gap: 4px; padding: 6px; }
-  .date-control input { width: 112px; font-size: 10px; }
-  .conversation { min-height: 48vh; overflow: visible; padding: 20px 0 12px; }
+  .food-main { order: 2; width: 100%; min-width: 0; height: auto; min-height: calc(100dvh - 50px); flex: 1; }
+  .chat-header { min-height: 56px; gap: 6px; padding: 6px 14px; }
+  .chat-heading { flex-direction: column; gap: 2px; }
+  .chat-heading p { font-size: 10px; }
+  .date-control { padding: 4px; }
+  .date-control input { width: 108px; font-size: 11px; }
+  .conversation { min-height: 48vh; overflow: visible; padding: 14px 14px 12px; scrollbar-gutter: auto; }
   .conversation-empty { margin-top: 8vh; }
   .user-message { max-width: 92%; }
   .food-item { grid-template-columns: minmax(0, 1fr) auto auto 25px; gap: 5px; padding-inline: 6px; }
   .food-name { font-size: 11px; }
   .food-portion, .food-kcal { font-size: 10px; }
-  .day-food-details { padding-top: 14px; }
-  .composer-wrap { position: sticky; bottom: 0; padding: 8px 0 calc(10px + env(safe-area-inset-bottom)); }
+  .day-food-details { padding-top: 10px; }
+  .composer-wrap { position: sticky; bottom: 0; padding: 8px 14px calc(10px + env(safe-area-inset-bottom)); }
   .composer { min-height: 55px; padding: 8px 8px 8px 12px; }
   .composer textarea { font-size: 12px; }
   .composer-note { font-size: 9px; }
@@ -211,15 +250,16 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .rail-footer { border-top: 1px solid var(--fc-line); margin-top: 15px; }
 }
 
-@media (max-width: 800px), (min-width: 1121px) and (max-width: 1350px) {
+@container (max-width: 580px) {
   .day-food-list, .day-food-list tbody { display: block; }
   .day-food-list thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-  .day-food-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px 8px; padding: 12px 0; border-bottom: 1px solid var(--fc-line); }
+  .day-food-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px 6px; padding: 7px 0; border-bottom: 1px solid var(--fc-line); }
   .day-food-list .day-food-row > * { width: auto; padding: 0; border: 0; text-align: left; }
-  .day-food-list .day-food-row th { width: auto; grid-column: 1 / 4; font-size: 12px; }
-  .day-food-list .day-food-kcal { grid-column: 4; grid-row: 1 / 3; align-self: start; text-align: right; white-space: nowrap; }
-  .day-food-portion { grid-column: 1 / 4; margin-top: -6px; }
+  .day-food-list .day-food-row th { width: auto; grid-column: 1 / -1; font-size: 12px; }
+  .day-food-list .day-food-kcal { grid-column: 3 / 5; grid-row: 2; text-align: right; white-space: nowrap; }
+  .day-food-portion { grid-column: 1 / 3; }
   .day-food-nutrient { font-size: 11px; }
-  .day-food-nutrient::before { content: attr(data-label); display: block; margin-bottom: 3px; color: var(--fc-dim); font-size: 10px; }
+  .day-food-nutrient::before { content: attr(data-short) " "; color: var(--fc-dim); font-size: 10px; }
   .day-food-mobile-unit { display: inline; font-size: 10px; font-weight: 400; }
+  .day-food-expanded:not([hidden]), .day-food-list .day-food-expanded > td { display: block; }
 }

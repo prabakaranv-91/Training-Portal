@@ -53,6 +53,7 @@ async function initialize() {
   today = localDate();
   $("#food-date").value = today;
   $("#food-date").max = today;
+  $("#day-caption").textContent = friendlyDate(today, { weekday: "short", day: "numeric", month: "short" });
   try {
     const session = await api("/api/session");
     if (!session.authenticated) {
@@ -60,7 +61,6 @@ async function initialize() {
       $("#auth-notice").hidden = false;
       $("#composer-wrap").hidden = true;
       $("#insight-rail").hidden = true;
-      $("#day-caption").textContent = "Sign in required";
       return;
     }
     $("#insight-rail").hidden = false;
@@ -92,7 +92,7 @@ async function loadDay(date) {
   $("#food-details-btn").querySelector("span:nth-child(2)").textContent = "Show food details";
   selectedDate = date;
   $("#food-date").value = date;
-  $("#day-caption").textContent = `${friendlyDate(date)}${date === today ? " · Today" : ""}`;
+  $("#day-caption").textContent = friendlyDate(date, { weekday: "short", day: "numeric", month: "short" });
   $("#conversation").innerHTML = `<div class="loading-state"><span class="spinner"></span><span>Loading food log…</span></div>`;
   $("#send-btn").disabled = true;
   document.querySelectorAll(".recent-day").forEach((button) => button.classList.toggle("active", button.dataset.date === date));
@@ -133,29 +133,39 @@ function renderFoodDetails(day) {
   const grouped = new Map();
   for (const entry of day.entries || []) {
     if (entry.revoked) continue;
-    for (const item of entry.items || []) {
+    for (const [index, item] of (entry.items || []).entries()) {
       if (!item.found || item.revoked) continue;
       const key = `${item.name}\u0000${item.unit || ""}`;
-      const food = grouped.get(key) || { name: item.name, unit: item.unit || "", qty: 0, kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
+      const food = grouped.get(key) || { name: item.name, unit: item.unit || "", qty: 0, kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sources: [] };
       food.qty += Number(item.qty) || 0;
+      food.sources.push({ entryId: entry.id, index, item, time: entry.time });
       for (const nutrient of ["kcal", "protein", "carbs", "fat", "fiber"]) food[nutrient] += Number(item[nutrient]) || 0;
       grouped.set(key, food);
     }
   }
   const foods = [...grouped.values()].sort((a, b) => b.kcal - a.kcal);
-  const rows = foods.map(food => `<tr class="day-food-row">
-    <th scope="row">${escapeHtml(food.name)}</th>
-    <td class="day-food-portion">${escapeHtml(food.qty.toLocaleString(undefined, { maximumFractionDigits: 2 }))} ${escapeHtml(food.unit)}</td>
+  const rows = foods.map((food, index) => `<tr class="day-food-row">
+    <th scope="row"><button class="food-inspect-btn" type="button" data-action="toggle-food-info" data-panel="daily-food-${index}" aria-controls="daily-food-${index}" aria-expanded="false" title="Nutrition details for ${escapeHtml(food.name)}"><span aria-hidden="true">▸</span><span>${escapeHtml(food.name)}</span></button></th>
+    <td class="day-food-portion"><button class="food-qty-btn" type="button" data-action="edit-qty" data-panel="daily-food-${index}" title="Edit portions" aria-label="Edit quantity of ${escapeHtml(food.name)}">${escapeHtml(food.qty.toLocaleString(undefined, { maximumFractionDigits: 2 }))} ${escapeHtml(food.unit)}</button></td>
     <td class="day-food-kcal">${number(food.kcal)}<span class="day-food-mobile-unit"> kcal</span></td>
-    ${[["protein", "Protein"], ["carbs", "Carbs"], ["fat", "Fat"], ["fiber", "Fibre"]].map(([key, label]) =>
-      `<td class="day-food-nutrient" data-label="${label}">${number(food[key])}<span class="day-food-mobile-unit"> g</span></td>`).join("")}
-  </tr>`).join("");
+    ${[["protein", "Protein", "P"], ["carbs", "Carbs", "C"], ["fat", "Fat", "F"], ["fiber", "Fibre", "Fib"]].map(([key, label, short]) =>
+      `<td class="day-food-nutrient" data-label="${label}" data-short="${short}" aria-label="${label}: ${number(food[key])} grams">${number(food[key])}<span class="day-food-mobile-unit"> g</span></td>`).join("")}
+  </tr><tr id="daily-food-${index}" class="day-food-expanded" hidden><td colspan="7">${renderFoodPanel(food, food.sources)}</td></tr>`).join("");
   return `<article class="day-food-details"><header><div><h2>Food details</h2>
     <p>${escapeHtml(friendlyDate(day.date))} · ${foods.length} ${foods.length === 1 ? "food" : "foods"}</p></div>
     <div class="day-food-total"><b>${number(day.intake?.kcal)}</b><span>kcal total</span></div></header>
     ${foods.length ? `<table class="day-food-list"><caption class="sr-only">Foods and nutrition for ${escapeHtml(friendlyDate(day.date))}</caption>
       <thead><tr><th scope="col">Food</th><th scope="col">Portion</th><th scope="col">kcal</th><th scope="col">Protein (g)</th><th scope="col">Carbs (g)</th><th scope="col">Fat (g)</th><th scope="col">Fibre (g)</th></tr></thead>
       <tbody>${rows}</tbody></table>` : `<p class="day-food-empty">No matched foods logged for this day.</p>`}</article>`;
+}
+
+function renderFoodPanel(food, sources) {
+  return `<div class="food-info-panel"><div class="food-nutrition-view"><h3>Nutrition</h3>
+    <dl class="food-info-macros">${[["Protein", "protein"], ["Carbs", "carbs"], ["Fat", "fat"], ["Fibre", "fiber"]].map(([label, key]) => `<div><dt>${label}</dt><dd>${number(food[key])} g</dd></div>`).join("")}</dl>
+    </div><div class="food-quantity-list" hidden>${sources.map(source => `<form class="food-quantity-form" data-id="${escapeHtml(source.entryId)}" data-item="${source.index}">
+      <label>Quantity${sources.length > 1 ? ` · ${escapeHtml(source.time || "Logged portion")}` : ""}<input type="number" name="qty" min="0.01" max="10000" step="any" value="${escapeHtml(source.item.qty)}" required aria-label="Quantity of ${escapeHtml(food.name)}${source.time ? ` at ${escapeHtml(source.time)}` : ""}"></label>
+      <span>${escapeHtml(source.item.unit || "portion")}</span><button type="submit" class="food-save-btn">Save</button>
+    </form>`).join("")}</div></div>`;
 }
 
 function renderEntry(entry) {
@@ -173,11 +183,13 @@ function renderEntry(entry) {
     const rating = { best: "★", good: "✓", ok: "·", avoid: "⊘" }[item.rating] || "";
     const portion = `${item.qty ?? ""} ${item.unit || ""}`.trim();
     const detail = `${portion}${item.grams ? ` · ${number(item.grams)} g` : ""} · ${number(item.kcal)} kcal`;
+    const panelId = `entry-food-${entry.id}-${index}`;
     return `<div class="food-item${item.revoked ? " item-revoked" : ""}" title="${escapeHtml(`${item.ratingWhy || ""} ${detail}`.trim())}">
-      <span class="food-name"><span class="food-rating rating-${escapeHtml(item.rating || "neutral")}">${rating}</span>${escapeHtml(item.name)}</span>
-      <span class="food-portion">${escapeHtml(portion)}</span><span class="food-kcal">${number(item.kcal)} <small>kcal</small></span>
+      <span class="food-name"><button class="food-inspect-btn" type="button" data-action="toggle-food-info" data-panel="${escapeHtml(panelId)}" aria-controls="${escapeHtml(panelId)}" aria-expanded="false" title="Nutrition details for ${escapeHtml(item.name)}"><span aria-hidden="true">▸</span><span class="food-rating rating-${escapeHtml(item.rating || "neutral")}">${rating}</span><span>${escapeHtml(item.name)}</span></button></span>
+      <span class="food-portion">${item.revoked ? escapeHtml(portion) : `<button class="food-qty-btn" type="button" data-action="edit-qty" data-panel="${escapeHtml(panelId)}" title="Edit quantity" aria-label="Edit quantity of ${escapeHtml(item.name)}">${escapeHtml(portion)}</button>`}</span><span class="food-kcal">${number(item.kcal)} <small>kcal</small></span>
       <button class="food-action" type="button" title="${item.revoked ? "Restore food" : "Remove food"}" aria-label="${item.revoked ? "Restore" : "Remove"} ${escapeHtml(item.name)}"
-        data-action="${item.revoked ? "restore-item" : "remove-item"}" data-id="${entryId}" data-item="${index}">${item.revoked ? "↶" : "×"}</button></div>`;
+        data-action="${item.revoked ? "restore-item" : "remove-item"}" data-id="${entryId}" data-item="${index}">${item.revoked ? "↶" : "×"}</button>
+      <div id="${escapeHtml(panelId)}" class="food-inline-details" hidden>${renderFoodPanel(item, item.revoked ? [] : [{ entryId: entry.id, index, item }])}</div></div>`;
   }).join("");
   return `<article class="entry-thread" data-entry="${entryId}">
     <div class="user-message">${escapeHtml(entry.text)}</div>
@@ -275,6 +287,21 @@ async function submitFood(event) {
 
 async function performAction(button) {
   const { action, id, item } = button.dataset;
+  if (action === "toggle-food-info" || action === "edit-qty") {
+    const panel = document.getElementById(button.dataset.panel);
+    if (!panel) return;
+    const nutrition = panel.querySelector(".food-nutrition-view");
+    const quantities = panel.querySelector(".food-quantity-list");
+    const editing = action === "edit-qty";
+    panel.hidden = !panel.hidden && !(editing ? quantities : nutrition).hidden;
+    nutrition.hidden = editing;
+    quantities.hidden = !editing;
+    document.querySelectorAll("[data-panel]").forEach(control => {
+      if (control.dataset.panel === panel.id && control.hasAttribute("aria-expanded")) control.setAttribute("aria-expanded", String(!panel.hidden && !editing));
+    });
+    if (editing && !panel.hidden) panel.querySelector("input")?.focus();
+    return;
+  }
   if (action === "refresh-review") return loadReview(currentDay, true);
   if (["remove-entry", "remove-item"].includes(action) && !confirm("Remove this logged food?")) return;
   button.disabled = true;
@@ -301,6 +328,41 @@ function resizeComposer() {
   input.style.height = `${Math.min(input.scrollHeight, 150)}px`;
 }
 
+function setSidebarCollapsed(collapsed) {
+  $(".food-shell").classList.toggle("sidebar-collapsed", collapsed);
+  $("#food-sidebar").hidden = collapsed;
+  $("#sidebar-open").hidden = !collapsed;
+  $("#sidebar-toggle").setAttribute("aria-expanded", String(!collapsed));
+  $("#sidebar-open").setAttribute("aria-expanded", String(!collapsed));
+  $(collapsed ? "#sidebar-open" : "#sidebar-toggle").focus();
+}
+
+$("#sidebar-toggle").addEventListener("click", () => setSidebarCollapsed(true));
+$("#sidebar-open").addEventListener("click", () => setSidebarCollapsed(false));
+$("#conversation").addEventListener("submit", async event => {
+  const form = event.target.closest(".food-quantity-form");
+  if (!form) return;
+  event.preventDefault();
+  if (!form.reportValidity()) return;
+  const save = form.querySelector("button");
+  if (save.disabled) return;
+  const date = selectedDate;
+  save.disabled = true;
+  try {
+    await api(`/api/nutrition/entries/${encodeURIComponent(form.dataset.id)}/items/${encodeURIComponent(form.dataset.item)}`, { method: "PATCH", body: JSON.stringify({ qty: Number(form.elements.qty.value) }) });
+    const day = await api(`/api/nutrition/day?date=${encodeURIComponent(date)}`);
+    if (selectedDate === date) {
+      currentDay = day;
+      renderDay(day);
+      loadReview(day);
+    }
+    await loadRecentDays();
+    toast("Quantity updated.");
+  } catch (error) {
+    toast(error.message);
+    save.disabled = false;
+  }
+});
 $("#food-form").addEventListener("submit", submitFood);
 $("#food-input").addEventListener("input", resizeComposer);
 $("#food-input").addEventListener("keydown", event => {
