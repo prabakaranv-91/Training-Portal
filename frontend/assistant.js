@@ -4,6 +4,8 @@ let currentDay = null;
 let busy = false;
 let foodDetailsVisible = false;
 let toastTimer;
+let weightData = null;
+let weightChart = null;
 
 const $ = (selector) => document.querySelector(selector);
 const FOOD_RATINGS = {
@@ -70,10 +72,58 @@ async function initialize() {
       return;
     }
     $("#insight-rail").hidden = false;
-    await Promise.all([loadRecentDays(), loadDay(today)]);
+    await Promise.all([loadRecentDays(), loadDay(today), loadWeight()]);
   } catch (error) {
     showError(error.message);
   }
+}
+
+async function loadWeight() {
+  try {
+    weightData = await api("/api/nutrition/weight");
+    renderWeight();
+  } catch (_) {
+    $("#weight-chart-wrap").hidden = true;
+    $("#weight-chart-message").hidden = false;
+    $("#weight-chart-message").textContent = "Weight history unavailable.";
+  }
+}
+
+function renderWeight() {
+  if (!weightData) return;
+  const period = $("#weight-period").value;
+  const start = new Date(`${today}T00:00:00`);
+  if (period !== "all") start.setDate(start.getDate() - Number(period) + 1);
+  const cutoff = period === "all" ? "" : localDate(start);
+  const points = [...(weightData.history || [])]
+    .filter(point => /^\d{4}-\d{2}-\d{2}$/.test(point.date) && Number.isFinite(Number(point.kg)) && Number(point.kg) > 0 && point.date >= cutoff && point.date <= today)
+    .sort((first, second) => first.date.localeCompare(second.date));
+  const external = weightData.externalKg ?? weightData.garminKg;
+  const current = external ?? weightData.current?.kg;
+  $("#weight-current").textContent = current != null ? `${Number(current).toLocaleString(undefined, { maximumFractionDigits: 1 })} kg` : "—";
+  $("#weight-source").textContent = external != null ? ({ garmin: "Garmin Connect", strava: "Strava" }[weightData.weightSource] || "Synced") : weightData.current ? "Logged" : "";
+  const change = points.length > 1 ? Number(points.at(-1).kg) - Number(points[0].kg) : null;
+  $("#weight-note").textContent = change != null ? `${change > 0 ? "+" : change < 0 ? "−" : ""}${Math.abs(change).toLocaleString(undefined, { maximumFractionDigits: 1 })} kg · ${points.length} weigh-ins` : points.length ? "1 weigh-in · kg" : "";
+  weightChart?.destroy();
+  weightChart = null;
+  const available = points.length > 0 && typeof Chart === "function";
+  $("#weight-chart-wrap").hidden = !available;
+  $("#weight-chart-message").hidden = available;
+  $("#weight-chart-message").textContent = points.length ? "Weight chart unavailable." : "No weigh-ins in this period.";
+  if (!available) return;
+  $("#weight-chart").setAttribute("aria-label", `Weight history: ${points.map(point => `${friendlyDate(point.date)}: ${point.kg} kg`).join("; ")}`);
+  weightChart = new Chart($("#weight-chart"), {
+    type: "line",
+    data: { labels: points.map(point => point.date), datasets: [{ data: points.map(point => Number(point.kg)), borderColor: "#75c9f2", backgroundColor: "#75c9f2", borderWidth: 2, pointRadius: points.length === 1 ? 4 : 2, pointHoverRadius: 4, tension: .2, fill: false }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { title: items => friendlyDate(items[0].label), label: item => `${item.parsed.y} kg` } } },
+      scales: {
+        x: { grid: { display: false }, border: { display: false }, ticks: { color: "#a5b6c8", font: { size: 9 }, maxTicksLimit: 3, maxRotation: 0, callback(value) { return friendlyDate(this.getLabelForValue(value), { day: "numeric", month: "short" }); } } },
+        y: { grace: "10%", border: { display: false }, grid: { color: "#2a3c51" }, ticks: { color: "#a5b6c8", font: { size: 9 }, maxTicksLimit: 3 } },
+      },
+    },
+  });
 }
 
 async function loadRecentDays() {
@@ -225,19 +275,21 @@ function renderBalance(day) {
   $("#status-badge").className = `status-badge ${statusClass}`;
   $("#status-badge").textContent = ({ low: "↓ Below target", in_limit: "✓ On plan", high: "↑ Over target" })[day.status] || "—";
   $("#calorie-count").textContent = `${number(kcal)} / ${number(target)}`;
-  $("#target-count").textContent = `Target ${number(target)} kcal`;
   const difference = target - kcal;
   $("#calorie-balance").textContent = difference === 0 ? "✓ Target reached" : difference > 0 ? `${number(difference)} kcal remaining` : `${number(-difference)} kcal over`;
   $("#calorie-balance").className = difference === 0 ? "met" : difference > 0 ? "under" : "over";
   $("#calorie-fill").style.width = `${target ? Math.min(100, kcal / target * 100) : 0}%`;
   $("#calorie-fill").className = statusClass;
   const macros = [["Protein", "protein", "g"], ["Carbs", "carbs", "g"], ["Fat", "fat", "g"], ["Fibre", "fiber", "g"]];
-  $("#macro-list").innerHTML = macros.map(([label, key, unit]) => {
+  const format = value => Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 });
+  $("#macro-list").innerHTML = `<table class="macro-table"><caption class="sr-only">Daily nutrients, targets and remaining grams</caption>
+    <thead><tr><th scope="col">Nutrient</th><th scope="col">Logged</th><th scope="col">Target</th><th scope="col">Left</th></tr></thead><tbody>` + macros.map(([label, key, unit]) => {
     const value = intake[key] || 0, goal = targets[key] || 0;
-    const state = goal ? value < goal ? "under" : value > goal * 1.1 ? "over" : "met" : "";
-    const status = { under: "Below target", met: "On target", over: "Above target" }[state];
-    return `<div class="macro-row"><span>${label}</span><b class="${state}"${status ? ` title="${status}"` : ""}>${number(value)} <i>/ ${number(goal)} ${unit}</i></b></div>`;
-  }).join("");
+    const remaining = goal - value;
+    const state = goal ? remaining > 0 ? "under" : remaining < 0 ? "over" : "met" : "";
+    const left = !goal ? "—" : remaining > 0 ? `${format(remaining)} ${unit}` : remaining < 0 ? `${format(-remaining)} ${unit} over` : "✓ Met";
+    return `<tr class="macro-row"><th scope="row">${label}</th><td class="macro-logged ${state}">${format(value)} ${unit}</td><td class="macro-target">${goal ? `${format(goal)} ${unit}` : "—"}</td><td class="macro-left ${state}">${left}</td></tr>`;
+  }).join("") + "</tbody></table>";
   const burn = day.burn || {};
   const delta = target - (burn.total || 0);
   $("#burn-breakdown").innerHTML = `<div class="burn-row"><span>Resting</span><b>${number(burn.bmr)} kcal</b></div>
@@ -359,6 +411,7 @@ function setSidebarCollapsed(collapsed) {
 
 $("#sidebar-toggle").addEventListener("click", () => setSidebarCollapsed(true));
 $("#sidebar-open").addEventListener("click", () => setSidebarCollapsed(false));
+$("#weight-period").addEventListener("change", renderWeight);
 $("#conversation").addEventListener("submit", async event => {
   const form = event.target.closest(".food-quantity-form");
   if (!form) return;

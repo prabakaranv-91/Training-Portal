@@ -7,6 +7,7 @@
     <title>Training Assistant | Fit Squad</title>
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
     <link rel="stylesheet" href="assistant.css?v=2026100702" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
     <script src="assistant.js?v=2026100702" defer></script>
   </head>
   <body>
@@ -64,12 +65,21 @@
       </main>
 
       <aside id="insight-rail" class="insight-rail" aria-label="Daily nutrition details" hidden>
+        <section class="rail-section weight-section">
+          <div class="rail-heading"><h2>Weight</h2>
+            <select id="weight-period" class="weight-period" aria-label="Weight chart period"><option value="30">30 days</option><option value="90">90 days</option><option value="all">All time</option></select>
+          </div>
+          <div class="weight-summary"><b id="weight-current">—</b><span id="weight-source"></span></div>
+          <div id="weight-chart-wrap" class="weight-chart-wrap" hidden><canvas id="weight-chart" role="img" aria-label="Weight history in kilograms"></canvas></div>
+          <p id="weight-chart-message" class="weight-chart-message">Loading weight…</p>
+          <p id="weight-note" class="weight-note"></p>
+        </section>
         <section class="rail-section">
-          <div class="rail-heading"><div><span class="eyebrow">TODAY’S PLAN</span><h2>Daily balance</h2></div><span id="status-badge" class="status-badge">—</span></div>
+          <div class="rail-heading"><h2>Daily balance</h2><span id="status-badge" class="status-badge">—</span></div>
           <div class="calorie-block">
             <div class="calorie-line"><span>Calories</span><b id="calorie-count">—</b></div>
             <div class="calorie-track"><span id="calorie-fill"></span></div>
-            <div class="calorie-foot"><span id="calorie-balance">Loading</span><span id="target-count">Target —</span></div>
+            <div class="calorie-foot"><span id="calorie-balance">Loading</span></div>
           </div>
           <div id="macro-list" class="macro-list"></div>
           <button id="food-details-btn" class="food-details-toggle" type="button" aria-expanded="false" aria-controls="conversation">
@@ -82,11 +92,10 @@
         </section>
 
         <section class="rail-section review-section">
-          <div class="rail-heading"><div><span class="eyebrow">DAILY COACH</span><h2>Day review</h2></div><span class="coach-spark" aria-hidden="true">✳</span></div>
+          <div class="rail-heading"><h2>Day review</h2><span class="coach-spark" aria-hidden="true">✳</span></div>
           <div id="review-card" class="review-card"><span class="spinner"></span><span>Preparing review…</span></div>
         </section>
 
-        <div class="rail-footer"><span>⌁</span> Built around your training plan</div>
       </aside>
     </div>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
