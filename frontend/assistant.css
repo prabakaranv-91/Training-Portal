@@ -11,6 +11,9 @@
   --fc-lime: #a3e1ff;
   --fc-coral: #efa47d;
   --fc-blue: #a6d8fa;
+  --fc-positive: #8ddbb6;
+  --fc-warning: #f5cd75;
+  --fc-negative: #ffaaa6;
   --fc-shadow: 0 18px 55px rgba(0, 0, 0, .22);
 }
 
@@ -84,7 +87,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .food-item { min-height: 37px; display: grid; grid-template-columns: minmax(0, 1fr) auto auto 27px; align-items: center; gap: 10px; padding: 6px 9px; border: 1px solid rgba(55, 70, 58, .62); border-radius: 8px; background: rgba(27, 38, 30, .58); }
 .food-item.unknown { border-color: rgba(240, 154, 118, .35); }
 .food-name { min-width: 0; overflow: hidden; color: var(--fc-text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.food-rating { margin-right: 5px; color: var(--fc-mint); }
+.food-rating { flex: none; width: 20px; height: 20px; display: inline-grid; place-items: center; border-radius: 4px; font-size: 14px; font-weight: 700; line-height: 1; }
+.food-rating.rating-best { color: var(--fc-warning); background: rgba(245, 205, 117, .14); }
+.food-rating.rating-good { color: var(--fc-positive); background: rgba(141, 219, 182, .14); }
+.food-rating.rating-ok { color: var(--fc-warning); background: rgba(245, 205, 117, .10); }
+.food-rating.rating-avoid { color: var(--fc-negative); background: rgba(255, 170, 166, .16); }
+.food-item.unknown .food-portion { color: var(--fc-warning); font-weight: 600; }
 .food-portion { color: var(--fc-muted); font-size: 11px; white-space: nowrap; }
 .food-kcal { color: var(--fc-mint); font-size: 11px; font-weight: 700; white-space: nowrap; }
 .food-kcal small { color: var(--fc-dim); font-size: 9px; font-weight: 500; }
@@ -97,11 +105,15 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .food-qty-btn { padding: 1px 0; border: 0; border-bottom: 1px dotted var(--fc-dim); background: transparent; color: inherit; font: inherit; text-align: inherit; cursor: pointer; }
 .food-qty-btn:hover { color: var(--fc-mint); }
 .food-inline-details { grid-column: 1 / -1; min-width: 0; }
-.food-info-panel { padding: 8px 0 4px; color: var(--fc-muted); font-size: 11px; font-weight: 400; text-align: left; }
-.food-info-panel h3 { margin: 0 0 7px; color: var(--fc-text); font-size: 12px; font-weight: 600; }
-.food-info-macros { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 0 0 7px; }
-.food-info-macros dt { color: var(--fc-dim); font-size: 10px; }
-.food-info-macros dd { margin: 2px 0 0; color: var(--fc-text); }
+.food-info-panel { padding: 2px 0; color: var(--fc-muted); font-size: 11px; font-weight: 400; text-align: left; }
+.food-info-macros { display: flex; flex-wrap: wrap; gap: 3px 12px; margin: 0; line-height: 1.5; }
+.food-info-macros > div { display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; }
+.food-info-macros dt { color: var(--fc-muted); }
+.food-info-macros dd { margin: 0; color: var(--fc-text); font-weight: 600; }
+.food-rating-note { margin: 4px 0 0; line-height: 1.5; overflow-wrap: anywhere; }
+.food-rating-note.rating-best b, .food-rating-note.rating-ok b { color: var(--fc-warning); }
+.food-rating-note.rating-good b { color: var(--fc-positive); }
+.food-rating-note.rating-avoid b { color: var(--fc-negative); }
 .food-quantity-list { display: grid; gap: 6px; }
 .food-quantity-form { display: flex; align-items: end; flex-wrap: wrap; gap: 6px; }
 .food-quantity-form label { display: grid; gap: 4px; }
@@ -110,7 +122,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .food-save-btn { padding: 5px 10px; border: 1px solid #527a98; border-radius: 4px; background: #20364a; color: var(--fc-blue); font-size: 12px; cursor: pointer; }
 .food-save-btn:disabled { opacity: .5; cursor: wait; }
 .food-inline-details[hidden], .day-food-expanded[hidden], .food-nutrition-view[hidden], .food-quantity-list[hidden] { display: none !important; }
-.day-food-list .day-food-expanded > td { padding: 0 3px 8px; }
+.day-food-list .day-food-expanded > td { padding: 0 3px 4px; }
 .day-food-details { margin: 14px 0; padding: 10px 0 0; border-top: 1px solid var(--fc-line); animation: rise-in .2s ease both; }
 .day-food-details > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
 .day-food-details h2 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: 0; }
@@ -148,26 +160,34 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .rail-section + .rail-section { padding-top: 19px; }
 .rail-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 15px; }
 .rail-heading h2 { margin: 5px 0 0; font-family: Georgia, "Times New Roman", serif; font-size: 19px; font-weight: 400; }
-.status-badge { padding: 4px 8px; border: 1px solid var(--fc-line); border-radius: 999px; color: var(--fc-muted); font-size: 9px; white-space: nowrap; }
-.status-badge.ok { border-color: rgba(117, 201, 242, .38); color: var(--fc-mint); }
-.status-badge.low { border-color: rgba(166, 216, 250, .35); color: var(--fc-blue); }
-.status-badge.high { border-color: rgba(240, 154, 118, .4); color: var(--fc-coral); }
+.status-badge { padding: 4px 8px; border: 1px solid var(--fc-line); border-radius: 4px; color: var(--fc-muted); font-size: 10px; font-weight: 600; white-space: nowrap; }
+.status-badge.ok { border-color: rgba(141, 219, 182, .45); color: var(--fc-positive); background: rgba(141, 219, 182, .10); }
+.status-badge.low { border-color: rgba(245, 205, 117, .45); color: var(--fc-warning); background: rgba(245, 205, 117, .10); }
+.status-badge.high { border-color: rgba(255, 170, 166, .45); color: var(--fc-negative); background: rgba(255, 170, 166, .10); }
 .calorie-block { padding: 12px; border: 1px solid #354d63; border-radius: 11px; background: linear-gradient(145deg, #203347, #172433); }
 .calorie-line, .calorie-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 9px; }
 .calorie-line { color: var(--fc-muted); font-size: 11px; }
 .calorie-line b { color: var(--fc-text); font-size: 17px; }
 .calorie-track { height: 4px; overflow: hidden; margin: 12px 0 8px; border-radius: 4px; background: #364b5c; }
 .calorie-track span { height: 100%; display: block; border-radius: inherit; background: var(--fc-mint); transition: width .35s ease; }
-.calorie-track span.over { background: var(--fc-coral); }
+.calorie-track span.low { background: var(--fc-warning); }
+.calorie-track span.ok { background: var(--fc-positive); }
+.calorie-track span.high { background: var(--fc-negative); }
 .calorie-foot { color: var(--fc-muted); font-size: 10px; }
-.calorie-foot .under { color: var(--fc-blue); }
-.calorie-foot .over { color: var(--fc-coral); }
+.calorie-foot .under { color: var(--fc-warning); font-weight: 600; }
+.calorie-foot .met { color: var(--fc-positive); font-weight: 600; }
+.calorie-foot .over { color: var(--fc-negative); font-weight: 600; }
 .macro-list { display: flex; flex-direction: column; gap: 2px; margin-top: 10px; }
 .macro-row { min-height: 35px; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; padding: 4px 7px; border-bottom: 1px solid rgba(43, 57, 48, .62); }
 .macro-row span { color: var(--fc-muted); font-size: 11px; }
 .macro-row b { color: var(--fc-text); font-size: 11px; font-weight: 600; }
-.macro-row b.met { color: var(--fc-mint); }
-.macro-row b.over { color: var(--fc-coral); }
+.macro-row b.under { color: var(--fc-warning); }
+.macro-row b.met { color: var(--fc-positive); }
+.macro-row b.over { color: var(--fc-negative); }
+.macro-row b.under::before { content: "↓ "; }
+.macro-row b.met::before { content: "✓ "; }
+.macro-row b.over::before { content: "↑ "; }
+.macro-row b i { color: var(--fc-muted); font-style: normal; font-weight: 400; }
 .food-details-toggle { width: 100%; display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 8px 9px; border: 1px solid var(--fc-line); border-radius: 8px; background: #1a2938; color: var(--fc-blue); text-align: left; font-size: 11px; cursor: pointer; }
 .food-details-toggle:hover { border-color: #527a98; background: #20364a; }
 .food-details-toggle > span:first-child { color: var(--fc-mint); font-size: 14px; }

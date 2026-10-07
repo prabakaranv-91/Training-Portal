@@ -6,6 +6,12 @@ let foodDetailsVisible = false;
 let toastTimer;
 
 const $ = (selector) => document.querySelector(selector);
+const FOOD_RATINGS = {
+  best: { symbol: "★", label: "Highly recommended", priority: 1 },
+  good: { symbol: "✓", label: "Good choice", priority: 2 },
+  ok: { symbol: "•", label: "Moderate", priority: 3 },
+  avoid: { symbol: "⊘", label: "Avoid", priority: 4 },
+};
 
 function localDate(date = new Date()) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -129,6 +135,12 @@ function renderDay(day) {
   $("#conversation").scrollTop = $("#conversation").scrollHeight;
 }
 
+function renderFoodRating(food) {
+  if (!Object.hasOwn(FOOD_RATINGS, food.rating)) return "";
+  const rating = FOOD_RATINGS[food.rating];
+  return `<span class="food-rating rating-${food.rating}" role="img" aria-label="${rating.label}" title="${escapeHtml(`${rating.label}${food.ratingWhy ? `: ${food.ratingWhy}` : ""}`)}">${rating.symbol}</span>`;
+}
+
 function renderFoodDetails(day) {
   const grouped = new Map();
   for (const entry of day.entries || []) {
@@ -139,13 +151,17 @@ function renderFoodDetails(day) {
       const food = grouped.get(key) || { name: item.name, unit: item.unit || "", qty: 0, kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sources: [] };
       food.qty += Number(item.qty) || 0;
       food.sources.push({ entryId: entry.id, index, item, time: entry.time });
+      if ((FOOD_RATINGS[item.rating]?.priority || 0) > (FOOD_RATINGS[food.rating]?.priority || 0)) {
+        food.rating = item.rating;
+        food.ratingWhy = item.ratingWhy;
+      }
       for (const nutrient of ["kcal", "protein", "carbs", "fat", "fiber"]) food[nutrient] += Number(item[nutrient]) || 0;
       grouped.set(key, food);
     }
   }
   const foods = [...grouped.values()].sort((a, b) => b.kcal - a.kcal);
   const rows = foods.map((food, index) => `<tr class="day-food-row">
-    <th scope="row"><button class="food-inspect-btn" type="button" data-action="toggle-food-info" data-panel="daily-food-${index}" aria-controls="daily-food-${index}" aria-expanded="false" title="Nutrition details for ${escapeHtml(food.name)}"><span aria-hidden="true">▸</span><span>${escapeHtml(food.name)}</span></button></th>
+    <th scope="row"><button class="food-inspect-btn" type="button" data-action="toggle-food-info" data-panel="daily-food-${index}" aria-controls="daily-food-${index}" aria-expanded="false" title="Nutrition details for ${escapeHtml(food.name)}"><span aria-hidden="true">▸</span>${renderFoodRating(food)}<span>${escapeHtml(food.name)}</span></button></th>
     <td class="day-food-portion"><button class="food-qty-btn" type="button" data-action="edit-qty" data-panel="daily-food-${index}" title="Edit portions" aria-label="Edit quantity of ${escapeHtml(food.name)}">${escapeHtml(food.qty.toLocaleString(undefined, { maximumFractionDigits: 2 }))} ${escapeHtml(food.unit)}</button></td>
     <td class="day-food-kcal">${number(food.kcal)}<span class="day-food-mobile-unit"> kcal</span></td>
     ${[["protein", "Protein", "P"], ["carbs", "Carbs", "C"], ["fat", "Fat", "F"], ["fiber", "Fibre", "Fib"]].map(([key, label, short]) =>
@@ -160,8 +176,12 @@ function renderFoodDetails(day) {
 }
 
 function renderFoodPanel(food, sources) {
-  return `<div class="food-info-panel"><div class="food-nutrition-view"><h3>Nutrition</h3>
-    <dl class="food-info-macros">${[["Protein", "protein"], ["Carbs", "carbs"], ["Fat", "fat"], ["Fibre", "fiber"]].map(([label, key]) => `<div><dt>${label}</dt><dd>${number(food[key])} g</dd></div>`).join("")}</dl>
+  const reasons = [...new Map((sources.length ? sources.map(source => source.item) : [food])
+    .filter(item => item.ratingWhy)
+    .map(item => [`${item.rating}\u0000${item.ratingWhy}`, item])).values()];
+  return `<div class="food-info-panel"><div class="food-nutrition-view">
+    <dl class="food-info-macros" aria-label="Nutrition values">${[["Protein", "protein"], ["Carbs", "carbs"], ["Fat", "fat"], ["Fibre", "fiber"]].map(([label, key]) => `<div><dt>${label}</dt><dd>${number(food[key])} g</dd></div>`).join("")}</dl>
+    ${reasons.map(item => `<p class="food-rating-note rating-${escapeHtml(item.rating || "neutral")}"><b>${FOOD_RATINGS[item.rating]?.label || "Food rating"}:</b> ${escapeHtml(item.ratingWhy)}</p>`).join("")}
     </div><div class="food-quantity-list" hidden>${sources.map(source => `<form class="food-quantity-form" data-id="${escapeHtml(source.entryId)}" data-item="${source.index}">
       <label>Quantity${sources.length > 1 ? ` · ${escapeHtml(source.time || "Logged portion")}` : ""}<input type="number" name="qty" min="0.01" max="10000" step="any" value="${escapeHtml(source.item.qty)}" required aria-label="Quantity of ${escapeHtml(food.name)}${source.time ? ` at ${escapeHtml(source.time)}` : ""}"></label>
       <span>${escapeHtml(source.item.unit || "portion")}</span><button type="submit" class="food-save-btn">Save</button>
@@ -180,12 +200,11 @@ function renderEntry(entry) {
         <span class="food-portion">Unmatched</span><span class="food-kcal">—</span>
         <button class="food-action" type="button" title="Analyse again" aria-label="Analyse this food again" data-action="reanalyze" data-id="${entryId}">↻</button></div>`;
     }
-    const rating = { best: "★", good: "✓", ok: "·", avoid: "⊘" }[item.rating] || "";
     const portion = `${item.qty ?? ""} ${item.unit || ""}`.trim();
     const detail = `${portion}${item.grams ? ` · ${number(item.grams)} g` : ""} · ${number(item.kcal)} kcal`;
     const panelId = `entry-food-${entry.id}-${index}`;
     return `<div class="food-item${item.revoked ? " item-revoked" : ""}" title="${escapeHtml(`${item.ratingWhy || ""} ${detail}`.trim())}">
-      <span class="food-name"><button class="food-inspect-btn" type="button" data-action="toggle-food-info" data-panel="${escapeHtml(panelId)}" aria-controls="${escapeHtml(panelId)}" aria-expanded="false" title="Nutrition details for ${escapeHtml(item.name)}"><span aria-hidden="true">▸</span><span class="food-rating rating-${escapeHtml(item.rating || "neutral")}">${rating}</span><span>${escapeHtml(item.name)}</span></button></span>
+      <span class="food-name"><button class="food-inspect-btn" type="button" data-action="toggle-food-info" data-panel="${escapeHtml(panelId)}" aria-controls="${escapeHtml(panelId)}" aria-expanded="false" title="Nutrition details for ${escapeHtml(item.name)}"><span aria-hidden="true">▸</span>${renderFoodRating(item)}<span>${escapeHtml(item.name)}</span></button></span>
       <span class="food-portion">${item.revoked ? escapeHtml(portion) : `<button class="food-qty-btn" type="button" data-action="edit-qty" data-panel="${escapeHtml(panelId)}" title="Edit quantity" aria-label="Edit quantity of ${escapeHtml(item.name)}">${escapeHtml(portion)}</button>`}</span><span class="food-kcal">${number(item.kcal)} <small>kcal</small></span>
       <button class="food-action" type="button" title="${item.revoked ? "Restore food" : "Remove food"}" aria-label="${item.revoked ? "Restore" : "Remove"} ${escapeHtml(item.name)}"
         data-action="${item.revoked ? "restore-item" : "remove-item"}" data-id="${entryId}" data-item="${index}">${item.revoked ? "↶" : "×"}</button>
@@ -208,15 +227,16 @@ function renderBalance(day) {
   $("#calorie-count").textContent = `${number(kcal)} / ${number(target)}`;
   $("#target-count").textContent = `Target ${number(target)} kcal`;
   const difference = target - kcal;
-  $("#calorie-balance").textContent = difference >= 0 ? `${number(difference)} kcal remaining` : `${number(-difference)} kcal over`;
-  $("#calorie-balance").className = difference >= 0 ? "under" : "over";
+  $("#calorie-balance").textContent = difference === 0 ? "✓ Target reached" : difference > 0 ? `${number(difference)} kcal remaining` : `${number(-difference)} kcal over`;
+  $("#calorie-balance").className = difference === 0 ? "met" : difference > 0 ? "under" : "over";
   $("#calorie-fill").style.width = `${target ? Math.min(100, kcal / target * 100) : 0}%`;
-  $("#calorie-fill").classList.toggle("over", kcal > target);
+  $("#calorie-fill").className = statusClass;
   const macros = [["Protein", "protein", "g"], ["Carbs", "carbs", "g"], ["Fat", "fat", "g"], ["Fibre", "fiber", "g"]];
   $("#macro-list").innerHTML = macros.map(([label, key, unit]) => {
     const value = intake[key] || 0, goal = targets[key] || 0;
-    const state = goal && value >= goal ? value > goal * 1.1 ? "over" : "met" : "";
-    return `<div class="macro-row"><span>${label}</span><b class="${state}">${number(value)} <i>/ ${number(goal)} ${unit}</i></b></div>`;
+    const state = goal ? value < goal ? "under" : value > goal * 1.1 ? "over" : "met" : "";
+    const status = { under: "Below target", met: "On target", over: "Above target" }[state];
+    return `<div class="macro-row"><span>${label}</span><b class="${state}"${status ? ` title="${status}"` : ""}>${number(value)} <i>/ ${number(goal)} ${unit}</i></b></div>`;
   }).join("");
   const burn = day.burn || {};
   const delta = target - (burn.total || 0);
