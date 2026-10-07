@@ -3,6 +3,7 @@ let selectedDate = today;
 let currentDay = null;
 let busy = false;
 let foodDetailsVisible = false;
+let contributorsNutrient = null;
 let toastTimer;
 let weightData = null;
 let weightChart = null;
@@ -117,10 +118,10 @@ function renderWeight() {
     data: { labels: points.map(point => point.date), datasets: [{ data: points.map(point => Number(point.kg)), borderColor: "#75c9f2", backgroundColor: "#75c9f2", borderWidth: 2, pointRadius: points.length === 1 ? 4 : 2, pointHoverRadius: 4, tension: .2, fill: false }] },
     options: {
       responsive: true, maintainAspectRatio: false, animation: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { title: items => friendlyDate(items[0].label), label: item => `${item.parsed.y} kg` } } },
+      plugins: { legend: { display: false }, tooltip: { displayColors: false, padding: 4, caretSize: 3, bodyFont: { size: 10 }, callbacks: { title: () => [], label: item => `${friendlyDate(item.label, { day: "numeric", month: "short", year: "numeric" })} · ${item.parsed.y} kg` } } },
       scales: {
-        x: { grid: { display: false }, border: { display: false }, ticks: { color: "#a5b6c8", font: { size: 9 }, maxTicksLimit: 3, maxRotation: 0, callback(value) { return friendlyDate(this.getLabelForValue(value), { day: "numeric", month: "short" }); } } },
-        y: { grace: "10%", border: { display: false }, grid: { color: "#2a3c51" }, ticks: { color: "#a5b6c8", font: { size: 9 }, maxTicksLimit: 3 } },
+        x: { display: false },
+        y: { display: false, grace: "20%" },
       },
     },
   });
@@ -144,6 +145,7 @@ async function loadRecentDays() {
 async function loadDay(date) {
   if (date > today) return;
   foodDetailsVisible = false;
+  contributorsNutrient = null;
   $("#food-details-btn").setAttribute("aria-expanded", "false");
   $("#food-details-btn").querySelector("span:nth-child(2)").textContent = "Show food details";
   selectedDate = date;
@@ -181,7 +183,8 @@ function renderDay(day) {
   </div>`;
   $("#conversation").innerHTML = `<div class="day-intro">${escapeHtml(dateLabel)}</div>` +
     (entries.length ? entries.map(renderEntry).join("") : empty) +
-    (foodDetailsVisible ? renderFoodDetails(day) : "");
+    (foodDetailsVisible ? renderFoodDetails(day) : "") +
+    (contributorsNutrient ? renderNutrientContributors(day, contributorsNutrient) : "");
   $("#conversation").scrollTop = $("#conversation").scrollHeight;
 }
 
@@ -191,7 +194,7 @@ function renderFoodRating(food) {
   return `<span class="food-rating rating-${food.rating}" role="img" aria-label="${rating.label}" title="${escapeHtml(`${rating.label}${food.ratingWhy ? `: ${food.ratingWhy}` : ""}`)}">${rating.symbol}</span>`;
 }
 
-function renderFoodDetails(day) {
+function dailyFoods(day) {
   const grouped = new Map();
   for (const entry of day.entries || []) {
     if (entry.revoked) continue;
@@ -209,7 +212,11 @@ function renderFoodDetails(day) {
       grouped.set(key, food);
     }
   }
-  const foods = [...grouped.values()].sort((a, b) => b.kcal - a.kcal);
+  return [...grouped.values()];
+}
+
+function renderFoodDetails(day) {
+  const foods = dailyFoods(day).sort((first, second) => second.kcal - first.kcal);
   const rows = foods.map((food, index) => `<tr class="day-food-row">
     <th scope="row"><button class="food-inspect-btn" type="button" data-action="toggle-food-info" data-panel="daily-food-${index}" aria-controls="daily-food-${index}" aria-expanded="false" title="Nutrition details for ${escapeHtml(food.name)}"><span aria-hidden="true">▸</span>${renderFoodRating(food)}<span>${escapeHtml(food.name)}</span></button></th>
     <td class="day-food-portion"><button class="food-qty-btn" type="button" data-action="edit-qty" data-panel="daily-food-${index}" title="Edit portions" aria-label="Edit quantity of ${escapeHtml(food.name)}">${escapeHtml(food.qty.toLocaleString(undefined, { maximumFractionDigits: 2 }))} ${escapeHtml(food.unit)}</button></td>
@@ -223,6 +230,29 @@ function renderFoodDetails(day) {
     ${foods.length ? `<table class="day-food-list"><caption class="sr-only">Foods and nutrition for ${escapeHtml(friendlyDate(day.date))}</caption>
       <thead><tr><th scope="col">Food</th><th scope="col">Portion</th><th scope="col">kcal</th><th scope="col">Protein (g)</th><th scope="col">Carbs (g)</th><th scope="col">Fat (g)</th><th scope="col">Fibre (g)</th></tr></thead>
       <tbody>${rows}</tbody></table>` : `<p class="day-food-empty">No matched foods logged for this day.</p>`}</article>`;
+}
+
+function renderNutrientContributors(day, nutrient) {
+  const labels = { protein: "Protein", carbs: "Carbs", fat: "Fat", fiber: "Fibre" };
+  const label = labels[nutrient];
+  const foods = dailyFoods(day).filter(food => food[nutrient] > 0).sort((first, second) => second[nutrient] - first[nutrient]);
+  const total = foods.reduce((sum, food) => sum + food[nutrient], 0);
+  const format = value => value.toLocaleString(undefined, { maximumFractionDigits: 1 });
+  return `<article class="nutrient-contributors" tabindex="-1"><header><div><h2>${label} contributors</h2><p>${escapeHtml(friendlyDate(day.date))} · ${format(total)} g logged</p></div>
+    <button type="button" class="food-action" data-action="close-contributors" title="Close contributors" aria-label="Close contributors">×</button></header>
+    ${foods.length ? `<ol class="contributor-list">${foods.map(food => `<li><div><b>${escapeHtml(food.name)}</b><small>${escapeHtml(format(food.qty))} ${escapeHtml(food.unit)}</small></div>
+      <div class="contributor-value"><b>${format(food[nutrient])} g</b><small>${format(food[nutrient] / total * 100)}% of ${label.toLowerCase()}</small></div></li>`).join("")}</ol>` : `<p class="day-food-empty">No foods contributed ${label.toLowerCase()} on this day.</p>`}</article>`;
+}
+
+function showNutrientContributors(nutrient) {
+  if (!currentDay || currentDay.date !== selectedDate || !["protein", "carbs", "fat", "fiber"].includes(nutrient)) return;
+  contributorsNutrient = nutrient;
+  $("#conversation .nutrient-contributors")?.remove();
+  $("#conversation").insertAdjacentHTML("beforeend", renderNutrientContributors(currentDay, nutrient));
+  document.querySelectorAll(".nutrient-link").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.nutrient === nutrient)));
+  const panel = $("#conversation .nutrient-contributors");
+  panel.focus({ preventScroll: true });
+  panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 function renderFoodPanel(food, sources) {
@@ -288,7 +318,7 @@ function renderBalance(day) {
     const remaining = goal - value;
     const state = goal ? remaining > 0 ? "under" : remaining < 0 ? "over" : "met" : "";
     const left = !goal ? "—" : remaining > 0 ? `${format(remaining)} ${unit}` : remaining < 0 ? `${format(-remaining)} ${unit} over` : "✓ Met";
-    return `<tr class="macro-row"><th scope="row">${label}</th><td class="macro-logged ${state}">${format(value)} ${unit}</td><td class="macro-target">${goal ? `${format(goal)} ${unit}` : "—"}</td><td class="macro-left ${state}">${left}</td></tr>`;
+    return `<tr class="macro-row" data-nutrient="${key}"><th scope="row"><button class="nutrient-link" type="button" data-nutrient="${key}" aria-pressed="${contributorsNutrient === key}" aria-controls="conversation" title="Show ${label.toLowerCase()} contributors">${label}</button></th><td class="macro-logged ${state}">${format(value)} ${unit}</td><td class="macro-target">${goal ? `${format(goal)} ${unit}` : "—"}</td><td class="macro-left ${state}">${left}</td></tr>`;
   }).join("") + "</tbody></table>";
   const burn = day.burn || {};
   const delta = target - (burn.total || 0);
@@ -359,6 +389,14 @@ async function submitFood(event) {
 
 async function performAction(button) {
   const { action, id, item } = button.dataset;
+  if (action === "close-contributors") {
+    const nutrient = contributorsNutrient;
+    contributorsNutrient = null;
+    $("#conversation .nutrient-contributors")?.remove();
+    document.querySelectorAll(".nutrient-link").forEach(control => control.setAttribute("aria-pressed", "false"));
+    document.querySelector(`.nutrient-link[data-nutrient="${nutrient}"]`)?.focus();
+    return;
+  }
   if (action === "toggle-food-info" || action === "edit-qty") {
     const panel = document.getElementById(button.dataset.panel);
     if (!panel) return;
@@ -445,7 +483,10 @@ $("#food-input").addEventListener("keydown", event => {
   }
 });
 $("#food-date").addEventListener("change", event => loadDay(event.target.value));
-$("#today-btn").addEventListener("click", () => loadDay(today));
+$("#macro-list").addEventListener("click", event => {
+  const control = event.target.closest("[data-nutrient]");
+  if (control) showNutrientContributors(control.dataset.nutrient);
+});
 $("#food-details-btn").addEventListener("click", () => {
   if (!currentDay) return;
   foodDetailsVisible = !foodDetailsVisible;
