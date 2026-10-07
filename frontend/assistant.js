@@ -241,7 +241,7 @@ function renderNutrientContributors(day, nutrient) {
   return `<article class="nutrient-contributors" tabindex="-1"><header><div><h2>${label} contributors</h2><p>${escapeHtml(friendlyDate(day.date))} · ${format(total)} g logged</p></div>
     <button type="button" class="food-action" data-action="close-contributors" title="Close contributors" aria-label="Close contributors">×</button></header>
     ${foods.length ? `<ol class="contributor-list">${foods.map(food => `<li><div><b>${escapeHtml(food.name)}</b><small>${escapeHtml(format(food.qty))} ${escapeHtml(food.unit)}</small></div>
-      <div class="contributor-value"><b>${format(food[nutrient])} g</b><small>${format(food[nutrient] / total * 100)}% of ${label.toLowerCase()}</small></div></li>`).join("")}</ol>` : `<p class="day-food-empty">No foods contributed ${label.toLowerCase()} on this day.</p>`}</article>`;
+      <div class="contributor-value"><b>${format(food[nutrient])} g</b><small title="Share of ${label.toLowerCase()}" aria-label="${format(food[nutrient] / total * 100)}% of ${label.toLowerCase()}">${format(food[nutrient] / total * 100)}%</small></div></li>`).join("")}</ol>` : `<p class="day-food-empty">No foods contributed ${label.toLowerCase()} on this day.</p>`}</article>`;
 }
 
 function showNutrientContributors(nutrient) {
