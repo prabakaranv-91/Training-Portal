@@ -240,8 +240,8 @@ function renderNutrientContributors(day, nutrient) {
   const format = value => value.toLocaleString(undefined, { maximumFractionDigits: 1 });
   return `<article class="nutrient-contributors" tabindex="-1"><header><div><h2>${label} contributors</h2><p>${escapeHtml(friendlyDate(day.date))} · ${format(total)} g logged</p></div>
     <button type="button" class="food-action" data-action="close-contributors" title="Close contributors" aria-label="Close contributors">×</button></header>
-    ${foods.length ? `<ol class="contributor-list">${foods.map(food => `<li><div><b>${escapeHtml(food.name)}</b><small>${escapeHtml(format(food.qty))} ${escapeHtml(food.unit)}</small></div>
-      <div class="contributor-value"><b>${format(food[nutrient])} g</b><small title="Share of ${label.toLowerCase()}" aria-label="${format(food[nutrient] / total * 100)}% of ${label.toLowerCase()}">${format(food[nutrient] / total * 100)}%</small></div></li>`).join("")}</ol>` : `<p class="day-food-empty">No foods contributed ${label.toLowerCase()} on this day.</p>`}</article>`;
+    ${foods.length ? `<ol class="contributor-list">${foods.map(food => `<li><b>${escapeHtml(food.name)}</b><small class="contributor-quantity">${escapeHtml(format(food.qty))} ${escapeHtml(food.unit)}</small>
+      <b class="contributor-value">${format(food[nutrient])} g</b><small class="contributor-share" title="Share of ${label.toLowerCase()}" aria-label="${format(food[nutrient] / total * 100)}% of ${label.toLowerCase()}">${format(food[nutrient] / total * 100)}%</small></li>`).join("")}</ol>` : `<p class="day-food-empty">No foods contributed ${label.toLowerCase()} on this day.</p>`}</article>`;
 }
 
 function showNutrientContributors(nutrient) {
@@ -345,7 +345,7 @@ async function loadReview(day, refresh = false) {
     const add = (review.add || []).map(item => `<li><b>${escapeHtml(item.food)}</b> · ${escapeHtml(item.portion)} <span>— ${escapeHtml(item.why)}</span></li>`).join("");
     card.innerHTML = `<p class="review-summary">${escapeHtml(review.summary || "Review ready.")}</p>
       ${review.stale ? `<button class="review-retry" type="button" data-action="refresh-review">↻ Update review</button>` : ""}
-      ${(avoid || add || review.next) ? `<details class="review-details"><summary>Show details</summary>${avoid ? `<b>Avoid</b><ul>${avoid}</ul>` : ""}${add ? `<b>Eat next</b><ul>${add}</ul>` : ""}${review.next ? `<div class="review-next">${escapeHtml(review.next)}</div>` : ""}</details>` : ""}`;
+      ${(avoid || add || review.next) ? `<details class="review-details"><summary>Recommendations</summary>${avoid ? `<b>Avoid</b><ul>${avoid}</ul>` : ""}${add ? `<b>Eat next</b><ul>${add}</ul>` : ""}${review.next ? `<div class="review-next">${escapeHtml(review.next)}</div>` : ""}</details>` : ""}`;
   } catch (_) {
     card.textContent = "Day review is temporarily unavailable.";
   }

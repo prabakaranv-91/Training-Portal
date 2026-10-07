@@ -6,22 +6,21 @@
     <meta name="theme-color" content="#0d1521" />
     <title>Training Assistant | Fit Squad</title>
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@500;600&amp;display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="assistant.css?v=2026100702" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
     <script src="assistant.js?v=2026100702" defer></script>
   </head>
   <body>
-    <div class="food-shell">
-      <aside id="food-sidebar" class="food-sidebar" aria-label="Assistant navigation">
+    <div class="food-shell sidebar-collapsed">
+      <aside id="food-sidebar" class="food-sidebar" aria-label="Recent logs navigation" hidden>
         <div class="sidebar-header">
-          <a class="food-brand" href="/" aria-label="Fit Squad assistant">
-            <span class="brand-mark" aria-hidden="true">F</span>
-            <span>FIT SQUAD<small>TRAINING LAB</small></span>
-          </a>
-          <button id="sidebar-toggle" class="food-action sidebar-toggle" type="button" aria-label="Hide sidebar" title="Hide sidebar" aria-expanded="true" aria-controls="food-sidebar">☰</button>
+          <h2>Recent Logs</h2>
+          <button id="sidebar-toggle" class="food-action sidebar-toggle" type="button" aria-label="Hide sidebar" title="Hide sidebar" aria-expanded="false" aria-controls="food-sidebar">☰</button>
         </div>
-        <div class="sidebar-label">RECENT CONVERSATIONS</div>
-        <nav id="recent-days" class="recent-days" aria-label="Recent conversations"></nav>
+        <nav id="recent-days" class="recent-days" aria-label="Recent food logs"></nav>
         <div class="sidebar-bottom">
           <nav aria-label="Workspace navigation"><a class="sidebar-menu-item" href="/dashboard.html" target="_blank" rel="noopener" title="Open dashboard in a new tab"><span class="sidebar-menu-icon" aria-hidden="true">▦</span><span>Dashboard</span><span class="sidebar-menu-arrow" aria-hidden="true">↗</span></a></nav>
           <div class="sidebar-privacy"><span class="privacy-mark" aria-hidden="true">●</span><span>Private to your account</span></div>
@@ -30,9 +29,9 @@
 
       <main class="food-main">
         <header class="chat-header">
-          <button id="sidebar-open" class="food-action sidebar-toggle" type="button" aria-label="Show sidebar" title="Show sidebar" aria-expanded="false" aria-controls="food-sidebar" hidden>☰</button>
+          <button id="sidebar-open" class="food-action sidebar-toggle" type="button" aria-label="Show sidebar" title="Show sidebar" aria-expanded="false" aria-controls="food-sidebar">☰</button>
           <div class="chat-heading">
-            <h1>FitMate</h1>
+            <h1 class="chat-logo" title="Fit Squad"><span class="brand-mark" aria-hidden="true">F</span><span class="sr-only">Fit Squad</span></h1>
             <p id="day-caption"></p>
           </div>
           <label class="date-control">
@@ -90,8 +89,8 @@
         </section>
 
         <section class="rail-section review-section">
-          <div class="rail-heading"><h2>Day review</h2><span class="coach-spark" aria-hidden="true">✳</span></div>
-          <div id="review-card" class="review-card"><span class="spinner"></span><span>Preparing review…</span></div>
+          <div class="rail-heading"><h2>Day review</h2></div>
+          <div id="review-card" class="review-card" aria-live="polite"><span class="spinner"></span><span>Preparing review…</span></div>
         </section>
 
       </aside>
