@@ -168,10 +168,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .rail-heading h2 { margin: 0; font-size: 13px; font-weight: 600; }
 .weight-period { max-width: 96px; padding: 2px 0; border: 0; background: var(--fc-panel); color: var(--fc-muted); font-size: 10px; cursor: pointer; }
 .weight-summary { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.weight-summary b { color: var(--fc-text); font-size: 18px; font-variant-numeric: tabular-nums; }
+.weight-summary b { color: var(--fc-text); font-size: 16px; font-variant-numeric: tabular-nums; }
 .weight-summary span, .weight-note, .weight-chart-message { color: var(--fc-muted); font-size: 10px; }
-.weight-chart-wrap { position: relative; height: 78px; margin-top: 5px; }
-.weight-note, .weight-chart-message { margin: 4px 0 0; line-height: 1.4; }
+.weight-chart-wrap { position: relative; height: 60px; margin-top: 3px; }
+.weight-note, .weight-chart-message { margin: 3px 0 0; line-height: 1.4; }
 .status-badge { color: var(--fc-muted); font-size: 10px; font-weight: 600; white-space: nowrap; }
 .status-badge.ok { color: var(--fc-target-ok); }
 .status-badge.low { color: var(--fc-target-low); }
