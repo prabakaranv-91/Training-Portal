@@ -143,14 +143,19 @@ function renderFoodDetails(day) {
     }
   }
   const foods = [...grouped.values()].sort((a, b) => b.kcal - a.kcal);
-  const rows = foods.map(food => `<div class="day-food-row">
-    <b>${escapeHtml(food.name)}</b><span class="day-food-portion">×${escapeHtml(number(food.qty))} ${escapeHtml(food.unit)}</span>
-    <span class="day-food-kcal">${number(food.kcal)} kcal</span>
-    <small>P ${number(food.protein)} · C ${number(food.carbs)} · F ${number(food.fat)} · Fib ${number(food.fiber)} g</small>
-  </div>`).join("");
-  return `<article class="day-food-details"><header><div><span class="eyebrow">${escapeHtml(friendlyDate(day.date))}</span><h2>Food details</h2></div>
-    <span class="day-food-total">${foods.length} ${foods.length === 1 ? "item" : "items"} · ${number(day.intake?.kcal)} kcal</span></header>
-    ${foods.length ? `<div class="day-food-list">${rows}</div>` : `<p class="day-food-empty">No matched foods logged for this day.</p>`}</article>`;
+  const rows = foods.map(food => `<tr class="day-food-row">
+    <th scope="row">${escapeHtml(food.name)}</th>
+    <td class="day-food-portion">${escapeHtml(food.qty.toLocaleString(undefined, { maximumFractionDigits: 2 }))} ${escapeHtml(food.unit)}</td>
+    <td class="day-food-kcal">${number(food.kcal)}<span class="day-food-mobile-unit"> kcal</span></td>
+    ${[["protein", "Protein"], ["carbs", "Carbs"], ["fat", "Fat"], ["fiber", "Fibre"]].map(([key, label]) =>
+      `<td class="day-food-nutrient" data-label="${label}">${number(food[key])}<span class="day-food-mobile-unit"> g</span></td>`).join("")}
+  </tr>`).join("");
+  return `<article class="day-food-details"><header><div><h2>Food details</h2>
+    <p>${escapeHtml(friendlyDate(day.date))} · ${foods.length} ${foods.length === 1 ? "food" : "foods"}</p></div>
+    <div class="day-food-total"><b>${number(day.intake?.kcal)}</b><span>kcal total</span></div></header>
+    ${foods.length ? `<table class="day-food-list"><caption class="sr-only">Foods and nutrition for ${escapeHtml(friendlyDate(day.date))}</caption>
+      <thead><tr><th scope="col">Food</th><th scope="col">Portion</th><th scope="col">kcal</th><th scope="col">Protein (g)</th><th scope="col">Carbs (g)</th><th scope="col">Fat (g)</th><th scope="col">Fibre (g)</th></tr></thead>
+      <tbody>${rows}</tbody></table>` : `<p class="day-food-empty">No matched foods logged for this day.</p>`}</article>`;
 }
 
 function renderEntry(entry) {
