@@ -213,6 +213,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .macro-logged { font-size: 13px; }
 .macro-target { color: var(--fc-muted); font-size: 12px; }
 .macro-table .under { color: var(--fc-target-low); }
+.macro-table .near { color: var(--fc-mint); }
 .macro-table .met { color: var(--fc-target-ok); }
 .macro-table .over { color: var(--fc-target-high); }
 .food-details-toggle { width: 100%; display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 4px 0; border: 0; background: transparent; color: var(--fc-blue); text-align: left; font-size: 12px; cursor: pointer; }

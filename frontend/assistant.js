@@ -316,9 +316,10 @@ function renderBalance(day) {
     <thead><tr><th scope="col">Nutrient</th><th scope="col">Logged</th><th scope="col">Target</th><th scope="col">Left</th></tr></thead><tbody>` + macros.map(([label, key, unit]) => {
     const value = intake[key] || 0, goal = targets[key] || 0;
     const remaining = goal - value;
-    const state = goal ? remaining > 0 ? "under" : remaining < 0 ? "over" : "met" : "";
+    const state = goal ? remaining > 0 ? value / goal >= .9 ? "near" : "under" : remaining < 0 ? "over" : "met" : "";
+    const status = { under: "Below 90% of target", near: "Almost reached", met: "Target reached", over: "Over target" }[state] || "Target unavailable";
     const left = !goal ? "—" : remaining > 0 ? `${format(remaining)} ${unit}` : remaining < 0 ? `${format(-remaining)} ${unit} over` : "✓ Met";
-    return `<tr class="macro-row" data-nutrient="${key}"><th scope="row"><button class="nutrient-link" type="button" data-nutrient="${key}" aria-pressed="${contributorsNutrient === key}" aria-controls="conversation" title="Show ${label.toLowerCase()} contributors">${label}</button></th><td class="macro-logged ${state}">${format(value)} ${unit}</td><td class="macro-target">${goal ? `${format(goal)} ${unit}` : "—"}</td><td class="macro-left ${state}">${left}</td></tr>`;
+    return `<tr class="macro-row" data-nutrient="${key}"><th scope="row"><button class="nutrient-link" type="button" data-nutrient="${key}" aria-pressed="${contributorsNutrient === key}" aria-controls="conversation" title="Show ${label.toLowerCase()} contributors">${label}</button></th><td class="macro-logged ${state}" title="${status}">${format(value)} ${unit}</td><td class="macro-target">${goal ? `${format(goal)} ${unit}` : "—"}</td><td class="macro-left ${state}" title="${status}">${left}</td></tr>`;
   }).join("") + "</tbody></table>";
   const burn = day.burn || {};
   const delta = target - (burn.total || 0);
