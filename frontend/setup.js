@@ -19,17 +19,15 @@ setupModal.innerHTML = `<section class="setup-dialog"><header><h2 id="setup-titl
       </ol></div>
       <div class="setup-actions"><button type="button" id="setup-generate-token">Generate token</button><button type="button" id="setup-download-script" disabled>Download script</button></div><p id="setup-download-note">Generate a token to enable the script download.</p>
       <label>Web app deployment URL<input name="sheets_url" type="url" placeholder="https://script.google.com/macros/s/.../exec" /></label>
-      <label>Existing sheet token, if you already have one<input name="sheets_token" type="password" autocomplete="new-password" /></label>
-      <button type="button" data-check="sheets">Check saved connection</button></section>
-    <section data-setup-step="1" hidden><h3>2. Choose your AI model</h3><p class="setup-purpose">Your selected AI model estimates calories and nutrients and prepares daily reviews. Provider usage limits or charges may apply. Set or change your AI provider, model and API key here in Settings.</p><a href="#ai-model-instructions" class="setup-instructions-link">Instructions</a>
-      <div id="ai-model-instructions" class="setup-instructions" hidden><ol>
-        <li>Enter your AI provider name and create an API key with that provider.</li>
-        <li>Enter the provider ID and model ID used by LiteLLM.</li>
-        <li>Select Save and check. A small test request may count toward provider usage.</li>
-      </ol></div><label>AI provider<input name="llm_provider" placeholder="Provider name" pattern="[a-zA-Z0-9_\\-]+" /></label>
+    </section>
+    <section data-setup-step="1" hidden><h3>2. Choose your AI model</h3><p class="setup-purpose">Select an AI provider and model for food estimates and daily reviews. Provider usage limits or charges may apply.</p>
+      <label>AI provider<select name="llm_provider"><option value="">Choose a provider</option><option value="gemini">Google AI</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="groq">Groq</option><option value="mistral">Mistral</option><option value="openrouter">OpenRouter</option><option value="other">Other provider</option></select></label>
+      <label id="llm-custom-provider" hidden>LiteLLM provider ID<input name="llm_custom_provider" pattern="[a-zA-Z0-9_\\-]+" /></label>
+      <p class="setup-key-guide"><a id="ai-key-instructions" href="https://docs.litellm.ai/docs/providers" target="_blank" rel="noopener">API key instructions</a></p>
       <label>AI provider API key<input name="llm_api_key" type="password" autocomplete="new-password" /></label>
-      <label>AI model name<input name="llm_model" type="text" placeholder="Model ID" pattern="[a-zA-Z0-9/._:@\\-]+" /></label>
-      <button type="button" data-check="llm">Check saved connection</button></section>
+      <label>AI model<select name="llm_model"><option value="">Choose a model</option></select></label>
+      <label id="llm-custom-model" hidden>Custom model ID<input name="llm_custom_model" pattern="[a-zA-Z0-9/._:@\\-]+" /></label>
+    </section>
     <p id="setup-status" role="status"></p><footer><button type="button" id="setup-back">Back</button><button type="button" id="setup-skip">Skip for now</button><button type="submit" id="setup-save">Save and check</button></footer>
   </form></section>`;
 document.body.append(setupModal);
@@ -42,6 +40,30 @@ let setupState = null;
 let setupBusy = false;
 let setupTrigger = null;
 let editingIntegrationSettings = false;
+const AI_MODELS = {
+  gemini: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-flash-lite-latest"],
+  openai: ["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"],
+  anthropic: ["claude-sonnet-4-20250514", "claude-3-7-sonnet-latest", "claude-3-5-haiku-latest"],
+  groq: ["llama-3.3-70b-versatile", "llama-4-scout-17b-16e-instruct", "openai/gpt-oss-20b"],
+  mistral: ["mistral-small-latest", "mistral-large-latest", "open-mistral-nemo"],
+  openrouter: ["openai/gpt-4.1-mini", "anthropic/claude-sonnet-4", "google/gemini-2.5-flash"],
+};
+const API_KEY_GUIDES = {
+  gemini: "https://aistudio.google.com/apikey",
+  openai: "https://platform.openai.com/api-keys",
+  anthropic: "https://console.anthropic.com/settings/keys",
+  groq: "https://console.groq.com/keys",
+  mistral: "https://console.mistral.ai/api-keys/",
+  openrouter: "https://openrouter.ai/settings/keys",
+};
+const API_KEY_GUIDE_LABELS = {
+  gemini: "Google AI API key setup",
+  openai: "OpenAI API key setup",
+  anthropic: "Anthropic API key setup",
+  groq: "Groq API key setup",
+  mistral: "Mistral API key setup",
+  openrouter: "OpenRouter API key setup",
+};
 
 async function setupRequest(path, body) {
   const response = await fetch(path, { method: body === undefined ? "GET" : "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "X-App-Settings": "1" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -66,12 +88,36 @@ function renderSetupStep() {
   document.getElementById("setup-skip").textContent = setupState?.nutritionReady ? "Open Fit Squad" : "Use Dashboard for now";
 }
 
+function renderModelOptions(savedModel = "") {
+  const fields = setupForm.elements;
+  const provider = fields.llm_provider.value === "other" ? fields.llm_custom_provider.value : fields.llm_provider.value;
+  const select = fields.llm_model;
+  const models = AI_MODELS[provider] || [];
+  select.innerHTML = '<option value="">Choose a model</option>' + models.map(model => `<option value="${model}">${model}</option>`).join("");
+  if (savedModel && !models.includes(savedModel)) select.add(new Option(savedModel, savedModel));
+  select.add(new Option("Enter a custom model ID", "__custom__"));
+  select.value = savedModel && [...select.options].some(option => option.value === savedModel) ? savedModel : "";
+  document.getElementById("llm-custom-model").hidden = select.value !== "__custom__";
+  const guide = document.getElementById("ai-key-instructions");
+  guide.href = API_KEY_GUIDES[provider] || "https://docs.litellm.ai/docs/providers";
+  guide.textContent = API_KEY_GUIDE_LABELS[provider] || "Other provider API key instructions";
+  document.getElementById("llm-custom-provider").hidden = fields.llm_provider.value !== "other";
+}
+
 async function refreshSetup() {
   setupState = await setupRequest("/api/settings/integrations");
   setupForm.elements.sheets_url.value = setupState.sheets.url;
-  setupForm.elements.llm_model.value = setupState.llm.model;
-  setupForm.elements.llm_provider.value = setupState.llm.provider || "";
-  for (const [name, configured] of [["sheets_token", setupState.sheets.tokenConfigured], ["llm_api_key", setupState.llm.keyConfigured]]) {
+  const providerSelect = setupForm.elements.llm_provider;
+  const providerKnown = [...providerSelect.options].some(option => option.value === setupState.llm.provider);
+  providerSelect.value = providerKnown ? setupState.llm.provider : setupState.llm.provider ? "other" : "";
+  setupForm.elements.llm_custom_provider.value = providerKnown ? "" : setupState.llm.provider || "";
+  renderModelOptions(setupState.llm.model);
+  if (setupState.llm.model && setupForm.elements.llm_model.value !== setupState.llm.model) {
+    setupForm.elements.llm_model.value = "__custom__";
+    setupForm.elements.llm_custom_model.value = setupState.llm.model;
+    document.getElementById("llm-custom-model").hidden = false;
+  }
+  for (const [name, configured] of [["llm_api_key", setupState.llm.keyConfigured]]) {
     setupForm.elements[name].value = "";
     setupForm.elements[name].placeholder = configured ? "Configured" : "Not configured";
   }
@@ -120,7 +166,7 @@ async function openSetup(event) {
 
 function closeSetup() {
   setupModal.hidden = true;
-  for (const name of ["llm_api_key", "sheets_token"]) setupForm.elements[name].value = "";
+  setupForm.elements.llm_api_key.value = "";
   if (!setupState?.nutritionReady && location.pathname !== "/dashboard.html") location.replace("/dashboard.html?setup=skipped");
   else setupTrigger?.focus();
 }
@@ -150,7 +196,6 @@ async function busySetup(action) {
 }
 
 document.getElementById("setup-generate-token").addEventListener("click", () => busySetup(async () => { await setupRequest("/api/settings/sheets/token", {}); await refreshSetup(); setupStatus.textContent = "Token generated. Download the script, then follow Instructions."; }));
-setupModal.querySelectorAll("[data-check]").forEach(button => button.addEventListener("click", () => busySetup(async () => { await setupRequest(`/api/settings/check/${button.dataset.check}`, {}); await refreshSetup(); setupStatus.textContent = "Connection ready."; })));
 document.getElementById("setup-download-script").addEventListener("click", () => {
   if (!setupState?.sheets.tokenConfigured) { setupStatus.textContent = "Generate your sheet token first."; return; }
   const download = document.createElement("a"); download.href = "/api/settings/sheets/script"; download.download = "nutrition_sheets.gs"; document.body.append(download); download.click(); download.remove();
@@ -163,13 +208,13 @@ setupForm.addEventListener("submit", event => {
     if (setupStep === 0) {
       if (!fields.sheets_url.value || !fields.sheets_url.checkValidity()) throw new Error("Paste the valid Web app URL ending in /exec.");
       const body = { sheets_url: fields.sheets_url.value.trim(), sheets_enabled: false };
-      if (fields.sheets_token.value.trim()) body.sheets_token = fields.sheets_token.value.trim();
       await setupRequest("/api/settings/integrations", body); await setupRequest("/api/settings/check/sheets", {});
     } else if (setupStep === 1) {
-      if (!fields.llm_provider.value || !fields.llm_provider.checkValidity()) throw new Error("Enter a valid AI provider name.");
-      if (!fields.llm_model.value || !fields.llm_model.checkValidity()) throw new Error("Enter a valid AI model name.");
-      const provider = fields.llm_provider.value.trim();
-      const body = { llm_provider: provider, llm_model: fields.llm_model.value.trim(), llm_enabled: false };
+      const provider = fields.llm_provider.value === "other" ? fields.llm_custom_provider.value.trim() : fields.llm_provider.value;
+      const model = fields.llm_model.value === "__custom__" ? fields.llm_custom_model.value.trim() : fields.llm_model.value;
+      if (!provider || fields.llm_provider.value === "other" && !fields.llm_custom_provider.checkValidity()) throw new Error("Choose a valid AI provider.");
+      if (!model || fields.llm_model.value === "__custom__" && !fields.llm_custom_model.checkValidity()) throw new Error("Choose a valid AI model.");
+      const body = { llm_provider: provider, llm_model: model, llm_enabled: false };
       if (fields.llm_api_key.value.trim()) body.llm_api_key = fields.llm_api_key.value.trim();
       if (setupState.llm.provider !== provider && !body.llm_api_key) throw new Error("Enter the API key for the new provider.");
       await setupRequest("/api/settings/integrations", body); await setupRequest("/api/settings/check/llm", {});
@@ -181,7 +226,15 @@ setupForm.addEventListener("submit", event => {
 
 setupForm.elements.llm_provider.addEventListener("change", () => {
   setupForm.elements.llm_api_key.value = "";
-  setupForm.elements.llm_model.value = "";
+  setupForm.elements.llm_custom_provider.value = "";
+  setupForm.elements.llm_custom_model.value = "";
+  renderModelOptions();
+});
+setupForm.elements.llm_custom_provider.addEventListener("input", () => renderModelOptions());
+setupForm.elements.llm_model.addEventListener("change", () => {
+  const custom = setupForm.elements.llm_model.value === "__custom__";
+  document.getElementById("llm-custom-model").hidden = !custom;
+  if (custom) setupForm.elements.llm_custom_model.focus();
 });
 
 setupModal.addEventListener("keydown", event => {
