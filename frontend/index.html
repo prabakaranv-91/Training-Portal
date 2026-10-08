@@ -17,6 +17,7 @@
         <div class="login-logo"><img src="logo.svg" alt="Training Lab" width="64" height="64" /></div>
         <h1>Training Lab</h1>
         <p class="subtitle">Your running lab — track pace, VO₂ max, race predictions and more, across Garmin and Strava.</p>
+        <button id="configure-integrations" class="btn-ghost" type="button">Integration settings</button>
 
         <form id="login-form">
           <label for="email">Garmin email</label>
@@ -403,7 +404,28 @@
       </div>
     </div>
 
+    <div class="hidden">
+          <form id="integration-settings-form" class="integration-settings">
+            <details id="integration-settings-details">
+              <summary>Integration settings</summary>
+              <div class="integration-settings-grid">
+                <label>Strava client ID<input name="strava_client_id" type="text" maxlength="254" autocomplete="off" /></label>
+                <label>Strava client secret<input name="strava_client_secret" type="password" maxlength="4096" autocomplete="new-password" /></label>
+                <label class="integration-wide">Google Sheets deployment URL<input name="sheets_url" type="url" maxlength="2048" placeholder="https://script.google.com/macros/s/.../exec" /></label>
+                <label>Google Sheets token<input name="sheets_token" type="password" maxlength="4096" autocomplete="new-password" /></label>
+                <label class="integration-toggle"><input name="sheets_enabled" type="checkbox" />Google Sheets sync</label>
+                <label>Gemini API key<input name="gemini_api_key" type="password" maxlength="4096" autocomplete="new-password" /></label>
+                <label>Gemini model<input name="gemini_model" type="text" maxlength="200" pattern="[a-zA-Z0-9._\-]+" /></label>
+                <label>USDA API key<input name="usda_api_key" type="password" maxlength="4096" autocomplete="new-password" /></label>
+                <label class="integration-toggle"><input name="gemini_enabled" type="checkbox" />Gemini analysis</label>
+              </div>
+              <button id="save-integrations" class="btn-ghost" type="submit">Save settings</button>
+              <p id="integration-settings-status" role="status"></p>
+            </details>
+          </form>
+    </div>
     <script src="app.js"></script>
     <script src="nutrition.js?v=2026100126"></script>
+    <script src="integrations.js"></script>
   </body>
 </html>

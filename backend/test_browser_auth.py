@@ -1,6 +1,8 @@
 import secrets
 import time
 import unittest
+import tempfile
+from pathlib import Path
 from http.cookies import SimpleCookie
 from urllib.parse import parse_qs, urlparse
 from unittest.mock import MagicMock, patch
@@ -8,6 +10,7 @@ from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 import auth_cookies
+import app_db
 import main
 import strava_service
 
@@ -20,6 +23,11 @@ class StravaBrowserAuthTests(unittest.TestCase):
         return {name: value.value for name, value in parsed.items()}
 
     def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        database = patch.object(app_db, "DB_PATH", Path(directory.name) / "auth.sqlite3")
+        database.start()
+        self.addCleanup(database.stop)
         self.config = patch.object(strava_service, "_load_config", return_value={
             "client_id": "123", "client_secret": "fake-secret",
         })

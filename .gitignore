@@ -26,3 +26,9 @@ backend/nutrition_secrets.json
 Thumbs.db
 .vscode/
 .idea/
+
+# Application SQLite credentials and data
+backend/data/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm

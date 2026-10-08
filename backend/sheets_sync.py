@@ -1,15 +1,13 @@
 """
 Mirror nutrition entries/day summaries to a Google Sheet via an Apps Script Web App.
 
-- URL comes from backend/nutrition_config.json (committed).
-- Shared secret comes from env NUTRITION_SHEETS_TOKEN or backend/nutrition_secrets.json
-  ({"sheets_token": "..."}, gitignored) and must match TOKEN in the Apps Script.
-- Pushes run on a background thread; failed pushes are kept in
-  ~/.training_lab/sheets_pending.json and retried on the next push / restart.
+- URL, shared secret and retry state are stored in the application SQLite database.
+- Pushes retain the originating user's settings scope on the background thread.
 """
 
 from __future__ import annotations
 
+import app_db
 import json
 import logging
 import os
@@ -24,10 +22,6 @@ import requests
 
 logger = logging.getLogger("nutrition.sheets")
 
-_HERE = Path(__file__).resolve().parent
-CONFIG_FILE = _HERE / "nutrition_config.json"
-SECRETS_FILE = _HERE / "nutrition_secrets.json"
-PENDING_FILE = Path(os.environ.get("NUTRITION_DATA_DIR") or Path.home() / ".training_lab") / "sheets_pending.json"
 
 _queue: queue.Queue[dict[str, Any]] = queue.Queue()
 _pending_lock = threading.Lock()
@@ -35,21 +29,12 @@ _worker: threading.Thread | None = None
 _status: dict[str, Any] = {"lastOk": None, "lastError": None}
 
 
-def _config() -> dict[str, Any]:
-    try:
-        return json.loads(CONFIG_FILE.read_text(encoding="utf-8")).get("google_sheets") or {}
-    except Exception:  # noqa: BLE001
-        return {}
+def _config(scope: str | None = None) -> dict[str, Any]:
+    return app_db.user_setting("nutrition_config", {}, scope=scope).get("google_sheets") or {}
 
 
-def _token() -> str | None:
-    token = os.environ.get("NUTRITION_SHEETS_TOKEN")
-    if token:
-        return token
-    try:
-        return json.loads(SECRETS_FILE.read_text(encoding="utf-8")).get("sheets_token")
-    except Exception:  # noqa: BLE001
-        return None
+def _token(scope: str | None = None) -> str | None:
+    return app_db.user_setting("nutrition_secrets", {}, scope=scope).get("sheets_token")
 
 
 def is_configured() -> bool:
@@ -71,27 +56,25 @@ def status() -> dict[str, Any]:
 
 def _load_pending() -> list[dict[str, Any]]:
     with _pending_lock:
-        try:
-            return json.loads(PENDING_FILE.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001
-            return []
+        return app_db.get_setting("sheets_pending", [])
 
 
 def _save_pending(items: list[dict[str, Any]]) -> None:
     with _pending_lock:
-        PENDING_FILE.parent.mkdir(parents=True, exist_ok=True)
-        PENDING_FILE.write_text(json.dumps(items), encoding="utf-8")
+        app_db.set_setting("sheets_pending", items)
 
 
 def _post(payload: dict[str, Any]) -> dict[str, Any]:
     # Apps Script answers POST with a 302 to the result; requests follows it as GET.
     # That result page sporadically 404s, so retry (upserts are idempotent).
     last: Exception | None = None
+    scope = payload.get("_scope") or app_db.user_scope()
+    content = {key: value for key, value in payload.items() if key != "_scope"}
     for attempt in range(3):
         try:
             r = requests.post(
-                _config()["web_app_url"],
-                json={"token": _token(), **payload},
+                _config(scope)["web_app_url"],
+                json={"token": _token(scope), **content},
                 timeout=30,
             )
             r.raise_for_status()
@@ -142,7 +125,7 @@ def _enqueue(payload: dict[str, Any]) -> None:
     if _worker is None or not _worker.is_alive():
         _worker = threading.Thread(target=_run, name="sheets-sync", daemon=True)
         _worker.start()
-    _queue.put(payload)
+    _queue.put({**payload, "_scope": app_db.user_scope()})
 
 
 def _sheet_user(user: str) -> str:

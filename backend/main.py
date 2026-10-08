@@ -8,9 +8,12 @@ FastAPI backend for the personal Garmin training portal.
 
 from __future__ import annotations
 
+import app_db
 import datetime as dt
 import os
 import secrets
+import json
+import sqlite3
 import threading
 import time
 from pathlib import Path
@@ -34,9 +37,7 @@ app = FastAPI(title="Training Lab Portal", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin.strip() for origin in os.environ.get(
-        "AUTH_ALLOWED_ORIGINS", "http://127.0.0.1:8000,http://localhost:8000"
-    ).split(",") if origin.strip()],
+    allow_origins=app_db.get_setting("app_config", {}).get("allowed_origins", ["http://127.0.0.1:8000", "http://localhost:8000"]),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -45,8 +46,9 @@ app.add_middleware(
 
 @app.middleware("http")
 async def browser_auth(request: Request, call_next):
-    context = auth_cookies.bind(request)
+    context = None
     try:
+        context = auth_cookies.bind(request)
         response = await call_next(request)
         if response.status_code < 400:
             session_id = request.cookies.get("garmin_session")
@@ -56,11 +58,14 @@ async def browser_auth(request: Request, call_next):
         auth_cookies.finish(response)
         return response
     except (ValueError, UnicodeError):
-        return JSONResponse(status_code=503, content={"detail": "Authentication cookie could not be created. Check AUTH_COOKIE_KEY and cookie size limits."})
+        return JSONResponse(status_code=503, content={"detail": "Authentication storage is unavailable. Check the application SQLite database."})
+    except (sqlite3.Error, OSError):
+        return JSONResponse(status_code=503, content={"detail": "Application database is unavailable. Check permissions and disk space."})
     except HTTPException as exc:
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
     finally:
-        auth_cookies.reset(context)
+        if context is not None:
+            auth_cookies.reset(context)
 
 
 @app.middleware("http")
@@ -124,7 +129,7 @@ def _save_login(session_id: str, service: GarminService) -> None:
         try:
             garmin_auth_store.save_garmin_auth(session_id, account, service.auth_expires_at)
         except Exception:
-            raise HTTPException(status_code=503, detail="Could not save Garmin login to the local JSON file. Check file permissions and available disk space.") from None
+            raise HTTPException(status_code=503, detail="Could not save Garmin login to SQLite. Check database permissions and available disk space.") from None
         service.token_snapshot = account["tokens"]
 
 
@@ -134,7 +139,7 @@ def _local_session(session_id: str | None) -> GarminService | None:
     with _SESSION_LOCK:
         service = SESSIONS.get(session_id)
         if service:
-            if service.auth_expires_at <= time.time():
+            if service.auth_expires_at <= time.time() or not garmin_auth_store.fetch_garmin_auth(session_id):
                 SESSIONS.pop(session_id, None)
                 service.logout()
                 return None
@@ -144,7 +149,7 @@ def _local_session(session_id: str | None) -> GarminService | None:
         try:
             saved = garmin_auth_store.fetch_garmin_auth(session_id)
         except Exception:
-            raise HTTPException(status_code=503, detail="The local Garmin authentication JSON file could not be read.") from None
+            raise HTTPException(status_code=503, detail="The SQLite authentication store could not be read.") from None
         if not saved:
             return None
         service = GarminService()
@@ -274,7 +279,7 @@ def garmin_import_local(req: SavedGarminRequest, request: Request, response: Res
     except Exception:
         SESSIONS.pop(session_id, None)
         service.logout()
-        raise HTTPException(status_code=401, detail="Saved Garmin tokens could not be restored. Sign in again; the local JSON file was left unchanged.") from None
+        raise HTTPException(status_code=401, detail="Saved Garmin tokens could not be restored. Sign in again; the SQLite account was left unchanged.") from None
     return {"status": "success", "storage": "local_json"}
 
 
@@ -284,7 +289,7 @@ def logout(response: Response, garmin_session: str | None = Cookie(default=None)
         try:
             garmin_auth_store.delete_garmin_auth(garmin_session)
         except Exception:
-            raise HTTPException(status_code=503, detail="Could not invalidate the Garmin session in the local JSON file. Retry sign-out.") from None
+            raise HTTPException(status_code=503, detail="Could not invalidate the Garmin session in SQLite. Retry sign-out.") from None
         service = SESSIONS.pop(garmin_session, None)
         if service:
             service.logout()
@@ -558,7 +563,6 @@ def strava_connect(request: Request):
             status_code=400,
             detail="Strava API credentials are not configured on the server.",
         )
-    auth_cookies.cipher()
     state = secrets.token_urlsafe(32)
     url = strava_service.auth_url(_strava_redirect_uri(request), state)
     response = RedirectResponse(url, status_code=302)
@@ -840,8 +844,94 @@ if FRONTEND_DIR.exists():
     app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="static")
 
 
+
+class IntegrationSettingsRequest(BaseModel):
+    strava_client_id: str | None = Field(default=None, max_length=254)
+    strava_client_secret: str | None = Field(default=None, max_length=4096)
+    sheets_url: str | None = Field(default=None, max_length=2048)
+    sheets_token: str | None = Field(default=None, max_length=4096)
+    sheets_enabled: bool | None = None
+    gemini_api_key: str | None = Field(default=None, max_length=4096)
+    gemini_model: str | None = Field(default=None, max_length=200, pattern=r"^[a-zA-Z0-9._-]+$")
+    gemini_enabled: bool | None = None
+    usda_api_key: str | None = Field(default=None, max_length=4096)
+
+
+def _settings_access(request: Request, session_id: str | None) -> None:
+    if request.headers.get("origin") not in (None, str(request.base_url).rstrip("/")):
+        raise HTTPException(status_code=403, detail="Open settings from the application.")
+    if app_db.user_scope() != "global":
+        _valid_session(session_id)
+    elif request.client is None or request.client.host not in ("127.0.0.1", "::1", "testclient"):
+        raise HTTPException(status_code=403, detail="Initial application configuration is available only on localhost.")
+
+
+def _settings_status() -> dict:
+    strava = app_db.user_setting("strava_config", {})
+    nutrition = app_db.user_setting("nutrition_config", {})
+    secrets_config = app_db.user_setting("nutrition_secrets", {})
+    sheets = nutrition.get("google_sheets") or {}
+    gemini = nutrition.get("gemini") or {}
+    return {
+        "scope": "application" if app_db.user_scope() == "global" else "user",
+        "strava": {"client_id": strava.get("client_id") or "", "secretConfigured": bool(strava.get("client_secret")), "configured": bool(strava.get("client_id") and strava.get("client_secret"))},
+        "sheets": {"url": sheets.get("web_app_url") or "", "enabled": bool(sheets.get("enabled")), "tokenConfigured": bool(secrets_config.get("sheets_token"))},
+        "gemini": {"model": gemini.get("model") or "gemini-flash-lite-latest", "enabled": bool(gemini.get("enabled", True)), "keyConfigured": bool(secrets_config.get("gemini_api_key"))},
+        "usda": {"keyConfigured": bool(secrets_config.get("usda_api_key"))},
+    }
+
+
+@app.get("/api/settings/integrations")
+def integration_settings(request: Request, garmin_session: str | None = Cookie(default=None)):
+    _settings_access(request, garmin_session)
+    return _settings_status()
+
+
+@app.post("/api/settings/integrations")
+def save_integration_settings(req: IntegrationSettingsRequest, request: Request, garmin_session: str | None = Cookie(default=None)):
+    _settings_access(request, garmin_session)
+    if request.headers.get("x-app-settings") != "1":
+        raise HTTPException(status_code=403, detail="Save settings from the application form.")
+    if req.sheets_url:
+        from urllib.parse import urlparse
+        try:
+            parsed = urlparse(req.sheets_url)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Use a valid Apps Script deployment URL.") from None
+        if parsed.scheme != "https" or parsed.netloc.lower() not in ("script.google.com", "script.google.com:443") or not parsed.path.startswith("/macros/s/") or not parsed.path.endswith("/exec") or parsed.query or parsed.fragment:
+            raise HTTPException(status_code=400, detail="Use the HTTPS Apps Script deployment URL ending in /exec.")
+    scope = app_db.user_scope()
+    strava = app_db.get_setting("strava_config", {}, scope=scope)
+    nutrition = app_db.get_setting("nutrition_config", {}, scope=scope)
+    secrets_config = app_db.get_setting("nutrition_secrets", {}, scope=scope)
+    for field, key in (("strava_client_id", "client_id"), ("strava_client_secret", "client_secret")):
+        value = getattr(req, field)
+        if value is not None and value.strip():
+            strava[key] = value.strip()
+    for field, key in (("sheets_token", "sheets_token"), ("gemini_api_key", "gemini_api_key"), ("usda_api_key", "usda_api_key")):
+        value = getattr(req, field)
+        if value is not None and value.strip():
+            secrets_config[key] = value.strip()
+    sheets = dict(nutrition.get("google_sheets") or {})
+    if req.sheets_url is not None:
+        sheets["web_app_url"] = req.sheets_url.strip()
+    if req.sheets_enabled is not None:
+        sheets["enabled"] = req.sheets_enabled
+    gemini = dict(nutrition.get("gemini") or {})
+    if req.gemini_model is not None:
+        gemini["model"] = req.gemini_model
+    if req.gemini_enabled is not None:
+        gemini["enabled"] = req.gemini_enabled
+    nutrition.update(google_sheets=sheets, gemini=gemini)
+    with app_db.connection() as database:
+        for name, value in (("strava_config", strava), ("nutrition_config", nutrition), ("nutrition_secrets", secrets_config)):
+            database.execute("INSERT INTO settings(scope, name, value) VALUES (?, ?, ?) ON CONFLICT(scope, name) DO UPDATE SET value = excluded.value", (scope, name, json.dumps(value)))
+    food_parser_client._cache.clear()
+    return _settings_status()
+
+
 if __name__ == "__main__":
     import uvicorn
 
-    port = int(os.environ.get("PORT", "8000"))
+    port = int(app_db.get_setting("app_config", {}).get("port", 8000))
     uvicorn.run("main:app", host="127.0.0.1", port=port, reload=True)

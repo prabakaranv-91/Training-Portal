@@ -1,15 +1,11 @@
-import json
 import logging
-import os
 import secrets
-import threading
 import time
-import zlib
 from contextvars import ContextVar
 from typing import Any
 
-from cryptography.fernet import Fernet, InvalidToken
 from fastapi import Request, Response
+import app_db
 
 
 logger = logging.getLogger("auth.cookies")
@@ -18,64 +14,35 @@ COOKIE_NAMES = {"strava": "strava_session"}
 CHUNK_SIZE = 2800
 MAX_CHUNKS = 3
 MAX_PAYLOAD = 32768
-_cipher: Fernet | None = None
-_cipher_lock = threading.Lock()
 _state: ContextVar[dict[str, Any] | None] = ContextVar("browser_auth", default=None)
 
 
-def cipher() -> Fernet:
-    global _cipher
-    with _cipher_lock:
-        if _cipher is None:
-            key = os.environ.get("AUTH_COOKIE_KEY")
-            if not key:
-                logger.warning("AUTH_COOKIE_KEY is unset; browser logins will expire on backend restart.")
-            _cipher = Fernet(key.encode("ascii") if key else Fernet.generate_key())
-        return _cipher
-
-
 def encode(provider: str, record: dict[str, Any]) -> str:
-    plaintext = json.dumps({**record, "provider": provider}, separators=(",", ":")).encode("utf-8")
-    if len(plaintext) > MAX_PAYLOAD:
-        raise ValueError("Login payload exceeds the browser-cookie size limit.")
-    encrypted = cipher().encrypt(zlib.compress(plaintext, 9)).decode("ascii")
-    if len(encrypted) > CHUNK_SIZE * MAX_CHUNKS:
-        raise ValueError("Login payload exceeds the browser-cookie size limit.")
-    return encrypted
+    sid = record.get("sid")
+    if not isinstance(sid, str) or not 1 <= len(sid) <= 128:
+        raise ValueError("Invalid session identifier.")
+    return f"v2.{sid}"
 
 
 def decode(provider: str, cookies: dict[str, str]) -> dict[str, Any] | None:
-    name = COOKIE_NAMES[provider]
-    try:
-        version, count_text, first = cookies.get(name, "").split(".", 2)
-        count = int(count_text)
-        if version != "v1" or not 1 <= count <= MAX_CHUNKS:
-            return None
-        chunks = [first] + [cookies[f"{name}_{index}"] for index in range(1, count)]
-        if any(len(chunk) > CHUNK_SIZE for chunk in chunks):
-            return None
-        compressed = cipher().decrypt("".join(chunks).encode("ascii"), ttl=SESSION_LIFETIME)
-        inflater = zlib.decompressobj()
-        plaintext = inflater.decompress(compressed, MAX_PAYLOAD + 1)
-        if len(plaintext) > MAX_PAYLOAD or not inflater.eof or inflater.unused_data:
-            return None
-        record = json.loads(plaintext)
-        if record.get("provider") != provider or not isinstance(record.get("sid"), str):
-            return None
-        if not isinstance(record.get("expiresAt"), int) or record["expiresAt"] <= time.time():
-            return None
-        return record
-    except (ValueError, KeyError, InvalidToken, zlib.error, UnicodeError, AttributeError, TypeError):
+    token = cookies.get(COOKIE_NAMES[provider], "")
+    if not token.startswith("v2.") or not 1 <= len(token[3:]) <= 128:
         return None
+    return app_db.fetch_session(provider, token[3:])
 
 
 def bind(request: Request):
     records = {provider: decode(provider, request.cookies) for provider in COOKIE_NAMES}
-    return _state.set({"records": records, "changed": set(), "request": request})
+    garmin_sid = request.cookies.get("garmin_session")
+    garmin = app_db.fetch_session("garmin", garmin_sid) if garmin_sid else None
+    saved = garmin or records.get("strava")
+    scope = f"user:{saved['provider']}:{saved['userId']}" if saved else None
+    return (_state.set({"records": records, "changed": set(), "request": request}), app_db.current_user.set(scope))
 
 
 def reset(token) -> None:
-    _state.reset(token)
+    _state.reset(token[0])
+    app_db.current_user.reset(token[1])
 
 
 def record(provider: str) -> dict[str, Any] | None:
@@ -89,7 +56,7 @@ def update(provider: str, account: dict[str, Any] | None, *, sid: str | None = N
     if state is None:
         raise RuntimeError("Authentication requires a browser request.")
     previous = state["records"][provider]
-    value = None if account is None and not pending else {
+    value: dict[str, Any] | None = None if account is None and not pending else {
         "provider": provider,
         "sid": sid or (previous or {}).get("sid") or secrets.token_urlsafe(32),
         "expiresAt": expires_at or (previous or {}).get("expiresAt") or int(time.time()) + SESSION_LIFETIME,
@@ -97,6 +64,13 @@ def update(provider: str, account: dict[str, Any] | None, *, sid: str | None = N
         "pending": pending,
     }
     if value != previous or (account is None and not pending):
+        if value is None:
+            if previous:
+                app_db.delete_session(provider, previous["sid"])
+        else:
+            user_id = str(((account or {}).get("athlete") or {}).get("id") or app_db.session_key(value["sid"]))
+            app_db.save_session(provider, value["sid"], user_id, account or {}, value["expiresAt"])
+            value["userId"] = user_id
         state["records"][provider] = value
         state["changed"].add(provider)
 
@@ -111,12 +85,6 @@ def finish(response: Response) -> None:
         return
     request = state["request"]
     secure = secure_cookie(request)
-    encoded = {provider: encode(provider, state["records"][provider])
-               for provider in state["changed"] if state["records"][provider] is not None}
-    total_size = sum(len(encoded.get(provider, "")) or len(encode(provider, value))
-                     for provider, value in state["records"].items() if value is not None)
-    if total_size > 12000:
-        raise ValueError("Combined authentication cookies exceed the supported request-header size.")
     for provider in state["changed"]:
         name = COOKIE_NAMES[provider]
         value = state["records"][provider]
@@ -125,14 +93,8 @@ def finish(response: Response) -> None:
                 response.delete_cookie(name if index == 0 else f"{name}_{index}", secure=secure,
                                        httponly=True, samesite="lax")
             continue
-        token = encoded[provider]
-        chunks = [token[index:index + CHUNK_SIZE] for index in range(0, len(token), CHUNK_SIZE)]
         lifetime = max(0, value["expiresAt"] - int(time.time()))
-        response.set_cookie(name, f"v1.{len(chunks)}.{chunks[0]}", max_age=lifetime,
+        response.set_cookie(name, encode(provider, value), max_age=lifetime,
                             secure=secure, httponly=True, samesite="lax")
         for index in range(1, MAX_CHUNKS):
-            if index < len(chunks):
-                response.set_cookie(f"{name}_{index}", chunks[index], max_age=lifetime,
-                                    secure=secure, httponly=True, samesite="lax")
-            else:
-                response.delete_cookie(f"{name}_{index}", secure=secure, httponly=True, samesite="lax")
+            response.delete_cookie(f"{name}_{index}", secure=secure, httponly=True, samesite="lax")

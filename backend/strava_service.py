@@ -5,15 +5,12 @@ Unlike Garmin (email/password login), Strava uses OAuth2:
 
   1. The browser is redirected to Strava's authorize page ("Connect Strava").
   2. Strava redirects back to /api/strava/callback with a short-lived `code`.
-    3. We exchange that code for browser-cookie access and refresh tokens.
+    3. We exchange that code for SQLite-backed access and refresh tokens.
   4. Access tokens expire (~6h) and are refreshed automatically before use.
 
 You must create a Strava API application at https://www.strava.com/settings/api
-to obtain a Client ID and Client Secret, then provide them via environment
-variables STRAVA_CLIENT_ID / STRAVA_CLIENT_SECRET, or a local
-`strava_config.json` file next to this module:
-
-    { "client_id": "12345", "client_secret": "abcdef..." }
+to obtain a Client ID and Client Secret, then save them in the application's
+Integration settings form. Configuration and provider tokens live in SQLite.
 
 Only activity-level data is available from Strava (no VO2 max, body battery,
 readiness, etc. — those remain Garmin-only).
@@ -21,6 +18,7 @@ readiness, etc. — those remain Garmin-only).
 
 from __future__ import annotations
 
+import app_db
 import datetime as dt
 import json
 import logging
@@ -42,7 +40,6 @@ API_BASE = "https://www.strava.com/api/v3"
 # Read + activity scope is enough to list activities.
 SCOPE = "read,activity:read_all,profile:read_all"
 
-_CONFIG_FILE = Path(__file__).resolve().parent / "strava_config.json"
 _ACTIVITY_CACHE: dict[tuple[str, int, int | None], tuple[float, list[dict[str, Any]]]] = {}
 _ACTIVITY_CACHE_TTL = 60
 _ATHLETE_WEIGHT_CACHE: dict[str, tuple[float, float | None]] = {}
@@ -53,22 +50,11 @@ _ATHLETE_WEIGHT_CACHE_TTL = 900
 
 
 def _load_config() -> dict[str, str]:
-    """Return {client_id, client_secret} from env vars or strava_config.json."""
-    client_id = os.environ.get("STRAVA_CLIENT_ID")
-    client_secret = os.environ.get("STRAVA_CLIENT_SECRET")
+    data = app_db.user_setting("strava_config", {})
+    client_id = str(data.get("client_id") or "").strip()
+    client_secret = str(data.get("client_secret") or "").strip()
     if client_id and client_secret:
         return {"client_id": client_id, "client_secret": client_secret}
-
-    if _CONFIG_FILE.exists():
-        try:
-            data = json.loads(_CONFIG_FILE.read_text(encoding="utf-8"))
-            cid = str(data.get("client_id") or "").strip()
-            secret = str(data.get("client_secret") or "").strip()
-            if cid and secret:
-                return {"client_id": cid, "client_secret": secret}
-        except (ValueError, OSError) as exc:  # noqa: BLE001
-            logger.warning("Could not read strava_config.json: %s", exc)
-
     return {}
 
 
@@ -78,26 +64,13 @@ def is_configured() -> bool:
 
 
 def yearly_goal_km() -> float | None:
-    """User's yearly distance goal (km), from env or strava_config.json.
+    """User's yearly distance goal (km), from the SQLite settings.
 
     Strava's API does not expose user goals, so this lets the user pin their
     annual target (e.g. "run 2026 km in 2026") via config.
     """
-    env = os.environ.get("STRAVA_YEARLY_GOAL_KM")
-    if env:
-        try:
-            return float(env)
-        except ValueError:
-            pass
-    if _CONFIG_FILE.exists():
-        try:
-            data = json.loads(_CONFIG_FILE.read_text(encoding="utf-8"))
-            v = data.get("yearly_goal_km")
-            if v is not None:
-                return float(v)
-        except (ValueError, OSError):
-            pass
-    return None
+    value = app_db.user_setting("strava_config", {}).get("yearly_goal_km")
+    return float(value) if value is not None else None
 
 
 # -------------------------------------------------------------- token cache
@@ -167,6 +140,7 @@ def exchange_code(code: str, scope: str = "") -> None:
             "refresh_token": data["refresh_token"],
             "expires_at": data["expires_at"],
             "scope": scope,
+            "client_config": cfg,
             "athlete": {key: athlete.get(key) for key in ("id", "firstname", "lastname", "profile_medium", "profile")},
         },
         new_session=True,
@@ -182,6 +156,9 @@ def _valid_access_token() -> str:
     # Refresh if the token expires within the next minute.
     if tokens.get("expires_at", 0) - 60 <= time.time():
         cfg = _load_config()
+        issued = tokens.get("client_config") or {}
+        if issued and cfg.get("client_id") != issued.get("client_id"):
+            cfg = issued
         if not cfg:
             raise RuntimeError("Strava API credentials are not configured.")
         resp = requests.post(

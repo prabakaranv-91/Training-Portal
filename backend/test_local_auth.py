@@ -10,6 +10,7 @@ from fastapi import HTTPException, Request, Response
 from fastapi.testclient import TestClient
 
 import garmin_auth_store as store
+import app_db
 import main
 
 
@@ -17,8 +18,8 @@ class LocalGarminAuthTests(unittest.TestCase):
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
-        self.path = Path(directory.name) / "auth.json"
-        override = patch.object(store, "STORE_PATH", self.path)
+        self.path = Path(directory.name) / "auth.sqlite3"
+        override = patch.object(app_db, "DB_PATH", self.path)
         override.start()
         self.addCleanup(override.stop)
         self.expiry = int(time.time()) + 3600
@@ -33,9 +34,10 @@ class LocalGarminAuthTests(unittest.TestCase):
         self.assertEqual(store.fetch_garmin_auth("first")["account"], self.account)
         self.assertEqual(store.fetch_garmin_auth("second")["account"], second)
         self.assertEqual(store.account_for(" TEST@EXAMPLE.INVALID "), self.account)
-        saved = self.path.read_text()
-        self.assertNotIn("never-save", saved)
-        self.assertEqual(len(json.loads(saved)["users"]), 2)
+        with app_db.connection() as database:
+            saved = database.execute("SELECT account FROM accounts").fetchall()
+        self.assertNotIn("never-save", str([row["account"] for row in saved]))
+        self.assertEqual(len(saved), 2)
 
     def test_logout_invalidates_only_its_session(self):
         store.save_garmin_auth("first", self.account, self.expiry)
@@ -58,9 +60,9 @@ class LocalGarminAuthTests(unittest.TestCase):
             }, self.expiry)
         with ThreadPoolExecutor(max_workers=4) as pool:
             list(pool.map(save, range(8)))
-        data = json.loads(self.path.read_text())
-        self.assertEqual(len(data["users"]), 8)
-        self.assertEqual(len(data["sessions"]), 8)
+        with app_db.connection() as database:
+            self.assertEqual(database.execute("SELECT COUNT(*) FROM accounts").fetchone()[0], 8)
+            self.assertEqual(database.execute("SELECT COUNT(*) FROM sessions").fetchone()[0], 8)
         self.assertEqual(list(self.path.parent.glob("*.tmp")), [])
 
     def test_login_restart_recovery_refresh_and_logout_without_sheets(self):
@@ -115,7 +117,7 @@ class LocalGarminAuthTests(unittest.TestCase):
         service.client = MagicMock()
         service.email = self.account["email"]
         service.auth_expires_at = self.expiry
-        with patch.object(store, "_write", side_effect=OSError("disk unavailable")):
+        with patch.object(app_db, "save_session", side_effect=OSError("disk unavailable")):
             with self.assertRaises(HTTPException) as error:
                 main._save_login("first", service)
             self.assertEqual(error.exception.status_code, 503)

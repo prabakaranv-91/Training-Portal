@@ -8,6 +8,7 @@ Returns None on any problem so callers can fall back to the built-in regex parse
 
 from __future__ import annotations
 
+import app_db
 import asyncio
 import datetime as dt
 import json
@@ -32,7 +33,6 @@ _loop: asyncio.AbstractEventLoop | None = None
 _queue: asyncio.Queue | None = None
 _cache: dict[str, list[dict[str, Any]]] = {}
 _status: dict[str, Any] = {"lastError": None, "lastOk": None}
-_USAGE_FILE = Path(os.environ.get("NUTRITION_DATA_DIR") or Path.home() / ".training_lab") / "gemini_usage.json"
 
 
 def _daily_limit() -> int:
@@ -40,17 +40,19 @@ def _daily_limit() -> int:
 
 
 def _usage_today() -> int:
-    try:
-        return int(json.loads(_USAGE_FILE.read_text(encoding="utf-8")).get(dt.date.today().isoformat(), 0))
-    except Exception:  # noqa: BLE001
-        return 0
+    return int(app_db.get_setting("gemini_usage", {}, scope=app_db.user_scope()).get(dt.date.today().isoformat(), 0))
 
 
 def _count_call() -> None:
     with _lock:
         today = dt.date.today().isoformat()
-        _USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        _USAGE_FILE.write_text(json.dumps({today: _usage_today() + 1}), encoding="utf-8")
+        scope = app_db.user_scope()
+        with app_db.connection() as database:
+            database.execute("BEGIN IMMEDIATE")
+            row = database.execute("SELECT value FROM settings WHERE scope = ? AND name = 'gemini_usage'", (scope,)).fetchone()
+            usage = json.loads(row["value"]) if row else {}
+            usage[today] = int(usage.get(today, 0)) + 1
+            database.execute("INSERT INTO settings(scope, name, value) VALUES (?, 'gemini_usage', ?) ON CONFLICT(scope, name) DO UPDATE SET value = excluded.value", (scope, json.dumps(usage)))
 
 
 def is_enabled() -> bool:
@@ -71,7 +73,7 @@ def status() -> dict[str, Any]:
 
 
 async def _serve(queue: asyncio.Queue) -> None:
-    params = StdioServerParameters(command=sys.executable, args=[str(_SERVER)], env=dict(os.environ))
+    params = StdioServerParameters(command=sys.executable, args=[str(_SERVER)])
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
@@ -113,6 +115,7 @@ def _ensure_started() -> None:
 
 
 def _call_tool(tool: str, args: dict[str, Any]) -> Any:
+    args = {**args, "db_scope": app_db.user_scope()}
     if _usage_today() >= _daily_limit():
         raise RuntimeError(f"Daily Gemini budget of {_daily_limit()} calls used; using built-in logic until tomorrow.")
     _ensure_started()
@@ -137,7 +140,7 @@ def parse(text: str) -> list[dict[str, Any]] | None:
     """Foods in `text` via the MCP server, or None to fall back to the regex parser."""
     if not is_enabled():
         return None
-    key = text.strip().lower()
+    key = f"{app_db.user_scope()}\u0000{text.strip().lower()}"
     if key in _cache:
         return _cache[key]
     try:

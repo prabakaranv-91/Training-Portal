@@ -7,13 +7,13 @@ Tool `parse_food_text(text)` returns the foods eaten as structured items:
 Run standalone (stdio):   python food_mcp_server.py
 The Training Lab backend starts it automatically as a child process.
 
-Config: backend/nutrition_config.json -> "gemini": {"enabled", "model"}
-Key:    env GEMINI_API_KEY or backend/nutrition_secrets.json -> "gemini_api_key" (gitignored).
+Config and API keys come from the application's SQLite integration settings.
 Get a free key at https://aistudio.google.com/apikey
 """
 
 from __future__ import annotations
 
+import app_db
 import json
 import os
 from pathlib import Path
@@ -22,7 +22,6 @@ from typing import Any
 import requests
 from mcp.server.fastmcp import FastMCP
 
-_HERE = Path(__file__).resolve().parent
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 UNITS = ["piece", "cup", "bowl", "plate", "scoop", "slice", "tbsp", "tsp", "glass",
          "serving", "handful", "g", "kg", "ml", "l"]
@@ -70,27 +69,18 @@ SCHEMA = {
 
 
 def _config() -> dict[str, Any]:
-    try:
-        return json.loads((_HERE / "nutrition_config.json").read_text(encoding="utf-8")).get("gemini") or {}
-    except Exception:  # noqa: BLE001
-        return {}
+    return app_db.user_setting("nutrition_config", {}).get("gemini") or {}
 
 
 def _api_key() -> str | None:
-    key = os.environ.get("GEMINI_API_KEY")
-    if key:
-        return key
-    try:
-        return json.loads((_HERE / "nutrition_secrets.json").read_text(encoding="utf-8")).get("gemini_api_key")
-    except Exception:  # noqa: BLE001
-        return None
+    return app_db.user_setting("nutrition_secrets", {}).get("gemini_api_key")
 
 
 def _generate(prompt: str, schema: dict[str, Any]) -> Any:
     """Run a JSON-schema prompt on the configured model, falling back through the model list."""
     key = _api_key()
     if not key:
-        raise RuntimeError("Gemini API key not configured (GEMINI_API_KEY or nutrition_secrets.json).")
+        raise RuntimeError("Gemini API key is not configured in application settings.")
     cfg = _config()
     models = [cfg.get("model") or "gemini-flash-lite-latest", *cfg.get("fallback_models", [])]
     last = ""
@@ -227,22 +217,30 @@ mcp = FastMCP("training-lab-food-parser")
 
 
 @mcp.tool()
-def parse_food_text(text: str) -> str:
+def parse_food_text(text: str, db_scope: str = "global") -> str:
     """Identify foods eaten in a free-text message (typos, Indian dishes, slang).
 
     Returns a JSON list of {input, name, qty, unit, total_grams, per100g}.
     """
-    return json.dumps(gemini_parse(text))
+    token = app_db.current_user.set(db_scope)
+    try:
+        return json.dumps(gemini_parse(text))
+    finally:
+        app_db.current_user.reset(token)
 
 
 @mcp.tool()
-def review_day(day_json: str) -> str:
+def review_day(day_json: str, db_scope: str = "global") -> str:
     """Review a full day of eating against the user's program and say which foods to avoid.
 
     day_json: {program, targets, intake, burn, workoutKcal, inProgress, foods:[{name,qty,unit,kcal,protein,fat,sugar,sodium}]}
     Returns JSON {verdict, summary, avoid:[{item,reason,instead}], keep:[...], add:[{food,portion,why}], next}.
     """
-    return json.dumps(gemini_review(json.loads(day_json)))
+    token = app_db.current_user.set(db_scope)
+    try:
+        return json.dumps(gemini_review(json.loads(day_json)))
+    finally:
+        app_db.current_user.reset(token)
 
 
 if __name__ == "__main__":

@@ -10,11 +10,12 @@ Nutrition log: parse free-text food intake, look up nutrition, keep history.
        defaults to the public DEMO_KEY).
     3. Open Food Facts (free, no key).
 - History is stored as JSON at ~/.training_lab/nutrition_log.json
-  (override with env NUTRITION_DATA_DIR).
+    (stored in the application SQLite database).
 """
 
 from __future__ import annotations
 
+import app_db
 import datetime as dt
 import difflib
 import json
@@ -36,12 +37,8 @@ logger = logging.getLogger("nutrition.service")
 
 NUTRIENTS = ("kcal", "protein", "carbs", "fat", "fiber", "sugar", "sodium")
 
-DATA_DIR = Path(os.environ.get("NUTRITION_DATA_DIR") or Path.home() / ".training_lab")
-LOG_FILE = DATA_DIR / "nutrition_log.json"
-CACHE_FILE = DATA_DIR / "food_lookup_cache.json"
 _LOCK = threading.Lock()
 
-USDA_KEY = os.environ.get("USDA_FDC_API_KEY", "DEMO_KEY")
 USDA_URL = "https://api.nal.usda.gov/fdc/v1/foods/search"
 OFF_URL = "https://world.openfoodfacts.org/cgi/search.pl"
 HTTP_HEADERS = {"User-Agent": "TrainingLab/1.0 (personal nutrition log)"}
@@ -407,7 +404,7 @@ def _usda_lookup(query: str) -> dict[str, Any] | None:
                     "query": query,
                     "pageSize": "25",
                     "dataType": ["Survey (FNDDS)", "Foundation", "SR Legacy"],
-                    "api_key": USDA_KEY,
+                    "api_key": app_db.user_setting("nutrition_secrets", {}).get("usda_api_key") or "DEMO_KEY",
                 },
                 headers=HTTP_HEADERS,
                 timeout=8,
@@ -532,11 +529,8 @@ def _lookup(item: str) -> dict[str, Any] | None:
     item = corrected
     key = _norm(item)
     with _LOCK:
-        if not _LOOKUP_CACHE and CACHE_FILE.exists():
-            try:
-                _LOOKUP_CACHE.update(json.loads(CACHE_FILE.read_text(encoding="utf-8")))
-            except Exception:  # noqa: BLE001
-                pass
+        if not _LOOKUP_CACHE:
+            _LOOKUP_CACHE.update(app_db.get_setting("food_lookup_cache", {}))
         if key in _LOOKUP_CACHE:
             return _LOOKUP_CACHE[key]
     found = _usda_lookup(item) or _off_lookup(item)
@@ -544,8 +538,7 @@ def _lookup(item: str) -> dict[str, Any] | None:
         found["query"] = item
         with _LOCK:
             _LOOKUP_CACHE[key] = found
-            DATA_DIR.mkdir(parents=True, exist_ok=True)
-            CACHE_FILE.write_text(json.dumps(_LOOKUP_CACHE), encoding="utf-8")
+            app_db.set_setting("food_lookup_cache", _LOOKUP_CACHE)
     return found
 
 
@@ -638,35 +631,23 @@ def _sum(items: list[dict[str, Any]]) -> dict[str, float]:
 # ------------------------------------------------------------------ storage
 
 
-def _log_file(user: str) -> Path:
-    slug = re.sub(r"[^a-z0-9]+", "_", user.lower()).strip("_") or "default"
-    path = DATA_DIR / f"nutrition_log_{slug}.json"
-    # One-time migration: the pre multi-user log goes to the first user who opens it.
-    if not path.exists() and LOG_FILE.exists():
-        LOG_FILE.replace(path)
-    return path
 
 
 def _load(user: str) -> dict[str, Any]:
-    path = _log_file(user)
-    if not path.exists():
-        return {"entries": [], "days": {}}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not read nutrition log: %s", exc)
-        return {"entries": [], "days": {}}
+    scope = _log_scope(user)
+    data = app_db.get_setting("nutrition_log", scope=scope)
+    if data is None:
+        slug = re.sub(r"[^a-z0-9]+", "_", user.lower()).strip("_") or "default"
+        data = app_db.adopt_legacy("nutrition_log", f"legacy_user:{slug}", scope, None)
+        if data is None:
+            data = app_db.adopt_legacy("nutrition_log", "legacy_user:default", scope, {"entries": [], "days": {}})
     data.setdefault("entries", [])
     data.setdefault("days", {})
     return data
 
 
 def _save(user: str, data: dict[str, Any]) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    path = _log_file(user)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
-    tmp.replace(path)
+    app_db.set_setting("nutrition_log", data, scope=_log_scope(user))
 
 
 def add_entry(user: str, text: str, date: str) -> dict[str, Any]:
@@ -1309,8 +1290,8 @@ def _eliminations(entries: list[dict[str, Any]], intake: dict[str, float], targe
                         + (f" — try {hint}." if hint else " — reduce the portion."))
     return {"cuts": cuts, "tips": tips}
 
-DEFAULT_WEIGHT_KG = float(os.environ.get("NUTRITION_BODY_WEIGHT_KG", "70"))
-DEFAULT_BMR = float(os.environ.get("NUTRITION_BMR_KCAL", "1650"))
+DEFAULT_WEIGHT_KG = float(app_db.get_setting("nutrition_config", {}).get("default_weight_kg", 70))
+DEFAULT_BMR = float(app_db.get_setting("nutrition_config", {}).get("default_bmr_kcal", 1650))
 
 
 def _estimate_workout_kcal(w: dict[str, Any], weight: float) -> float:
@@ -1446,3 +1427,8 @@ def _suggestions(intake, targets, status, workout_kcal, workout_min, is_today, p
     if intake["sodium"] > targets["sodium"]:
         tips.append(f"Sodium is high ({round(intake['sodium'])} mg). Drink water; fine if you sweated a lot today.")
     return tips
+
+
+def _log_scope(user: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "_", user.lower()).strip("_") or "default"
+    return app_db.current_user.get() or f"legacy_user:{slug}"
