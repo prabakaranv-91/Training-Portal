@@ -7,7 +7,15 @@
 .setup-dialog button { padding: 7px 10px; border: 1px solid #40566a; border-radius: 4px; background: #1b2a3b; color: #edf4fb; font: inherit; cursor: pointer; }
 .setup-dialog button:disabled { opacity: .5; cursor: wait; }
 .setup-dialog a { color: #a6d8fa; }
-.setup-account { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; padding-bottom: 8px; border-bottom: 1px solid #40566a; color: #a5b6c8; font-size: 12px; overflow-wrap: anywhere; }
+.setup-account { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 12px; margin-top: 8px; padding-bottom: 8px; border-bottom: 1px solid #40566a; color: #a5b6c8; font-size: 12px; overflow-wrap: anywhere; }
+.setup-apps { flex: 1 1 100%; }
+.setup-apps strong { color: #edf4fb; font-size: 13px; }
+.setup-apps ul { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 6px 0 0; padding: 0; list-style: none; }
+.setup-apps li { display: flex; gap: 6px; }
+.setup-ready-summary { padding: 6px 0 14px; }
+.setup-ready-summary h3 { margin-top: 8px; }
+.setup-ready-summary ul { display: grid; gap: 6px; padding-left: 20px; }
+.setup-ready-summary p { color: #a5b6c8; }
 .setup-dialog label { display: grid; gap: 4px; margin: 10px 0; color: #a5b6c8; font-size: 13px; }
 .setup-dialog input, .setup-dialog textarea, .setup-dialog select { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid #547897; border-radius: 4px; background: #0d1521; color: #edf4fb; font: inherit; }
 .setup-dialog input:focus, .setup-dialog textarea:focus { outline: 2px solid #75c9f2; outline-offset: 1px; }

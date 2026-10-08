@@ -1,7 +1,7 @@
 import hashlib
 import time
 from typing import Any
-import app_db
+from backend.utils import app_db
 
 
 def _key(value: str) -> str:

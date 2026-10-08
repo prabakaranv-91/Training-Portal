@@ -4,8 +4,8 @@ MCP server: understands free-text meal descriptions with the user's LiteLLM mode
 Tool `parse_food_text(text)` returns the foods eaten as structured items:
   [{"input", "name", "qty", "unit", "total_grams", "per100g": {...}}]
 
-Run standalone (stdio):   python food_mcp_server.py
-The Training Lab backend starts it automatically as a child process.
+Run standalone (stdio):   python -m backend.services.food_mcp_server
+The backend starts it automatically as a child process.
 
 Config and API keys come from the application's SQLite integration settings.
 Choose the provider, model and API key in Settings.
@@ -16,8 +16,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import app_db
-import llm_service
+from backend.utils import app_db
+from backend.services import llm_service
 from mcp.server.fastmcp import FastMCP
 
 UNITS = ["piece", "cup", "bowl", "plate", "scoop", "slice", "tbsp", "tsp", "glass",
@@ -77,7 +77,7 @@ def _generate(prompt: str, schema: dict[str, Any]) -> Any:
     return llm_service.generate(prompt, schema)
 
 
-def gemini_parse(text: str) -> list[dict[str, Any]]:
+def llm_parse(text: str) -> list[dict[str, Any]]:
     items = _generate(PROMPT.format(units=", ".join(UNITS), text=text), SCHEMA)
     out = []
     for it in items if isinstance(items, list) else []:
@@ -148,7 +148,7 @@ REVIEW_SCHEMA = {
 }
 
 
-def gemini_review(day: dict[str, Any]) -> dict[str, Any]:
+def llm_review(day: dict[str, Any]) -> dict[str, Any]:
     foods = "\n".join(
         f"- {f['name']}: {f['qty']} {f['unit']}, {round(f['kcal'])} kcal, P {f['protein']}, F {f['fat']}, "
         f"sugar {f['sugar']}, sodium {round(f['sodium'])}"
@@ -183,7 +183,7 @@ def parse_food_text(text: str, db_scope: str = "global") -> str:
     """
     token = app_db.current_user.set(db_scope)
     try:
-        return json.dumps(gemini_parse(text))
+        return json.dumps(llm_parse(text))
     finally:
         app_db.current_user.reset(token)
 
@@ -197,7 +197,7 @@ def review_day(day_json: str, db_scope: str = "global") -> str:
     """
     token = app_db.current_user.set(db_scope)
     try:
-        return json.dumps(gemini_review(json.loads(day_json)))
+        return json.dumps(llm_review(json.loads(day_json)))
     finally:
         app_db.current_user.reset(token)
 

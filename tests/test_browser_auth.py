@@ -9,10 +9,9 @@ from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
-import auth_cookies
-import app_db
-import main
-import strava_service
+from backend import main
+from backend.utils import app_db, auth_cookies
+from backend.services import strava_service
 
 
 class StravaBrowserAuthTests(unittest.TestCase):

@@ -24,7 +24,7 @@ cd c:\Work\garmin
 ```
 
 This creates a virtual environment, installs dependencies, and starts the server.
-Then open <http://127.0.0.1:8000> and sign in with your Garmin credentials.
+Then open <http://127.0.0.1:8000> and sign in with a connected provider.
 
 ### Manual start
 
@@ -33,8 +33,7 @@ cd c:\Work\garmin
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r backend\requirements.txt
-cd backend
-python main.py
+python -m backend.main
 ```
 
 Open <http://127.0.0.1:8000>.
@@ -46,73 +45,32 @@ Open <http://127.0.0.1:8000>.
 1. Enter your **Garmin Connect email and password** in the web UI.
 2. If your account has **multi-factor authentication (MFA)** enabled, you'll be
    prompted for the code from your authenticator app / email.
-3. Successful Garmin login stores that user's tokens, email and display name in
-   `backend/data/app.sqlite3`.
-   Users are separated by normalized email, and the browser session references
-   only its own account. Passwords and MFA codes are never saved.
-4. The browser holds an opaque HTTP-only session cookie. A hashed session lookup
-   and its seven-day expiry are stored in SQLite, allowing login recovery
-   after a backend restart. Refreshed Garmin tokens update the same user's record.
-5. Sign-out invalidates only that session and clears its cookie. Saved account
-   tokens remain for the localhost-only **Use saved Garmin login** action: enter
-   the account's email before selecting it. No account is picked automatically.
-6. Garmin authentication does not use Google Sheets or require Apps Script.
-   Database writes are transactional; failed writes report an error rather than
-   pretending login was saved. SQLite serializes concurrent writers.
+3. Strava sign-in uses its consent-based authorization flow.
+4. Sign out from the application to end the active session.
 
-> Treat `backend/data/` as sensitive credentials. The SQLite database contains
-> provider tokens and API secrets; it is not encrypted at rest. Keep the directory
-> private and out of version control. Use SQLite's backup API for live backups,
-> or stop the application before copying the database and its journal files.
-
-Strava continues to use its official consent-based OAuth flow. Access and refresh
-tokens are kept in SQLite, not in browser storage or the Google Sheet. HTTP-only
-cookies contain only random session identifiers. OAuth callbacks verify a browser-specific state, and activity
-and weight caches are isolated by session. Start authorization from the local
-app in the same browser, not from a bookmarked Strava login/authorization link.
-
-No encryption-key environment variable is needed to preserve database-backed
-sessions after restarts. Production cookies require HTTPS (`Secure`, `HttpOnly`,
-`SameSite=Lax`); localhost HTTP is supported. Cookies expire after seven days.
-Sign-out revokes the SQLite session and clears its cookie. Startup port and
-allowed origins are held in the database's `app_config` settings.
+Application data and settings use SQLite under the root `data/` directory.
 
 ## Application settings and migration
 
 Garmin and Strava are the only login identities. There is no pre-login setup or
-local username/password account. Garmin generates its provider token during the
-normal email/password/MFA login. Strava uses the existing server-managed OAuth
-app: users approve consent without entering application client credentials.
+local username/password account. Strava sign-in uses its consent-based flow.
 
-After login, users must verify their own **Google sheet** and **LLM** settings
-before using food logging, nutrition analysis, or the chat tracker. The two-step
-wizard includes an explanation of the purpose and data involved, plus an
-**Instructions** link for each step. Generate the private sheet token before the
-personalized Apps Script download becomes available. Nutrition endpoints enforce
-the same readiness requirement; hiding or bypassing the wizard does not unlock them.
+After login, the app checks saved **Google sheet** and **AI model** settings
+automatically. If a saved connection is missing or cannot be verified, **Settings**
+guides the required change. Generate the sheet token before the personalized Apps
+Script download becomes available. Nutrition endpoints enforce the same readiness
+requirement; hiding or bypassing the wizard does not unlock them.
 
 Users who skip setup can use the training Dashboard only. Its nutrition panel and
 food-chat controls remain hidden until both checks pass. Reopen **Settings** to
-complete configuration, then select **Open FitMate**. Changing or disabling the
+complete configuration, then select **Open Fit Squad**. Changing or disabling the
 saved integrations invalidates readiness and blocks nutrition again.
 
-Settings are saved in the verified user's private SQLite scope. Secrets are never
-returned by the settings API; blank secret fields preserve existing values.
-Garmin passwords are not stored and Garmin credential fields are not part of setup.
-
-Models and API keys can be changed only in **Settings**. LiteLLM routes each user's
-private provider/model choice to Gemini, OpenAI, Anthropic, Groq, Mistral,
-OpenRouter, or another LiteLLM provider supporting a single API key. Providers
+Models and API keys can be changed only in **Settings**. LiteLLM routes the selected
+provider and model. Supported providers must work with a single API key. Providers
 requiring additional credentials or custom deployment URLs are not configured by
 this form. Verification sends a small completion request; provider charges may
-apply. Meal descriptions and nutrition data are sent to the chosen provider, but
-tracker login tokens and Sheets tokens are not. Model changes invalidate setup
-readiness and cached daily reviews. Legacy Gemini settings remain compatible.
-
-The existing Strava application credentials are held in SQLite's
-`strava_app_config` setting and are never returned by user settings APIs.
-Each Strava user's access/refresh tokens remain separate in SQLite. Strava itself
-controls consent, application approval and athlete-capacity limits.
+apply. Model changes invalidate setup readiness and cached daily reviews.
 
 Garmin's authenticated email is normalized and uniquely associated with a tracker.
 Strava's API does not return email, so the app does not guess an email or match on
@@ -123,27 +81,15 @@ Existing food histories are merged by entry ID without dropping either history;
 the canonical tracker's existing settings take precedence. Profiles with different
 verified email addresses are not silently combined.
 
-Previously migrated Sheets/LLM configuration is assigned only to the existing
-provider account, never inherited by new setups or users. Ambiguous legacy
-configuration remains quarantined for manual recovery. Settings endpoints reject
-unauthenticated requests without a valid provider session.
+Previously migrated settings remain scoped to their existing account. Ambiguous
+legacy configuration remains quarantined for manual recovery. Settings endpoints
+require an authenticated provider session.
 
-At first database initialization, the app imports `strava_config.json`,
-`nutrition_config.json`, `nutrition_secrets.json`, legacy Garmin accounts and
-sessions, nutrition logs, caches, and retry state. Existing credential environment
-variables are accepted only as one-time migration inputs. Subsequent reads and
-writes use SQLite exclusively. Superseded local configuration JSON files have
-been removed after archiving their original values in a private SQLite record
-and backing up the database under `backend/data/backups/`. Active settings are
-not overwritten by archived values; keep the database and backups private.
+Initial setup migrates existing configuration and nutrition data into SQLite.
+Use Settings to change integrations.
 
-Legacy nutrition logs can only be adopted by the verified migrated owner.
-Existing encrypted Strava browser cookies require a one-time reconnect;
-new sessions persist in SQLite and survive restarts. Do not delete the database
-to edit configuration; use the application settings form instead.
-
-Run the isolated authentication checks from `backend` with
-`..\.venv\Scripts\python.exe -m unittest test_local_auth test_browser_auth test_sqlite_store -v`.
+Run the test suite from the repository root with
+`.venv\Scripts\python.exe -m unittest discover -s tests -v`.
 
 ---
 
@@ -152,14 +98,14 @@ Run the isolated authentication checks from `backend` with
 ```
 garmin/
 ├── backend/
-│   ├── main.py            # FastAPI app + routes, serves the frontend
-│   ├── garmin_service.py  # Wrapper around the garminconnect library
+│   ├── main.py
+│   ├── services/
+│   ├── utils/
 │   └── requirements.txt
 ├── frontend/
-│   ├── index.html         # Login + dashboard
-│   ├── styles.css
-│   └── app.js
-├── start.ps1              # One-command launcher
+├── tests/
+├── data/
+├── start.ps1
 └── .gitignore
 ```
 

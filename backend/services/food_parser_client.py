@@ -15,18 +15,16 @@ import logging
 import sys
 import threading
 from concurrent.futures import Future
-from pathlib import Path
 from typing import Any
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-import food_mcp_server
-import app_db
+from backend.utils import app_db
+from backend.services import food_mcp_server
 
 logger = logging.getLogger("nutrition.mcp")
 
-_SERVER = Path(__file__).resolve().parent / "food_mcp_server.py"
 _lock = threading.Lock()
 _loop: asyncio.AbstractEventLoop | None = None
 _queue: asyncio.Queue | None = None
@@ -62,8 +60,8 @@ def status() -> dict[str, Any]:
     cfg = food_mcp_server._config()
     return {
         "enabled": bool(cfg.get("enabled", True)),
-        "model": cfg.get("model") or "gemini-flash-lite-latest",
-        "provider": cfg.get("provider") or "gemini",
+        "model": cfg.get("model") or "",
+        "provider": cfg.get("provider") or "",
         "keyConfigured": bool(food_mcp_server._api_key()),
         "running": _loop is not None,
         "callsToday": _usage_today(),
@@ -73,7 +71,7 @@ def status() -> dict[str, Any]:
 
 
 async def _serve(queue: asyncio.Queue) -> None:
-    params = StdioServerParameters(command=sys.executable, args=[str(_SERVER)])
+    params = StdioServerParameters(command=sys.executable, args=["-m", "backend.services.food_mcp_server"])
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()

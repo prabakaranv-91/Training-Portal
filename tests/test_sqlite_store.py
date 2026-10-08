@@ -7,10 +7,9 @@ from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
-import app_db
-import auth_cookies
-import main
-import sheets_sync
+from backend import main
+from backend.utils import app_db, auth_cookies
+from backend.services import sheets_sync
 
 
 class SQLiteStoreTests(unittest.TestCase):
@@ -44,8 +43,11 @@ class SQLiteStoreTests(unittest.TestCase):
         self.assertEqual(app_db.adopt_legacy("nutrition_log", "legacy_user:example", "user:two", {}), {})
 
     def test_settings_are_saved_without_returning_secrets(self):
+        initial = self.client.get("/api/settings/integrations").json()
+        self.assertNotIn("gemini", initial)
+        self.assertEqual(initial["llm"]["provider"], "")
         response = self.client.post("/api/settings/integrations", headers=self.headers, json={
-            "gemini_api_key": "fake-key",
+            "llm_provider": "openai", "llm_model": "gpt-test", "llm_api_key": "fake-key",
             "sheets_url": "https://script.google.com/macros/s/fake/exec", "sheets_token": "fake-sheet", "sheets_enabled": True,
         })
         self.assertEqual(response.status_code, 200)
@@ -78,10 +80,10 @@ class SQLiteStoreTests(unittest.TestCase):
         for user in ("one", "two"):
             app_db.save_session("strava", user, user, {"refresh_token": "fake", "athlete": {"id": user}}, int(time.time()) + 3600)
         self.client.cookies.set("strava_session", "v2.one")
-        self.assertEqual(self.client.post("/api/settings/integrations", headers=self.headers, json={"gemini_api_key": "one-key"}).status_code, 200)
+        self.assertEqual(self.client.post("/api/settings/integrations", headers=self.headers, json={"llm_provider": "openai", "llm_model": "gpt-test", "llm_api_key": "one-key"}).status_code, 200)
         self.client.cookies.set("strava_session", "v2.two")
-        self.assertFalse(self.client.get("/api/settings/integrations").json()["gemini"]["keyConfigured"])
-        self.assertEqual(app_db.get_setting("nutrition_secrets", scope="user:strava:one")["gemini_api_key"], "one-key")
+        self.assertFalse(self.client.get("/api/settings/integrations").json()["llm"]["keyConfigured"])
+        self.assertEqual(app_db.get_setting("nutrition_secrets", scope="user:strava:one")["llm_api_key"], "one-key")
 
     def test_opaque_cookie_survives_restart_and_logout_revokes_it(self):
         app_db.save_session("strava", "opaque", "one", {"refresh_token": "never-in-cookie"}, int(time.time()) + 3600)
@@ -109,11 +111,11 @@ class SQLiteStoreTests(unittest.TestCase):
         self.assertEqual(anonymous.get("/api/settings/sheets/script").status_code, 401)
 
     def test_setup_is_private_and_provider_login_recovers_settings(self):
-        self.client.post("/api/settings/integrations", headers=self.headers, json={"gemini_api_key": "private-test-key"})
+        self.client.post("/api/settings/integrations", headers=self.headers, json={"llm_provider": "openai", "llm_model": "gpt-test", "llm_api_key": "private-test-key"})
         other = TestClient(main.app, base_url="http://localhost:8000")
         app_db.save_session("strava", "other-session", "other-test", {"refresh_token": "fake", "athlete": {"id": "other-test"}}, int(time.time()) + 3600)
         other.cookies.set("strava_session", "v2.other-session")
-        self.assertFalse(other.get("/api/settings/integrations").json()["gemini"]["keyConfigured"])
+        self.assertFalse(other.get("/api/settings/integrations").json()["llm"]["keyConfigured"])
         context = app_db.current_user.set(self.scope)
         try:
             app_db.save_session("strava", "verified", "account-one", {"refresh_token": "fake"}, int(time.time()) + 3600)
@@ -124,7 +126,7 @@ class SQLiteStoreTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/settings/integrations").status_code, 401)
         app_db.save_session("strava", "verified-again", "account-one", {"refresh_token": "fake"}, int(time.time()) + 3600)
         self.client.cookies.set("strava_session", "v2.verified-again")
-        self.assertTrue(self.client.get("/api/settings/integrations").json()["gemini"]["keyConfigured"])
+        self.assertTrue(self.client.get("/api/settings/integrations").json()["llm"]["keyConfigured"])
         with app_db.connection() as database:
             self.assertEqual(database.execute("SELECT COUNT(*) FROM accounts WHERE provider NOT IN ('garmin', 'strava')").fetchone()[0], 0)
 
@@ -139,7 +141,7 @@ class SQLiteStoreTests(unittest.TestCase):
         self.assertIsNone(app_db.get_setting("nutrition_secrets"))
         self.assertEqual(app_db.get_setting("nutrition_secrets", scope="user:garmin:owner")["gemini_api_key"], "owner-key")
         app_db.save_session("strava", "registered-session", "registered-test", {"refresh_token": "fake", "athlete": {"id": "registered-test"}}, int(time.time()) + 3600)
-        self.assertFalse(self.client.get("/api/settings/integrations").json()["gemini"]["keyConfigured"])
+        self.assertFalse(self.client.get("/api/settings/integrations").json()["llm"]["keyConfigured"])
 
     def test_setup_readiness_requires_successful_checks(self):
         self.client.post("/api/settings/sheets/token", headers=self.headers)
@@ -147,16 +149,16 @@ class SQLiteStoreTests(unittest.TestCase):
         self.assertEqual(script.status_code, 200)
         self.assertNotIn("PASTE_SHEETS_TOKEN_HERE", script.text)
         self.assertEqual(script.headers["cache-control"], "no-store")
-        self.client.post("/api/settings/integrations", headers=self.headers, json={"sheets_url": "https://script.google.com/macros/s/fake/exec", "gemini_api_key": "fake-key"})
+        self.client.post("/api/settings/integrations", headers=self.headers, json={"sheets_url": "https://script.google.com/macros/s/fake/exec", "llm_provider": "openai", "llm_model": "gpt-test", "llm_api_key": "fake-key"})
         self.assertFalse(self.client.get("/api/settings/integrations").json()["sheets"]["ready"])
         with patch.object(main.sheets_sync, "_post", return_value={"ok": True}):
             self.assertTrue(self.client.post("/api/settings/check/sheets", headers=self.headers).json()["sheets"]["ready"])
         response = MagicMock()
         response.json.return_value = {"supportedGenerationMethods": ["generateContent"]}
         with patch.object(main.llm_service, "generate", return_value={"ok": True}):
-            self.assertTrue(self.client.post("/api/settings/check/gemini", headers=self.headers).json()["gemini"]["ready"])
-        self.client.post("/api/settings/integrations", headers=self.headers, json={"gemini_api_key": "changed-key"})
-        self.assertFalse(self.client.get("/api/settings/integrations").json()["gemini"]["ready"])
+            self.assertTrue(self.client.post("/api/settings/check/llm", headers=self.headers).json()["llm"]["ready"])
+        self.client.post("/api/settings/integrations", headers=self.headers, json={"llm_api_key": "changed-key"})
+        self.assertFalse(self.client.get("/api/settings/integrations").json()["llm"]["ready"])
 
     def test_setup_promotes_to_a_verified_provider(self):
         setup = app_db.create_setup_session("legacy-setup", int(time.time()) + 3600)
@@ -187,17 +189,17 @@ class SQLiteStoreTests(unittest.TestCase):
             self.assertEqual(database.execute("SELECT COUNT(*) FROM accounts WHERE provider NOT IN ('garmin', 'strava')").fetchone()[0], 0)
 
     def test_both_verified_integrations_unlock_nutrition(self):
-        self.client.post("/api/settings/integrations", headers=self.headers, json={"sheets_url": "https://script.google.com/macros/s/fake/exec", "sheets_token": "sheet-secret", "gemini_api_key": "gemini-secret"})
+        self.client.post("/api/settings/integrations", headers=self.headers, json={"sheets_url": "https://script.google.com/macros/s/fake/exec", "sheets_token": "sheet-secret", "llm_provider": "openai", "llm_model": "gpt-test", "llm_api_key": "ai-secret"})
         with patch.object(main.sheets_sync, "_post", return_value={"ok": True}):
             self.client.post("/api/settings/check/sheets", headers=self.headers)
         self.assertFalse(self.client.get("/api/session").json()["nutritionReady"])
         response = MagicMock()
         response.json.return_value = {"supportedGenerationMethods": ["generateContent"]}
         with patch.object(main.llm_service, "generate", return_value={"ok": True}):
-            self.client.post("/api/settings/check/gemini", headers=self.headers)
+            self.client.post("/api/settings/check/llm", headers=self.headers)
         self.assertTrue(self.client.get("/api/session").json()["nutritionReady"])
         self.assertEqual(self.client.get("/api/nutrition/history").status_code, 200)
-        self.client.post("/api/settings/integrations", headers=self.headers, json={"gemini_enabled": False})
+        self.client.post("/api/settings/integrations", headers=self.headers, json={"llm_enabled": False})
         self.assertFalse(self.client.get("/api/session").json()["nutritionReady"])
         self.assertEqual(self.client.get("/api/nutrition/history").status_code, 403)
 
@@ -238,7 +240,9 @@ class SQLiteStoreTests(unittest.TestCase):
     def test_strava_link_requires_an_active_garmin_session(self):
         app_db.set_setting("strava_app_config", {"client_id": "123", "client_secret": "fake-secret"})
         anonymous = TestClient(main.app, base_url="http://localhost:8000")
-        self.assertEqual(anonymous.get("/api/strava/connect?link=1", follow_redirects=False).status_code, 401)
+        response = anonymous.get("/api/strava/connect?link=1", follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["location"], "/dashboard.html?strava=link_login_required")
 
 
 if __name__ == "__main__":

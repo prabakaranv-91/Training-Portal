@@ -5,7 +5,7 @@ from contextvars import ContextVar
 from typing import Any
 
 from fastapi import Request, Response
-import app_db
+from backend.utils import app_db
 
 
 logger = logging.getLogger("auth.cookies")

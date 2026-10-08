@@ -5,8 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import app_db
-import llm_service
+from backend.utils import app_db
+from backend.services import llm_service
 
 
 class LiteLLMServiceTests(unittest.TestCase):

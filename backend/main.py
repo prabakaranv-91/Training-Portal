@@ -26,15 +26,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-import auth_cookies
-import food_parser_client
-import garmin_auth_store
-import app_db
-import llm_service
-import nutrition_service
-import sheets_sync
-import strava_service
-from garmin_service import GarminService
+from backend.utils import app_db, auth_cookies, garmin_auth_store
+from backend.services import food_parser_client, llm_service, nutrition_service, sheets_sync, strava_service
+from backend.services.garmin_service import GarminService
 
 app = FastAPI(title="Fit Squad", version="1.0.0")
 
@@ -55,7 +49,7 @@ async def browser_auth(request: Request, call_next):
         if request.url.path.startswith("/api/nutrition/"):
             await run_in_threadpool(_valid_session, request.cookies.get(COOKIE_NAME))
             if not _nutrition_ready():
-                return JSONResponse(status_code=403, content={"detail": "Complete your Google sheet and Gemini setup before using nutrition and chat.", "code": "nutrition_setup_required"})
+                return JSONResponse(status_code=403, content={"detail": "Complete your Google sheet and AI model setup before using nutrition and chat.", "code": "nutrition_setup_required"})
         response = await call_next(request)
         if response.status_code < 400:
             session_id = request.cookies.get("garmin_session")
@@ -625,7 +619,12 @@ def strava_connect(request: Request):
         return response
     state = secrets.token_urlsafe(32)
     if request.query_params.get("link") == "1":
-        _get_session(request.cookies.get(COOKIE_NAME))
+        try:
+            _get_session(request.cookies.get(COOKIE_NAME))
+        except HTTPException as exc:
+            if exc.status_code == 401:
+                return RedirectResponse("/dashboard.html?strava=link_login_required", status_code=302)
+            raise
         app_db.set_setting("link_strava:" + app_db.session_key(state), {"owner": app_db.user_scope(), "expires": int(time.time()) + 600}, scope="oauth")
     url = strava_service.auth_url(_strava_redirect_uri(request), state, config)
     response = RedirectResponse(url, status_code=302)
@@ -724,22 +723,22 @@ def _settings_status() -> dict:
     nutrition = app_db.user_setting("nutrition_config", {})
     secrets_config = app_db.user_setting("nutrition_secrets", {})
     sheets = nutrition.get("google_sheets") or {}
-    gemini = nutrition.get("gemini") or {}
     llm = llm_service.config()
     checks = app_db.get_setting("integration_checks", {}, scope=app_db.user_scope())
     bound_request = (auth_cookies._state.get() or {}).get("request")
     garmin_service = _local_session(bound_request.cookies.get(COOKIE_NAME)) if bound_request else None
+    strava_record = auth_cookies.record("strava")
+    strava_linked = bool(strava_record and strava_record.get("ownerScope") == app_db.user_scope())
     def ready(name):
         return checks.get(name, {}).get("fingerprint") == _integration_fingerprint(name)
     return {
         "scope": "application" if app_db.user_scope() == "global" else "user",
         "strava": {"configured": strava_service.is_configured(), "ready": strava_service.is_connected()},
         "sheets": {"url": sheets.get("web_app_url") or "", "enabled": bool(sheets.get("enabled")), "tokenConfigured": bool(secrets_config.get("sheets_token")), "ready": ready("sheets") and bool(sheets.get("enabled"))},
-        "gemini": {"model": gemini.get("model") or "gemini-flash-lite-latest", "enabled": bool(gemini.get("enabled", True)), "keyConfigured": bool(secrets_config.get("gemini_api_key")), "ready": ready("gemini") and bool(gemini.get("enabled", True))},
-        "llm": {"provider": llm.get("provider", "gemini"), "model": llm.get("model", "gemini-flash-lite-latest"), "enabled": bool(llm.get("enabled", True)), "keyConfigured": bool(llm_service.api_key()), "ready": ready("llm") and bool(llm.get("enabled", True))},
+        "llm": {"provider": llm.get("provider", ""), "model": llm.get("model", ""), "enabled": bool(llm.get("enabled", True)), "keyConfigured": bool(llm_service.api_key()), "ready": ready("llm") and bool(llm.get("enabled", True))},
         "garmin": {"ready": bool(garmin_service and garmin_service.is_authenticated)},
         "usda": {"keyConfigured": bool(secrets_config.get("usda_api_key"))},
-        "account": {"email": app_db.profile_email(), "canLinkStrava": bool(garmin_service and garmin_service.is_authenticated)},
+        "account": {"email": app_db.profile_email(), "canLinkStrava": bool(garmin_service and garmin_service.is_authenticated), "stravaLinked": strava_linked},
         "nutritionReady": _nutrition_ready(),
     }
 
@@ -1117,4 +1116,4 @@ if __name__ == "__main__":
     import uvicorn
 
     port = int(app_db.get_setting("app_config", {}).get("port", 8000))
-    uvicorn.run("main:app", host="127.0.0.1", port=port, reload=True)
+    uvicorn.run("backend.main:app", host="127.0.0.1", port=port, reload=True)

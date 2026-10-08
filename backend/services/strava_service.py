@@ -26,8 +26,7 @@ import time
 from typing import Any
 
 import requests
-import auth_cookies
-import app_db
+from backend.utils import app_db, auth_cookies
 
 logger = logging.getLogger("strava.service")
 

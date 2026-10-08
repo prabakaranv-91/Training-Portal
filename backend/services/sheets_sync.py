@@ -16,7 +16,7 @@ import time
 from typing import Any
 
 import requests
-import app_db
+from backend.utils import app_db
 
 logger = logging.getLogger("nutrition.sheets")
 
@@ -148,7 +148,7 @@ def push_review(user: str, date: str, sig: str, review: dict[str, Any]) -> None:
 
 
 def fetch_review(user: str, date: str) -> dict[str, Any] | None:
-    """Saved Gemini review {sig, review} for a day from the sheet, or None (not found / unreachable)."""
+    """Saved AI review {sig, review} for a day from the sheet, or None (not found / unreachable)."""
     if not is_configured():
         return None
     try:

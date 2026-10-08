@@ -62,8 +62,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .sidebar-menu-item:hover { background: var(--fc-panel-raised); color: var(--fc-blue); }
 .sidebar-menu-icon { width: 24px; height: 24px; flex: none; display: grid; place-items: center; color: var(--fc-mint); font-size: 20px; }
 .sidebar-menu-arrow { margin-left: auto; color: var(--fc-muted); font-size: 12px; }
-.sidebar-privacy { display: flex; align-items: center; gap: 6px; padding: 0 8px; color: var(--fc-muted); font-size: 12px; }
-.privacy-mark { color: var(--fc-mint); font-size: 10px; }
 
 .food-main { width: 100%; height: 100dvh; min-height: 0; display: flex; flex-direction: column; background: radial-gradient(ellipse at 50% 0%, rgba(100, 135, 89, .10), transparent 44%); }
 .chat-header { min-height: 56px; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-inline: 18px; border-bottom: 1px solid var(--fc-line); }

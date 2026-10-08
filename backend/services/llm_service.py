@@ -4,7 +4,7 @@ from typing import Any
 import litellm
 from jsonschema import validate
 
-import app_db
+from backend.utils import app_db
 
 
 def config() -> dict[str, Any]:
@@ -13,7 +13,9 @@ def config() -> dict[str, Any]:
     if selected:
         return selected
     legacy = nutrition.get("gemini") or {}
-    return {"provider": "gemini", "model": legacy.get("model") or "gemini-flash-lite-latest", "enabled": legacy.get("enabled", True), "daily_limit": legacy.get("daily_limit", 200)}
+    if legacy:
+        return {"provider": "gemini", "model": legacy.get("model"), "enabled": legacy.get("enabled", True), "daily_limit": legacy.get("daily_limit", 200)}
+    return {"provider": "", "model": "", "enabled": False}
 
 
 def api_key() -> str | None:
@@ -31,8 +33,10 @@ def schema_json(schema: Any) -> Any:
 
 def generate(prompt: str, schema: dict[str, Any]) -> Any:
     selected = config()
-    provider = selected.get("provider") or "gemini"
-    model = selected.get("model") or "gemini-flash-lite-latest"
+    provider = selected.get("provider") or ""
+    model = selected.get("model") or ""
+    if not provider or not model:
+        raise RuntimeError("Choose an AI provider and model in Settings.")
     key = api_key()
     if not key:
         raise RuntimeError("Save your LLM provider API key in Settings.")

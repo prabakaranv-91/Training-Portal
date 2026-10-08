@@ -11,7 +11,9 @@ from pathlib import Path
 from typing import Any
 
 
-DB_PATH = Path(__file__).resolve().parent / "data" / "app.sqlite3"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+APP_ROOT = PROJECT_ROOT / "backend"
+DB_PATH = PROJECT_ROOT / "data" / "app.sqlite3"
 DEFAULT_DB_PATH = DB_PATH
 current_user: ContextVar[str | None] = ContextVar("database_user", default=None)
 _schema_lock = threading.Lock()
@@ -63,7 +65,7 @@ def migrate_legacy(database, root: Path, data_root: Path, environment: dict[str,
     for path in data_root.glob("nutrition_log*.json"):
         scope = "legacy_user:" + path.stem.removeprefix("nutrition_log_") if path.stem != "nutrition_log" else "legacy_user:default"
         database.execute("INSERT OR IGNORE INTO settings(scope, name, value) VALUES (?, 'nutrition_log', ?)", (scope, json.dumps(_legacy_json(path, {}))))
-    legacy_strava = _legacy_json(Path.home() / ".strava_portal_tokens.json", {}) if root == DEFAULT_DB_PATH.parent.parent else {}
+    legacy_strava = _legacy_json(Path.home() / ".strava_portal_tokens.json", {}) if root == APP_ROOT else {}
     if legacy_strava.get("refresh_token"):
         user_id = str((legacy_strava.get("athlete") or {}).get("id") or "legacy")
         database.execute("INSERT OR IGNORE INTO accounts(provider, user_id, account) VALUES ('strava', ?, ?)", (user_id, json.dumps(legacy_strava)))
@@ -115,7 +117,7 @@ def connection():
         """)
         if DB_PATH == DEFAULT_DB_PATH and not database.execute("SELECT 1 FROM settings WHERE scope = 'global' AND name = 'legacy_migrated'").fetchone():
             with database:
-                migrate_legacy(database, Path(__file__).resolve().parent, Path(os.environ.get("NUTRITION_DATA_DIR") or Path.home() / ".training_lab"), dict(os.environ))
+                migrate_legacy(database, APP_ROOT, Path(os.environ.get("NUTRITION_DATA_DIR") or Path.home() / ".training_lab"), dict(os.environ))
         if DB_PATH == DEFAULT_DB_PATH:
             with database:
                 privatize_integrations(database)

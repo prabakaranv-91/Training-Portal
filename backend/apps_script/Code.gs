@@ -1,15 +1,15 @@
 /**
  * Training Lab — nutrition storage (Google Apps Script Web App), version 7.
  *
- * Deploy: Extensions ▸ Apps Script ▸ paste your private downloaded script ▸
+ * Deploy: Extensions ▸ Apps Script ▸ paste your downloaded script ▸
  * Deploy ▸ Manage deployments ▸
  * edit the existing deployment ▸ Version: New version ▸ Deploy (keeps the same URL).
  *
- * v5 adds the per-user "· Reviews" tab so a Gemini day review is stored once and
+ * v5 adds the per-user "· Reviews" tab so an AI day review is stored once and
  * reused (upsertReview / getReview) instead of spending quota on every page load.
  */
 
-const TOKEN = "PASTE_SHEETS_TOKEN_HERE"; // Your setup download fills this in privately.
+const TOKEN = "PASTE_SHEETS_TOKEN_HERE"; // Your setup download fills this in.
 const VERSION = 7;
 const ENTRY_HEADERS = ["user","entryId","itemIndex","date","time","text","food","qty","unit","grams",
   "kcal","protein","carbs","fat","fiber","sugar","sodium","source","revoked","updatedAt"];

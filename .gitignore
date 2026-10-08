@@ -28,7 +28,7 @@ Thumbs.db
 .idea/
 
 # Application SQLite credentials and data
-backend/data/
+data/
 *.sqlite3
 *.sqlite3-wal
 *.sqlite3-shm

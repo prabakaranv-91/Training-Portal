@@ -1,4 +1,4 @@
-# Starts the Garmin Training Portal locally.
+# Starts Fit Squad locally.
 # Creates a virtual environment on first run, installs dependencies, then runs the server.
 
 $ErrorActionPreference = "Stop"
@@ -17,6 +17,18 @@ Write-Host "Installing dependencies..." -ForegroundColor Cyan
 & $py -m pip install --quiet --upgrade pip
 & $py -m pip install --quiet -r (Join-Path $root "backend\requirements.txt")
 
-Write-Host "`nStarting portal at http://127.0.0.1:8000`n" -ForegroundColor Green
-Set-Location (Join-Path $root "backend")
-& $py main.py
+Set-Location $root
+$port = [int](& $py -c "from backend.utils import app_db; print(app_db.get_setting('app_config', {}).get('port', 8000))")
+while ($true) {
+    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
+    try {
+        $listener.Start()
+        $listener.Stop()
+        break
+    } catch {
+        $port++
+    }
+}
+
+Write-Host "`nStarting Fit Squad at http://127.0.0.1:$port`n" -ForegroundColor Green
+& $py -m uvicorn backend.main:app --host 127.0.0.1 --port $port

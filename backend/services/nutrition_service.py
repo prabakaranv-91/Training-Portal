@@ -27,10 +27,8 @@ from typing import Any
 
 import requests
 
-import food_parser_client
-import sheets_sync
-import app_db
-import llm_service
+from backend.utils import app_db
+from backend.services import food_parser_client, llm_service, sheets_sync
 
 logger = logging.getLogger("nutrition.service")
 
@@ -590,7 +588,7 @@ def analyse(text: str) -> list[dict[str, Any]]:
 
 
 def _analyse_ai(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Items understood by Gemini: built-in table values when we know the food, else Gemini's estimate."""
+    """Items understood by the selected AI model, with built-in values when available."""
     out = []
     for it in items:
         name, qty, unit = it["name"], it["qty"], it["unit"]
@@ -616,7 +614,7 @@ def _analyse_ai(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "qty": qty,
             "unit": unit,
             "grams": round(grams),
-            "source": f"{source} · parsed by {llm_service.config().get('provider', 'LLM')}",
+            "source": f"{source} · parsed by AI model",
             "found": True,
             **{k: round((per100.get(k) or 0) * factor, 1) for k in NUTRIENTS},
         })
@@ -775,10 +773,10 @@ KCAL_PER_KG = 7700  # energy in ~1 kg of body weight change
 
 
 def coach(user: str, date: str, refresh: bool = False) -> dict[str, Any]:
-    """Gemini review of the day's meals, stored locally + in the Google Sheet.
+    """AI review of the day's meals, stored locally and in the Google Sheet.
 
     It is regenerated only when the day's food or program changed (or on `refresh`),
-    so reopening the page reuses the stored review instead of spending Gemini quota.
+    so reopening the page reuses the stored review instead of spending provider quota.
     """
     data = _load(user)
     snap = data["days"].get(date)
@@ -800,7 +798,7 @@ def coach(user: str, date: str, refresh: bool = False) -> dict[str, Any]:
     cached = (data.get("coach") or {}).get(date)
     origin = "cache"
     if not cached:
-        # The sheet keeps every review, so another PC / a fresh install doesn't spend Gemini quota again.
+        # Reuse the sheet review across installs instead of requesting another completion.
         saved = sheets_sync.fetch_review(user, date)
         if saved and saved.get("review"):
             cached, origin = {"sig": saved.get("sig"), "review": saved["review"],
@@ -1012,7 +1010,7 @@ def meal_ideas(user: str, date: str) -> dict[str, Any]:
             "program": program["label"]}
 
 
-# Everyday Indian foods used when there is no Gemini review to draw from.
+# Everyday Indian foods used when there is no AI review to draw from.
 _ADD_PROTEIN = [("Sprouts / chana sundal", "1 cup", "~9 g protein, high fibre"),
                 ("Paneer bhurji", "100 g", "~18 g protein"),
                 ("Boiled eggs", "2", "~12 g protein"),
@@ -1026,7 +1024,7 @@ _ADD_FUEL = [("Banana + peanut butter", "1 + 1 tbsp", "quick clean calories"),
 
 def _period_advice(data: dict[str, Any], start: str, contributors: list[dict[str, Any]],
                    avg: dict[str, float], target_gap: float) -> dict[str, Any]:
-    """Foods to avoid/add over the period: Gemini day reviews first, rule-based Indian picks to fill."""
+    """Foods to avoid/add over the period: AI day reviews first, rule-based picks to fill."""
     avoid: dict[str, dict[str, Any]] = {}
     add: dict[str, dict[str, Any]] = {}
     for date, c in sorted((data.get("coach") or {}).items()):

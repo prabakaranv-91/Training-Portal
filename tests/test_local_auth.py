@@ -9,9 +9,8 @@ from unittest.mock import MagicMock, patch
 from fastapi import HTTPException, Request, Response
 from fastapi.testclient import TestClient
 
-import garmin_auth_store as store
-import app_db
-import main
+from backend import main
+from backend.utils import app_db, garmin_auth_store as store
 
 
 class LocalGarminAuthTests(unittest.TestCase):

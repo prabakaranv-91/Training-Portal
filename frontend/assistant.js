@@ -75,7 +75,7 @@ function friendlyDate(value, options = { weekday: "long", day: "numeric", month:
 
 function requestChatSetup(event) {
   if (typeof openSetup === "function") return openSetup(event);
-  document.addEventListener("fitmate-setup-ready", () => openSetup(event), { once: true });
+  document.addEventListener("fit-squad-settings-ready", () => openSetup(event), { once: true });
 }
 
 async function initialize() {
