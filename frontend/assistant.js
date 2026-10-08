@@ -43,22 +43,39 @@ function redirectToLogin() {
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options,
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    if (response.status === 401) {
-      redirectToLogin();
-      const error = new Error("Your session expired. Sign in again to continue.");
-      error.status = 401;
-      throw error;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 90000);
+  try {
+    const response = await fetch(path, {
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+      ...options,
+      signal: controller.signal,
+    });
+    const payload = await response.json().catch(error => {
+      if (controller.signal.aborted) throw error;
+      return {};
+    });
+    if (!response.ok) {
+      if (response.status === 401) {
+        redirectToLogin();
+        const error = new Error("Your session expired. Sign in again to continue.");
+        error.status = 401;
+        throw error;
+      }
+      throw new Error(payload.detail || payload.message || `Request failed (${response.status})`);
     }
-    throw new Error(payload.detail || payload.message || `Request failed (${response.status})`);
+    return payload;
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(path === "/api/nutrition/log"
+        ? "Meal analysis timed out. Check today's log before retrying; your meal may already have been saved."
+        : "The request timed out. Please try again.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
-  return payload;
 }
 
 function toast(message) {
@@ -396,8 +413,8 @@ async function submitFood(event) {
     const result = await api("/api/nutrition/log", { method: "POST", body: JSON.stringify({ text, date: selectedDate }) });
     currentDay = result.day;
     renderDay(currentDay);
-    await loadReview(currentDay);
-    await loadRecentDays();
+    void loadReview(currentDay);
+    void loadRecentDays();
   } catch (error) {
     pending.remove();
     input.value = text;
