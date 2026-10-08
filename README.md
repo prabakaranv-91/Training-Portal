@@ -1,4 +1,4 @@
-# 🏃 Garmin Training Portal
+# 🏃 Fit Squad
 
 A personal web portal that connects to your **Garmin Connect** account and shows
 your training and wellness statistics on a single dashboard:
@@ -79,22 +79,66 @@ allowed origins are held in the database's `app_config` settings.
 
 ## Application settings and migration
 
-Open **Integration settings** on the local sign-in page, or **Integrations** on
-the dashboard, to save Strava application credentials, a Google Sheets Apps Script
-deployment URL and token, Gemini configuration, and the optional USDA key.
-An authenticated user saves into their own account scope. Initial shared setup is
-restricted to localhost. Stored secrets are never returned by the settings API;
-leaving a configured secret field blank preserves it.
+Garmin and Strava are the only login identities. There is no pre-login setup or
+local username/password account. Garmin generates its provider token during the
+normal email/password/MFA login. Strava uses the existing server-managed OAuth
+app: users approve consent without entering application client credentials.
+
+After login, users must verify their own **Google sheet** and **LLM** settings
+before using food logging, nutrition analysis, or the chat tracker. The two-step
+wizard includes an explanation of the purpose and data involved, plus an
+**Instructions** link for each step. Generate the private sheet token before the
+personalized Apps Script download becomes available. Nutrition endpoints enforce
+the same readiness requirement; hiding or bypassing the wizard does not unlock them.
+
+Users who skip setup can use the training Dashboard only. Its nutrition panel and
+food-chat controls remain hidden until both checks pass. Reopen **Settings** to
+complete configuration, then select **Open FitMate**. Changing or disabling the
+saved integrations invalidates readiness and blocks nutrition again.
+
+Settings are saved in the verified user's private SQLite scope. Secrets are never
+returned by the settings API; blank secret fields preserve existing values.
+Garmin passwords are not stored and Garmin credential fields are not part of setup.
+
+Models and API keys can be changed only in **Settings**. LiteLLM routes each user's
+private provider/model choice to Gemini, OpenAI, Anthropic, Groq, Mistral,
+OpenRouter, or another LiteLLM provider supporting a single API key. Providers
+requiring additional credentials or custom deployment URLs are not configured by
+this form. Verification sends a small completion request; provider charges may
+apply. Meal descriptions and nutrition data are sent to the chosen provider, but
+tracker login tokens and Sheets tokens are not. Model changes invalidate setup
+readiness and cached daily reviews. Legacy Gemini settings remain compatible.
+
+The existing Strava application credentials are held in SQLite's
+`strava_app_config` setting and are never returned by user settings APIs.
+Each Strava user's access/refresh tokens remain separate in SQLite. Strava itself
+controls consent, application approval and athlete-capacity limits.
+
+Garmin's authenticated email is normalized and uniquely associated with a tracker.
+Strava's API does not return email, so the app does not guess an email or match on
+display name. To combine an existing Garmin and Strava tracker, sign in with
+Garmin, open **Settings**, select **Link Strava to this tracker**, and approve
+Strava consent once. Both verified logins then resolve to the same profile.
+Existing food histories are merged by entry ID without dropping either history;
+the canonical tracker's existing settings take precedence. Profiles with different
+verified email addresses are not silently combined.
+
+Previously migrated Sheets/LLM configuration is assigned only to the existing
+provider account, never inherited by new setups or users. Ambiguous legacy
+configuration remains quarantined for manual recovery. Settings endpoints reject
+unauthenticated requests without a valid provider session.
 
 At first database initialization, the app imports `strava_config.json`,
 `nutrition_config.json`, `nutrition_secrets.json`, legacy Garmin accounts and
 sessions, nutrition logs, caches, and retry state. Existing credential environment
 variables are accepted only as one-time migration inputs. Subsequent reads and
-writes use SQLite exclusively. Original files remain untouched as migration
-backups; keep those backups private too.
+writes use SQLite exclusively. Superseded local configuration JSON files have
+been removed after archiving their original values in a private SQLite record
+and backing up the database under `backend/data/backups/`. Active settings are
+not overwritten by archived values; keep the database and backups private.
 
-Legacy nutrition logs are adopted once by the first matching authenticated
-account. Existing encrypted Strava browser cookies require a one-time reconnect;
+Legacy nutrition logs can only be adopted by the verified migrated owner.
+Existing encrypted Strava browser cookies require a one-time reconnect;
 new sessions persist in SQLite and survive restarts. Do not delete the database
 to edit configuration; use the application settings form instead.
 

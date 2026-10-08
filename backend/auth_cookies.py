@@ -10,7 +10,7 @@ import app_db
 
 logger = logging.getLogger("auth.cookies")
 SESSION_LIFETIME = 7 * 24 * 60 * 60
-COOKIE_NAMES = {"strava": "strava_session"}
+COOKIE_NAMES = {"strava": "strava_session", "setup": "setup_session"}
 CHUNK_SIZE = 2800
 MAX_CHUNKS = 3
 MAX_PAYLOAD = 32768
@@ -28,7 +28,7 @@ def decode(provider: str, cookies: dict[str, str]) -> dict[str, Any] | None:
     token = cookies.get(COOKIE_NAMES[provider], "")
     if not token.startswith("v2.") or not 1 <= len(token[3:]) <= 128:
         return None
-    return app_db.fetch_session(provider, token[3:])
+    return app_db.fetch_setup_session(token[3:]) if provider == "setup" else app_db.fetch_session(provider, token[3:])
 
 
 def bind(request: Request):
@@ -36,7 +36,7 @@ def bind(request: Request):
     garmin_sid = request.cookies.get("garmin_session")
     garmin = app_db.fetch_session("garmin", garmin_sid) if garmin_sid else None
     saved = garmin or records.get("strava")
-    scope = f"user:{saved['provider']}:{saved['userId']}" if saved else None
+    scope = saved["ownerScope"] if saved else None
     return (_state.set({"records": records, "changed": set(), "request": request}), app_db.current_user.set(scope))
 
 
@@ -56,6 +56,16 @@ def update(provider: str, account: dict[str, Any] | None, *, sid: str | None = N
     if state is None:
         raise RuntimeError("Authentication requires a browser request.")
     previous = state["records"][provider]
+    if provider == "setup":
+        if account is None:
+            if previous:
+                app_db.delete_setup_session(previous["sid"])
+            setup_value = None
+        else:
+            setup_value = app_db.create_setup_session(sid or secrets.token_urlsafe(32), expires_at or int(time.time()) + 86400)
+        state["records"][provider] = setup_value
+        state["changed"].add(provider)
+        return
     value: dict[str, Any] | None = None if account is None and not pending else {
         "provider": provider,
         "sid": sid or (previous or {}).get("sid") or secrets.token_urlsafe(32),
@@ -68,6 +78,8 @@ def update(provider: str, account: dict[str, Any] | None, *, sid: str | None = N
             if previous:
                 app_db.delete_session(provider, previous["sid"])
         else:
+            if previous and previous["sid"] != value["sid"]:
+                app_db.delete_session(provider, previous["sid"])
             user_id = str(((account or {}).get("athlete") or {}).get("id") or app_db.session_key(value["sid"]))
             app_db.save_session(provider, value["sid"], user_id, account or {}, value["expiresAt"])
             value["userId"] = user_id

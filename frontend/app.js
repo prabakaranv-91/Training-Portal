@@ -2,6 +2,7 @@
 // Talks to the FastAPI backend on the same origin.
 
 const API = "";
+let landingInChat = false;
 let allActivities = [];
 let stravaActivities = [];
 let stravaConnected = false;
@@ -70,7 +71,12 @@ async function api(path, options = {}) {
     err.status = res.status;
     throw err;
   }
-  return res.json();
+  const data = await res.json();
+  if (!landingInChat && options.method === "POST" && ["/api/login", "/api/mfa", "/api/garmin/import-local"].includes(path) && data.status !== "mfa_required") {
+    landingInChat = true;
+    window.location.replace("/");
+  }
+  return data;
 }
 
 function show(viewId) {
@@ -503,7 +509,7 @@ async function loadDashboard() {
 
     // Strava (extra activity source) loads independently.
     loadStravaStatus();
-    if (typeof loadNutrition === "function") loadNutrition();
+    if (typeof loadNutrition === "function") api("/api/session").then(state => { if (state.nutritionReady) loadNutrition(); }).catch(() => {});
 
     // Running report loads independently (it scans the year's activities).
     api("/api/running-report")

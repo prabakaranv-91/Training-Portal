@@ -1,5 +1,5 @@
 """
-MCP client for food_mcp_server.py (Gemini food parser).
+MCP client for food_mcp_server.py (LiteLLM food parser).
 
 Starts the server as a stdio child process on first use and keeps one session open on a
 background event loop, so FastAPI's sync endpoints can call it with a plain function.
@@ -8,12 +8,10 @@ Returns None on any problem so callers can fall back to the built-in regex parse
 
 from __future__ import annotations
 
-import app_db
 import asyncio
 import datetime as dt
 import json
 import logging
-import os
 import sys
 import threading
 from concurrent.futures import Future
@@ -24,6 +22,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 import food_mcp_server
+import app_db
 
 logger = logging.getLogger("nutrition.mcp")
 
@@ -32,7 +31,7 @@ _lock = threading.Lock()
 _loop: asyncio.AbstractEventLoop | None = None
 _queue: asyncio.Queue | None = None
 _cache: dict[str, list[dict[str, Any]]] = {}
-_status: dict[str, Any] = {"lastError": None, "lastOk": None}
+_status: dict[str, dict[str, Any]] = {}
 
 
 def _daily_limit() -> int:
@@ -64,11 +63,12 @@ def status() -> dict[str, Any]:
     return {
         "enabled": bool(cfg.get("enabled", True)),
         "model": cfg.get("model") or "gemini-flash-lite-latest",
+        "provider": cfg.get("provider") or "gemini",
         "keyConfigured": bool(food_mcp_server._api_key()),
         "running": _loop is not None,
         "callsToday": _usage_today(),
         "dailyLimit": _daily_limit(),
-        **_status,
+        **_status.get(app_db.user_scope(), {"lastError": None, "lastOk": None}),
     }
 
 
@@ -98,7 +98,7 @@ def _run_loop() -> None:
         loop.run_until_complete(_serve(_queue))
     except Exception as exc:  # noqa: BLE001
         logger.warning("Food MCP server stopped: %s", exc)
-        _status["lastError"] = f"MCP server stopped: {exc}"
+        _status.setdefault("global", {})["lastError"] = f"MCP server stopped: {exc}"
     finally:
         _loop, _queue = None, None
         loop.close()
@@ -117,7 +117,7 @@ def _ensure_started() -> None:
 def _call_tool(tool: str, args: dict[str, Any]) -> Any:
     args = {**args, "db_scope": app_db.user_scope()}
     if _usage_today() >= _daily_limit():
-        raise RuntimeError(f"Daily Gemini budget of {_daily_limit()} calls used; using built-in logic until tomorrow.")
+        raise RuntimeError(f"Daily LLM budget of {_daily_limit()} calls used; using built-in logic until tomorrow.")
     _ensure_started()
     if _loop is None or _queue is None:
         raise RuntimeError("MCP client loop did not start")
@@ -146,22 +146,22 @@ def parse(text: str) -> list[dict[str, Any]] | None:
     try:
         items = _call_tool("parse_food_text", {"text": text})
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Gemini food parsing failed, using built-in parser: %s", exc)
-        _status["lastError"] = str(exc)
+        logger.warning("LLM food parsing failed, using built-in parser: %s", exc)
+        _status.setdefault(app_db.user_scope(), {})["lastError"] = str(exc)
         return None
-    _status["lastOk"] = True
-    _status["lastError"] = None
+    _status.setdefault(app_db.user_scope(), {})["lastOk"] = True
+    _status.setdefault(app_db.user_scope(), {})["lastError"] = None
     _cache[key] = items
     return items
 
 
 def review(day: dict[str, Any]) -> dict[str, Any] | None:
-    """Gemini review of the whole day (foods to avoid for the program), or None if unavailable."""
+    """LLM review of the whole day (foods to avoid for the program), or None if unavailable."""
     if not is_enabled():
         return None
     try:
         return _call_tool("review_day", {"day_json": json.dumps(day)})
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Gemini day review failed: %s", exc)
-        _status["lastError"] = str(exc)
+        logger.warning("LLM day review failed: %s", exc)
+        _status.setdefault(app_db.user_scope(), {})["lastError"] = str(exc)
         return None

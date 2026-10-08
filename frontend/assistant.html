@@ -12,6 +12,8 @@
     <link rel="stylesheet" href="assistant.css?v=2026100702" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
     <script src="assistant.js?v=2026100702" defer></script>
+    <script src="setup.js" defer></script>
+    <link rel="stylesheet" href="setup.css" />
   </head>
   <body>
     <div class="food-shell sidebar-collapsed">
@@ -22,7 +24,9 @@
         </div>
         <nav id="recent-days" class="recent-days" aria-label="Recent food logs"></nav>
         <div class="sidebar-bottom">
-          <nav aria-label="Workspace navigation"><a class="sidebar-menu-item" href="/dashboard.html" target="_blank" rel="noopener" title="Open dashboard in a new tab"><span class="sidebar-menu-icon" aria-hidden="true">▦</span><span>Dashboard</span><span class="sidebar-menu-arrow" aria-hidden="true">↗</span></a></nav>
+          <nav aria-label="Workspace navigation"><a class="sidebar-menu-item" href="/dashboard.html" target="_blank" rel="noopener" title="Open dashboard in a new tab"><span class="sidebar-menu-icon" aria-hidden="true">▦</span><span>Dashboard</span><span class="sidebar-menu-arrow" aria-hidden="true">↗</span></a>
+<button id="configure-chat-integrations" class="sidebar-menu-item" type="button"><span class="sidebar-menu-icon" aria-hidden="true">⚙</span><span>Settings</span></button>
+<button id="chat-logout-btn" class="sidebar-menu-item" type="button" title="Sign out"><span class="sidebar-menu-icon" aria-hidden="true">↪</span><span>Logout</span></button></nav>
           <div class="sidebar-privacy"><span class="privacy-mark" aria-hidden="true">●</span><span>Private to your account</span></div>
         </div>
       </aside>

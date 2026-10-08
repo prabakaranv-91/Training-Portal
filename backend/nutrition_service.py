@@ -15,23 +15,22 @@ Nutrition log: parse free-text food intake, look up nutrition, keep history.
 
 from __future__ import annotations
 
-import app_db
 import datetime as dt
 import difflib
 import json
 import logging
 import math
-import os
 import re
 import threading
 import uuid
-from pathlib import Path
 from typing import Any
 
 import requests
 
 import food_parser_client
 import sheets_sync
+import app_db
+import llm_service
 
 logger = logging.getLogger("nutrition.service")
 
@@ -607,7 +606,7 @@ def _analyse_ai(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             unit = use_unit or food["default"]
         else:
             grams = it.get("total_grams") or _grams(qty, unit, {"units": {}})
-            per100, label, source = it["per100g"], name.capitalize(), "Gemini estimate"
+            per100, label, source = it["per100g"], name.capitalize(), "LLM estimate"
         factor = grams / 100
         said = " ".join(w for w in _norm(it["input"]).split() if w not in UNIT_ALIASES and w not in WORD_NUMBERS)
         out.append({
@@ -617,7 +616,7 @@ def _analyse_ai(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "qty": qty,
             "unit": unit,
             "grams": round(grams),
-            "source": f"{source} · parsed by Gemini",
+            "source": f"{source} · parsed by {llm_service.config().get('provider', 'LLM')}",
             "found": True,
             **{k: round((per100.get(k) or 0) * factor, 1) for k in NUTRIENTS},
         })
@@ -631,12 +630,18 @@ def _sum(items: list[dict[str, Any]]) -> dict[str, float]:
 # ------------------------------------------------------------------ storage
 
 
+def _log_scope(user: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "_", user.lower()).strip("_") or "default"
+    return app_db.current_user.get() or f"legacy_user:{slug}"
 
 
 def _load(user: str) -> dict[str, Any]:
     scope = _log_scope(user)
     data = app_db.get_setting("nutrition_log", scope=scope)
     if data is None:
+        owner = app_db.get_setting("private_integrations_migrated", {}).get("owner")
+        if scope.startswith("user:") and scope != owner:
+            return {"entries": [], "days": {}}
         slug = re.sub(r"[^a-z0-9]+", "_", user.lower()).strip("_") or "default"
         data = app_db.adopt_legacy("nutrition_log", f"legacy_user:{slug}", scope, None)
         if data is None:
@@ -789,7 +794,8 @@ def coach(user: str, date: str, refresh: bool = False) -> dict[str, Any]:
         "inProgress": date == dt.date.today().isoformat(), "foods": foods,
     }
     # Only the food and program decide freshness; burn/targets drift during the day as workouts sync.
-    sig = uuid.uuid5(uuid.NAMESPACE_OID, json.dumps(["v3", day["program"], foods], sort_keys=True)).hex
+    model_config = llm_service.config()
+    sig = uuid.uuid5(uuid.NAMESPACE_OID, json.dumps(["v4", day["program"], foods, model_config.get("provider"), model_config.get("model")], sort_keys=True)).hex
     now = dt.datetime.now()
     cached = (data.get("coach") or {}).get(date)
     origin = "cache"
@@ -801,16 +807,16 @@ def coach(user: str, date: str, refresh: bool = False) -> dict[str, Any]:
                               "at": now.isoformat(timespec="seconds")}, "sheet"
             _store_review(user, date, cached)
     if cached and cached.get("sig") == sig and not refresh:
-        return {"source": "gemini", "from": origin, "stale": False, "at": cached.get("at"), **cached["review"]}
+        return {"source": "litellm", "from": origin, "stale": False, "at": cached.get("at"), **cached["review"]}
     review = food_parser_client.review(day)
     if not review:
         if cached:
-            return {"source": "gemini", "from": origin, "stale": True, "at": cached.get("at"), **cached["review"]}
+            return {"source": "litellm", "from": origin, "stale": True, "at": cached.get("at"), **cached["review"]}
         return {"source": None}
     entry = {"sig": sig, "review": review, "at": now.isoformat(timespec="seconds")}
     _store_review(user, date, entry)
     sheets_sync.push_review(user, date, sig, review)
-    return {"source": "gemini", "from": "gemini", "stale": False, "at": entry["at"], **review}
+    return {"source": "litellm", "from": "litellm", "stale": False, "at": entry["at"], **review}
 
 
 def _store_review(user: str, date: str, entry: dict[str, Any]) -> None:
@@ -1427,8 +1433,3 @@ def _suggestions(intake, targets, status, workout_kcal, workout_min, is_today, p
     if intake["sodium"] > targets["sodium"]:
         tips.append(f"Sodium is high ({round(intake['sodium'])} mg). Drink water; fine if you sweated a lot today.")
     return tips
-
-
-def _log_scope(user: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "_", user.lower()).strip("_") or "default"
-    return app_db.current_user.get() or f"legacy_user:{slug}"

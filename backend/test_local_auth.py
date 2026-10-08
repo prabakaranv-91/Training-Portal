@@ -103,7 +103,7 @@ class LocalGarminAuthTests(unittest.TestCase):
         with patch.object(main.GarminService, "restore_account") as restore:
             with self.assertRaises(HTTPException) as error:
                 main.garmin_import_local(main.SavedGarminRequest(email="unknown@example.invalid"), request, Response())
-            self.assertEqual(error.exception.status_code, 404)
+            self.assertEqual(error.exception.status_code, 401)
             restore.assert_not_called()
         remote = Request({"type": "http", "scheme": "https", "server": ("example.test", 443),
                           "client": ("203.0.113.1", 1234), "path": "/api/garmin/import-local",

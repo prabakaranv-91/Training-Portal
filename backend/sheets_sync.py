@@ -7,18 +7,16 @@ Mirror nutrition entries/day summaries to a Google Sheet via an Apps Script Web 
 
 from __future__ import annotations
 
-import app_db
 import json
 import logging
-import os
 import queue
 import re
 import threading
 import time
-from pathlib import Path
 from typing import Any
 
 import requests
+import app_db
 
 logger = logging.getLogger("nutrition.sheets")
 
@@ -26,7 +24,7 @@ logger = logging.getLogger("nutrition.sheets")
 _queue: queue.Queue[dict[str, Any]] = queue.Queue()
 _pending_lock = threading.Lock()
 _worker: threading.Thread | None = None
-_status: dict[str, Any] = {"lastOk": None, "lastError": None}
+_status: dict[str, dict[str, Any]] = {}
 
 
 def _config(scope: str | None = None) -> dict[str, Any]:
@@ -44,13 +42,16 @@ def is_configured() -> bool:
 
 def status() -> dict[str, Any]:
     cfg = _config()
+    scope = app_db.user_scope()
+    with _queue.mutex:
+        queued = sum(item.get("_scope") == scope for item in _queue.queue)
     return {
         "enabled": bool(cfg.get("enabled")),
         "urlConfigured": bool(cfg.get("web_app_url")),
         "tokenConfigured": bool(_token()),
-        "queued": _queue.qsize(),
-        "pending": len(_load_pending()),
-        **_status,
+        "queued": queued,
+        "pending": sum(item.get("_scope") == scope for item in _load_pending()),
+        **_status.get(scope, {"lastOk": None, "lastError": None}),
     }
 
 
@@ -108,13 +109,14 @@ def _run() -> None:
         if backlog:
             _save_pending([])
         for item in backlog + [payload]:
+            state = _status.setdefault(item.get("_scope") or "legacy_private", {"lastOk": None, "lastError": None})
             try:
                 _post(item)
-                _status["lastOk"] = time.strftime("%Y-%m-%d %H:%M:%S")
-                _status["lastError"] = None
+                state["lastOk"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                state["lastError"] = None
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Google Sheets sync failed: %s", exc)
-                _status["lastError"] = str(exc)
+                state["lastError"] = str(exc)
                 _save_pending(_load_pending() + [item])
 
 

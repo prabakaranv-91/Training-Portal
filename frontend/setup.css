@@ -1,0 +1,31 @@
+.setup-overlay[hidden], .setup-dialog [hidden] { display: none !important; }
+.setup-overlay { position: fixed; inset: 0; z-index: 260; display: grid; place-items: center; padding: 12px; background: rgba(0, 0, 0, .55); }
+.setup-dialog { width: min(620px, 100%); max-height: 90dvh; overflow-y: auto; padding: 16px; border: 1px solid #40566a; border-radius: 6px; background: #141f2d; color: #edf4fb; font-family: var(--font-ui, "Segoe UI", sans-serif); font-size: 14px; }
+.setup-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.setup-dialog h2 { margin: 0; font-size: 18px; }
+.setup-dialog h3 { margin: 12px 0 6px; font-size: 16px; }
+.setup-dialog button { padding: 7px 10px; border: 1px solid #40566a; border-radius: 4px; background: #1b2a3b; color: #edf4fb; font: inherit; cursor: pointer; }
+.setup-dialog button:disabled { opacity: .5; cursor: wait; }
+.setup-dialog a { color: #a6d8fa; }
+.setup-account { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; padding-bottom: 8px; border-bottom: 1px solid #40566a; color: #a5b6c8; font-size: 12px; overflow-wrap: anywhere; }
+.setup-dialog label { display: grid; gap: 4px; margin: 10px 0; color: #a5b6c8; font-size: 13px; }
+.setup-dialog input, .setup-dialog textarea, .setup-dialog select { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid #547897; border-radius: 4px; background: #0d1521; color: #edf4fb; font: inherit; }
+.setup-dialog input:focus, .setup-dialog textarea:focus { outline: 2px solid #75c9f2; outline-offset: 1px; }
+#setup-steps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; margin: 12px 0; }
+#setup-steps button { padding: 6px 4px; font-size: 12px; }
+#setup-steps button[aria-current="step"] { border-color: #75c9f2; color: #a6d8fa; }
+#setup-steps small { display: block; color: #a5b6c8; font-size: 10px; }
+.setup-instructions { padding: 8px 0; line-height: 1.55; }
+.setup-instructions ol { padding-left: 20px; margin: 0; }
+.setup-instructions li + li { margin-top: 6px; }
+.setup-actions, .setup-dialog footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 0; }
+.setup-dialog footer { justify-content: flex-end; }
+#setup-status { margin: 10px 0; color: #a6d8fa; }
+.setup-purpose { color: #a5b6c8; font-size: 13px; line-height: 1.5; }
+#setup-download-note { color: #a5b6c8; font-size: 12px; }
+.nutrition-panel[hidden], #nutri-fab[hidden], #nutri-chatbox[hidden] { display: none !important; }
+.chat-setup-required { max-width: 560px; margin: 16px 0; font-size: 14px; line-height: 1.5; }
+.chat-setup-required h2 { font-size: 18px; }
+.chat-setup-required button { margin-right: 12px; padding: 8px 12px; border: 1px solid #547897; border-radius: 4px; background: #1b2a3b; color: #edf4fb; cursor: pointer; }
+.chat-setup-required a { color: #a6d8fa; }
+@media (max-width: 420px) { .setup-dialog { padding: 12px; font-size: 13px; } #setup-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

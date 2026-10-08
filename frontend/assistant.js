@@ -7,6 +7,7 @@ let contributorsNutrient = null;
 let toastTimer;
 let weightData = null;
 let weightChart = null;
+let redirectingToLogin = false;
 
 const $ = (selector) => document.querySelector(selector);
 const FOOD_RATINGS = {
@@ -30,6 +31,17 @@ function number(value) {
   return value == null ? "—" : Math.round(value).toLocaleString();
 }
 
+function redirectToLogin() {
+  if (redirectingToLogin) return;
+  redirectingToLogin = true;
+  $("#conversation").replaceChildren();
+  $("#composer-wrap").hidden = true;
+  $("#insight-rail").hidden = true;
+  const outcome = new URLSearchParams(window.location.search).get("strava");
+  const suffix = ["denied", "state_error", "error"].includes(outcome) ? `?strava=${encodeURIComponent(outcome)}` : "";
+  window.location.replace(`/dashboard.html${suffix}`);
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     credentials: "same-origin",
@@ -39,7 +51,10 @@ async function api(path, options = {}) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     if (response.status === 401) {
-      throw new Error("Your session expired. Sign in again to continue.");
+      redirectToLogin();
+      const error = new Error("Your session expired. Sign in again to continue.");
+      error.status = 401;
+      throw error;
     }
     throw new Error(payload.detail || payload.message || `Request failed (${response.status})`);
   }
@@ -58,6 +73,11 @@ function friendlyDate(value, options = { weekday: "long", day: "numeric", month:
   return new Date(`${value}T00:00:00`).toLocaleDateString(undefined, options);
 }
 
+function requestChatSetup(event) {
+  if (typeof openSetup === "function") return openSetup(event);
+  document.addEventListener("fitmate-setup-ready", () => openSetup(event), { once: true });
+}
+
 async function initialize() {
   today = localDate();
   $("#food-date").value = today;
@@ -66,16 +86,22 @@ async function initialize() {
   try {
     const session = await api("/api/session");
     if (!session.authenticated) {
-      $("#conversation").innerHTML = "";
-      $("#auth-notice").hidden = false;
-      $("#composer-wrap").hidden = true;
-      $("#insight-rail").hidden = true;
+      redirectToLogin();
       return;
     }
+    if (!session.nutritionReady) {
+      $("#composer-wrap").hidden = true;
+      $("#insight-rail").hidden = true;
+      $("#conversation").innerHTML = `<section class="chat-setup-required"><h2>Complete your nutrition setup</h2><p>Verify your Google sheet and LLM model to unlock food logging, nutrition analysis and the daily tracker.</p><button type="button" id="complete-chat-setup">Complete setup</button><a href="/dashboard.html">Use Dashboard for now</a></section>`;
+      $("#complete-chat-setup").addEventListener("click", requestChatSetup);
+      requestChatSetup();
+      return;
+    }
+    $("#composer-wrap").hidden = false;
     $("#insight-rail").hidden = false;
     await Promise.all([loadRecentDays(), loadDay(today), loadWeight()]);
   } catch (error) {
-    showError(error.message);
+    if (!redirectingToLogin) showError(error.message);
   }
 }
 
@@ -164,14 +190,7 @@ async function loadDay(date) {
     await loadReview(currentDay);
   } catch (error) {
     currentDay = null;
-    if (error.message.includes("session expired")) {
-      $("#conversation").innerHTML = "";
-      $("#auth-notice").hidden = false;
-      $("#composer-wrap").hidden = true;
-      $("#insight-rail").hidden = true;
-    } else {
-      showError(error.message);
-    }
+    if (!redirectingToLogin) showError(error.message);
   } finally {
     $("#send-btn").disabled = busy || !currentDay;
   }
@@ -339,7 +358,7 @@ async function loadReview(day, refresh = false) {
   card.innerHTML = `<span class="spinner"></span><span>Preparing review…</span>`;
   try {
     const review = await api(`/api/nutrition/coach?date=${encodeURIComponent(day.date)}${refresh ? "&refresh=true" : ""}`);
-    if (!review || review.source !== "gemini") {
+    if (!review || !["gemini", "litellm"].includes(review.source)) {
       const tips = day.cutTips || [];
       card.textContent = tips[0] || "Log a meal to get a day review.";
       return;
@@ -453,6 +472,20 @@ function setSidebarCollapsed(collapsed) {
 
 $("#sidebar-toggle").addEventListener("click", () => setSidebarCollapsed(true));
 $("#sidebar-open").addEventListener("click", () => setSidebarCollapsed(false));
+$("#chat-logout-btn").addEventListener("click", async () => {
+  const button = $("#chat-logout-btn");
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    await api("/api/logout", { method: "POST" });
+    redirectToLogin();
+  } catch (error) {
+    if (!redirectingToLogin) {
+      toast(`Could not sign out: ${error.message}`);
+      button.disabled = false;
+    }
+  }
+});
 $("#weight-period").addEventListener("change", renderWeight);
 $("#conversation").addEventListener("submit", async event => {
   const form = event.target.closest(".food-quantity-form");

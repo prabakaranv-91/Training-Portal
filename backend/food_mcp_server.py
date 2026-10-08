@@ -1,5 +1,5 @@
 """
-MCP server: understands free-text meal descriptions with Google Gemini (free tier).
+MCP server: understands free-text meal descriptions with the user's LiteLLM model.
 
 Tool `parse_food_text(text)` returns the foods eaten as structured items:
   [{"input", "name", "qty", "unit", "total_grams", "per100g": {...}}]
@@ -8,21 +8,18 @@ Run standalone (stdio):   python food_mcp_server.py
 The Training Lab backend starts it automatically as a child process.
 
 Config and API keys come from the application's SQLite integration settings.
-Get a free key at https://aistudio.google.com/apikey
+Choose the provider, model and API key in Settings.
 """
 
 from __future__ import annotations
 
-import app_db
 import json
-import os
-from pathlib import Path
 from typing import Any
 
-import requests
+import app_db
+import llm_service
 from mcp.server.fastmcp import FastMCP
 
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 UNITS = ["piece", "cup", "bowl", "plate", "scoop", "slice", "tbsp", "tsp", "glass",
          "serving", "handful", "g", "kg", "ml", "l"]
 
@@ -69,53 +66,15 @@ SCHEMA = {
 
 
 def _config() -> dict[str, Any]:
-    return app_db.user_setting("nutrition_config", {}).get("gemini") or {}
+    return llm_service.config()
 
 
 def _api_key() -> str | None:
-    return app_db.user_setting("nutrition_secrets", {}).get("gemini_api_key")
+    return llm_service.api_key()
 
 
 def _generate(prompt: str, schema: dict[str, Any]) -> Any:
-    """Run a JSON-schema prompt on the configured model, falling back through the model list."""
-    key = _api_key()
-    if not key:
-        raise RuntimeError("Gemini API key is not configured in application settings.")
-    cfg = _config()
-    models = [cfg.get("model") or "gemini-flash-lite-latest", *cfg.get("fallback_models", [])]
-    last = ""
-    for model in models:
-        try:
-            return _call(model, key, prompt, schema)
-        except _Retryable as exc:  # overloaded / quota / retired model -> try the next one
-            last = str(exc)
-    raise RuntimeError(last or "No Gemini model available")
-
-
-class _Retryable(RuntimeError):
-    pass
-
-
-def _call(model: str, key: str, prompt: str, schema: dict[str, Any]) -> Any:
-    gen: dict[str, Any] = {
-        "temperature": 0,
-        "responseMimeType": "application/json",
-        "responseSchema": schema,
-    }
-    if "2.5" in model:
-        gen["thinkingConfig"] = {"thinkingBudget": 0}  # faster; this task needs no reasoning
-    r = requests.post(
-        GEMINI_URL.format(model=model),
-        headers={"x-goog-api-key": key, "Content-Type": "application/json"},
-        json={"contents": [{"role": "user", "parts": [{"text": prompt}]}], "generationConfig": gen},
-        timeout=30,
-    )
-    if r.status_code in (404, 429, 500, 503):
-        raise _Retryable(f"{model}: HTTP {r.status_code}: {r.text[:200]}")
-    if r.status_code != 200:
-        raise RuntimeError(f"Gemini HTTP {r.status_code}: {r.text[:300]}")
-    parts = (((r.json().get("candidates") or [{}])[0].get("content") or {}).get("parts") or [{}])
-    return json.loads(parts[0].get("text") or "null")
+    return llm_service.generate(prompt, schema)
 
 
 def gemini_parse(text: str) -> list[dict[str, Any]]:

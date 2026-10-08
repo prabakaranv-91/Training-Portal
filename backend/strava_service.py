@@ -9,8 +9,8 @@ Unlike Garmin (email/password login), Strava uses OAuth2:
   4. Access tokens expire (~6h) and are refreshed automatically before use.
 
 You must create a Strava API application at https://www.strava.com/settings/api
-to obtain a Client ID and Client Secret, then save them in the application's
-Integration settings form. Configuration and provider tokens live in SQLite.
+to obtain a Client ID and Client Secret. The application owner configures those
+once in SQLite; end users only approve consent. Provider tokens are user-specific.
 
 Only activity-level data is available from Strava (no VO2 max, body battery,
 readiness, etc. — those remain Garmin-only).
@@ -18,18 +18,16 @@ readiness, etc. — those remain Garmin-only).
 
 from __future__ import annotations
 
-import app_db
 import datetime as dt
 import json
 import logging
-import os
 import secrets
 import time
-from pathlib import Path
 from typing import Any
 
 import requests
 import auth_cookies
+import app_db
 
 logger = logging.getLogger("strava.service")
 
@@ -50,7 +48,7 @@ _ATHLETE_WEIGHT_CACHE_TTL = 900
 
 
 def _load_config() -> dict[str, str]:
-    data = app_db.user_setting("strava_config", {})
+    data = app_db.get_setting("strava_app_config", {})
     client_id = str(data.get("client_id") or "").strip()
     client_secret = str(data.get("client_secret") or "").strip()
     if client_id and client_secret:
@@ -99,16 +97,16 @@ def disconnect() -> None:
 # ---------------------------------------------------------------- oauth flow
 
 
-def auth_url(redirect_uri: str, state: str) -> str:
+def auth_url(redirect_uri: str, state: str, config: dict[str, str] | None = None) -> str:
     """Build the Strava authorize URL to send the browser to."""
-    cfg = _load_config()
+    cfg = config or _load_config()
     if not cfg:
         raise RuntimeError("Strava API credentials are not configured.")
     params = {
         "client_id": cfg["client_id"],
         "response_type": "code",
         "redirect_uri": redirect_uri,
-        "approval_prompt": "auto",
+        "approval_prompt": "force",
         "scope": SCOPE,
         "state": state,
     }
@@ -116,9 +114,9 @@ def auth_url(redirect_uri: str, state: str) -> str:
     return f"{AUTHORIZE_URL}?{query}"
 
 
-def exchange_code(code: str, scope: str = "") -> None:
+def exchange_code(code: str, scope: str = "", config: dict[str, str] | None = None) -> None:
     """Exchange an authorization code for access + refresh tokens."""
-    cfg = _load_config()
+    cfg = config or _load_config()
     if not cfg:
         raise RuntimeError("Strava API credentials are not configured.")
     resp = requests.post(
@@ -145,6 +143,7 @@ def exchange_code(code: str, scope: str = "") -> None:
         },
         new_session=True,
     )
+    auth_cookies.update("setup", None)
 
 
 def _valid_access_token() -> str:
@@ -193,7 +192,6 @@ def athlete_name() -> str | None:
     last = athlete.get("lastname") or ""
     name = f"{first} {last}".strip()
     return name or None
-
 
 
 def athlete_weight_kg() -> float | None:

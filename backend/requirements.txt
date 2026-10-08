@@ -9,3 +9,6 @@ cryptography>=43,<47
 mcp>=1.9,<2
 sse-starlette<3
 starlette==0.41.3
+litellm==1.104.1
+jsonschema>=4.23,<5
+types-jsonschema>=4.23,<5

@@ -75,7 +75,7 @@ const NUTRI_VERDICT = {
   under: { label: "Under target", cls: "low" },
 };
 
-// The day review is generated once by Gemini and stored (sheet + local); "Update" regenerates it on demand.
+// The day review is generated once by the selected LLM and stored (sheet + local); "Update" regenerates it on demand.
 async function loadNutritionCoach(day, refresh = false) {
   const seq = ++nutriCoachSeq;
   if (!document.getElementById("nutri-coach")) return;
@@ -85,7 +85,7 @@ async function loadNutritionCoach(day, refresh = false) {
   } catch (_) {}
   const el = document.getElementById("nutri-coach");
   if (seq !== nutriCoachSeq || !el) return;
-  if (review && review.source === "gemini" && review.from === "gemini" && nutriApplyReview(day, review)) {
+  if (review && ["gemini", "litellm"].includes(review.source) && ["gemini", "litellm"].includes(review.from) && nutriApplyReview(day, review)) {
     // A fresh review changed some food ratings: redraw the chips, keeping this review bubble.
     renderNutritionMessages(day);
   }
@@ -118,7 +118,7 @@ function nutriApplyReview(day, review) {
 }
 
 function nutriFillCoach(el, day, review) {
-  if (!review || review.source !== "gemini") {
+  if (!review || !["gemini", "litellm"].includes(review.source)) {
     const tips = day.cutTips || [];
     if (!tips.length) return el.remove();
     el.classList.add("nutri-tip");
@@ -137,7 +137,7 @@ function nutriFillCoach(el, day, review) {
     el.innerHTML = `
       <div class="nc-head">🤖 <b>Day review</b> <span class="nutri-status ${v.cls}">${v.label}</span>
         ${review.stale ? `<span class="dim nc-stale" title="You logged food after this review">outdated</span>
-        <button class="nutri-act nutri-review-refresh" title="Review the day again with Gemini (uses 1 request)">↻ Update</button>` : ""}</div>
+        <button class="nutri-act nutri-review-refresh" title="Review the day again with your LLM (uses 1 request)">↻ Update</button>` : ""}</div>
       ${review.summary ? `<div>${escapeAttr(review.summary)}</div>` : ""}
       ${details.trim() ? `<details class="nc-details"><summary>Show more</summary><div class="nc-detail-body">${details}</div></details>` : ""}`;
   }

@@ -1,4 +1,5 @@
 import hashlib
+import secrets
 import json
 import os
 import sqlite3
@@ -99,10 +100,29 @@ def connection():
                 PRIMARY KEY (provider, session_hash),
                 FOREIGN KEY (provider, user_id) REFERENCES accounts(provider, user_id)
             );
+            CREATE TABLE IF NOT EXISTS account_owners (
+                provider TEXT NOT NULL, user_id TEXT NOT NULL, owner_scope TEXT NOT NULL,
+                PRIMARY KEY (provider, user_id),
+                FOREIGN KEY (provider, user_id) REFERENCES accounts(provider, user_id)
+            );
+            CREATE TABLE IF NOT EXISTS setup_sessions (
+                session_hash TEXT PRIMARY KEY, scope TEXT NOT NULL UNIQUE,
+                expires_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS user_emails (
+                email TEXT PRIMARY KEY, owner_scope TEXT NOT NULL UNIQUE
+            );
         """)
         if DB_PATH == DEFAULT_DB_PATH and not database.execute("SELECT 1 FROM settings WHERE scope = 'global' AND name = 'legacy_migrated'").fetchone():
             with database:
                 migrate_legacy(database, Path(__file__).resolve().parent, Path(os.environ.get("NUTRITION_DATA_DIR") or Path.home() / ".training_lab"), dict(os.environ))
+        if DB_PATH == DEFAULT_DB_PATH:
+            with database:
+                privatize_integrations(database)
+            with database:
+                retire_local_accounts(database)
+            with database:
+                configure_shared_strava_app(database)
         with database:
             yield database
     finally:
@@ -124,15 +144,33 @@ def save_session(provider: str, session_id: str, user_id: str, account: dict[str
     if expires_at <= time.time():
         raise ValueError("Session expiry must be in the future.")
     with connection() as database:
+        database.execute("BEGIN IMMEDIATE")
+        existing = database.execute("SELECT 1 FROM accounts WHERE provider = ? AND user_id = ?", (provider, user_id)).fetchone()
         database.execute("INSERT INTO accounts(provider, user_id, account) VALUES (?, ?, ?) ON CONFLICT(provider, user_id) DO UPDATE SET account = excluded.account", (provider, user_id, json.dumps(account)))
+        owner = current_user.get()
+        if owner and owner.startswith("setup:"):
+            owned = database.execute("SELECT owner_scope FROM account_owners WHERE provider = ? AND user_id = ?", (provider, user_id)).fetchone()
+            destination = owned["owner_scope"] if owned else f"user:{provider}:{user_id}"
+            _move_settings(database, owner, destination)
+        elif not existing and owner and owner.startswith("user:"):
+            registered = database.execute("SELECT email FROM user_emails WHERE owner_scope = ?", (owner,)).fetchone()
+            email = str(account.get("email") or "").strip().casefold()
+            if provider != "garmin" or not registered or registered["email"] == email:
+                database.execute("INSERT OR IGNORE INTO account_owners(provider, user_id, owner_scope) VALUES (?, ?, ?)", (provider, user_id, owner))
+        if provider == "garmin":
+            email = str(account.get("email") or "").strip().casefold()
+            if "@" in email and not email.endswith("@local.invalid"):
+                mapped = database.execute("SELECT owner_scope FROM account_owners WHERE provider = ? AND user_id = ?", (provider, user_id)).fetchone()
+                profile = mapped["owner_scope"] if mapped else f"user:garmin:{user_id}"
+                database.execute("INSERT INTO user_emails(email, owner_scope) VALUES (?, ?) ON CONFLICT(email) DO UPDATE SET owner_scope = excluded.owner_scope", (email, profile))
         database.execute("DELETE FROM sessions WHERE expires_at <= ?", (time.time(),))
         database.execute("INSERT INTO sessions(provider, session_hash, user_id, expires_at) VALUES (?, ?, ?, ?) ON CONFLICT(provider, session_hash) DO UPDATE SET user_id = excluded.user_id, expires_at = excluded.expires_at", (provider, session_key(session_id), user_id, expires_at))
 
 
 def fetch_session(provider: str, session_id: str) -> dict[str, Any] | None:
     with connection() as database:
-        row = database.execute("SELECT accounts.account, sessions.expires_at, sessions.user_id FROM sessions JOIN accounts USING(provider, user_id) WHERE provider = ? AND session_hash = ? AND expires_at > ?", (provider, session_key(session_id), time.time())).fetchone()
-    return {"account": json.loads(row["account"]), "expiresAt": row["expires_at"], "sid": session_id, "provider": provider, "userId": row["user_id"]} if row else None
+        row = database.execute("SELECT accounts.account, sessions.expires_at, sessions.user_id, account_owners.owner_scope FROM sessions JOIN accounts USING(provider, user_id) LEFT JOIN account_owners USING(provider, user_id) WHERE provider = ? AND session_hash = ? AND expires_at > ?", (provider, session_key(session_id), time.time())).fetchone()
+    return {"account": json.loads(row["account"]), "expiresAt": row["expires_at"], "sid": session_id, "provider": provider, "userId": row["user_id"], "ownerScope": row["owner_scope"] or f"user:{provider}:{row['user_id']}"} if row else None
 
 
 def fetch_account(provider: str, user_id: str) -> dict[str, Any] | None:
@@ -144,6 +182,140 @@ def fetch_account(provider: str, user_id: str) -> dict[str, Any] | None:
 def delete_session(provider: str, session_id: str) -> None:
     with connection() as database:
         database.execute("DELETE FROM sessions WHERE provider = ? AND session_hash = ?", (provider, session_key(session_id)))
+
+
+def create_setup_session(session_id: str, expires_at: int) -> dict[str, Any]:
+    scope = "setup:" + secrets.token_urlsafe(32)
+    with connection() as database:
+        database.execute("INSERT INTO setup_sessions(session_hash, scope, expires_at) VALUES (?, ?, ?)", (session_key(session_id), scope, expires_at))
+    return {"sid": session_id, "ownerScope": scope, "expiresAt": expires_at, "provider": "setup"}
+
+
+def fetch_setup_session(session_id: str) -> dict[str, Any] | None:
+    with connection() as database:
+        row = database.execute("SELECT scope, expires_at FROM setup_sessions WHERE session_hash = ? AND expires_at > ?", (session_key(session_id), time.time())).fetchone()
+    return {"sid": session_id, "ownerScope": row["scope"], "expiresAt": row["expires_at"], "provider": "setup"} if row else None
+
+
+def delete_setup_session(session_id: str) -> None:
+    with connection() as database:
+        database.execute("DELETE FROM setup_sessions WHERE session_hash = ?", (session_key(session_id),))
+
+
+def _move_settings(database, source: str, destination: str) -> None:
+    for row in database.execute("SELECT name, value FROM settings WHERE scope = ?", (source,)).fetchall():
+        existing = database.execute("SELECT value FROM settings WHERE scope = ? AND name = ?", (destination, row["name"])).fetchone()
+        value = json.loads(row["value"])
+        if existing and isinstance(value, dict):
+            value = merge_settings(json.loads(existing["value"]), value)
+        database.execute("INSERT INTO settings(scope, name, value) VALUES (?, ?, ?) ON CONFLICT(scope, name) DO UPDATE SET value = excluded.value", (destination, row["name"], json.dumps(value)))
+    database.execute("DELETE FROM settings WHERE scope = ?", (source,))
+
+
+def retire_local_accounts(database) -> None:
+    if database.execute("SELECT 1 FROM settings WHERE scope = 'global' AND name = 'local_accounts_retired'").fetchone():
+        return
+    database.execute("BEGIN IMMEDIATE")
+    owners = database.execute("SELECT DISTINCT owner_scope FROM account_owners WHERE owner_scope LIKE 'user:guest:%'").fetchall()
+    for owner in owners:
+        row = database.execute("SELECT provider, user_id FROM account_owners WHERE owner_scope = ? AND provider IN ('garmin', 'strava') LIMIT 1", (owner["owner_scope"],)).fetchone()
+        if row:
+            destination = f"user:{row['provider']}:{row['user_id']}"
+            _move_settings(database, owner["owner_scope"], destination)
+            database.execute("UPDATE account_owners SET owner_scope = ? WHERE owner_scope = ?", (destination, owner["owner_scope"]))
+    database.execute("DELETE FROM sessions WHERE provider = 'guest'")
+    database.execute("DELETE FROM account_owners WHERE provider = 'guest'")
+    database.execute("DELETE FROM accounts WHERE provider = 'guest'")
+    database.execute("INSERT OR IGNORE INTO settings(scope, name, value) VALUES ('global', 'local_accounts_retired', 'true')")
+
+
+def account_owner(provider: str, user_id: str) -> str:
+    with connection() as database:
+        row = database.execute("SELECT owner_scope FROM account_owners WHERE provider = ? AND user_id = ?", (provider, user_id)).fetchone()
+    return row["owner_scope"] if row else f"user:{provider}:{user_id}"
+
+
+def profile_email(scope: str | None = None) -> str | None:
+    with connection() as database:
+        row = database.execute("SELECT email FROM user_emails WHERE owner_scope = ?", (scope or user_scope(),)).fetchone()
+        if row:
+            return row["email"]
+        for account in database.execute("SELECT user_id, account FROM accounts WHERE provider = 'garmin'").fetchall():
+            mapped = database.execute("SELECT owner_scope FROM account_owners WHERE provider = 'garmin' AND user_id = ?", (account["user_id"],)).fetchone()
+            owner = mapped["owner_scope"] if mapped else f"user:garmin:{account['user_id']}"
+            email = str(json.loads(account["account"]).get("email") or "").strip().casefold()
+            if owner == (scope or user_scope()) and "@" in email and not email.endswith("@local.invalid"):
+                database.execute("INSERT OR IGNORE INTO user_emails(email, owner_scope) VALUES (?, ?)", (email, owner))
+                return email
+    return None
+
+
+def link_provider(owner: str, provider: str, user_id: str) -> None:
+    profile_email(owner)
+    profile_email(account_owner(provider, user_id))
+    with connection() as database:
+        database.execute("BEGIN IMMEDIATE")
+        if not database.execute("SELECT 1 FROM accounts WHERE provider = ? AND user_id = ?", (provider, user_id)).fetchone():
+            raise ValueError("Provider account has not been authenticated.")
+        mapped = database.execute("SELECT owner_scope FROM account_owners WHERE provider = ? AND user_id = ?", (provider, user_id)).fetchone()
+        source = mapped["owner_scope"] if mapped else f"user:{provider}:{user_id}"
+        if source != owner:
+            source_email = database.execute("SELECT email FROM user_emails WHERE owner_scope = ?", (source,)).fetchone()
+            target_email = database.execute("SELECT email FROM user_emails WHERE owner_scope = ?", (owner,)).fetchone()
+            if source_email and target_email and source_email["email"] != target_email["email"]:
+                raise ValueError("These profiles belong to different verified email addresses.")
+            for row in database.execute("SELECT name, value FROM settings WHERE scope = ?", (source,)).fetchall():
+                destination = database.execute("SELECT value FROM settings WHERE scope = ? AND name = ?", (owner, row["name"])).fetchone()
+                value = json.loads(row["value"])
+                if destination:
+                    current = json.loads(destination["value"])
+                    if row["name"] == "nutrition_log":
+                        value = merge_settings(value, current)
+                        for field, key in (("entries", "id"), ("weights", "date"), ("programs", "from")):
+                            records = {item.get(key): item for item in json.loads(row["value"]).get(field, [])}
+                            records.update({item.get(key): item for item in current.get(field, [])})
+                            value[field] = list(records.values())
+                    else:
+                        value = merge_settings(value, current) if isinstance(value, dict) and isinstance(current, dict) else current
+                database.execute("INSERT INTO settings(scope, name, value) VALUES (?, ?, ?) ON CONFLICT(scope, name) DO UPDATE SET value = excluded.value", (owner, row["name"], json.dumps(value)))
+            database.execute("DELETE FROM settings WHERE scope = ?", (source,))
+            database.execute("UPDATE account_owners SET owner_scope = ? WHERE owner_scope = ?", (owner, source))
+        database.execute("INSERT INTO account_owners(provider, user_id, owner_scope) VALUES (?, ?, ?) ON CONFLICT(provider, user_id) DO UPDATE SET owner_scope = excluded.owner_scope", (provider, user_id, owner))
+
+
+def privatize_integrations(database) -> None:
+    if database.execute("SELECT 1 FROM settings WHERE scope = 'global' AND name = 'private_integrations_migrated'").fetchone():
+        return
+    database.execute("BEGIN IMMEDIATE")
+    if database.execute("SELECT 1 FROM settings WHERE scope = 'global' AND name = 'private_integrations_migrated'").fetchone():
+        return
+    accounts = database.execute("SELECT provider, user_id FROM accounts WHERE provider IN ('garmin', 'strava')").fetchall()
+    owner = f"user:{accounts[0]['provider']}:{accounts[0]['user_id']}" if len(accounts) == 1 else "legacy_private"
+    for name in ("strava_config", "nutrition_config", "nutrition_secrets"):
+        row = database.execute("SELECT value FROM settings WHERE scope = 'global' AND name = ?", (name,)).fetchone()
+        if row:
+            database.execute("INSERT OR IGNORE INTO settings(scope, name, value) VALUES (?, ?, ?)", (owner, name, row["value"]))
+            database.execute("DELETE FROM settings WHERE scope = 'global' AND name = ?", (name,))
+    row = database.execute("SELECT value FROM settings WHERE scope = 'global' AND name = 'sheets_pending'").fetchone()
+    if row:
+        pending = json.loads(row["value"])
+        for item in pending:
+            if item.get("_scope") in (None, "global"):
+                item["_scope"] = owner
+        database.execute("UPDATE settings SET value = ? WHERE scope = 'global' AND name = 'sheets_pending'", (json.dumps(pending),))
+    database.execute("INSERT INTO settings(scope, name, value) VALUES ('global', 'private_integrations_migrated', ?)", (json.dumps({"owner": owner}),))
+
+
+def configure_shared_strava_app(database) -> None:
+    if database.execute("SELECT 1 FROM settings WHERE scope = 'global' AND name = 'strava_app_config'").fetchone():
+        return
+    marker = database.execute("SELECT value FROM settings WHERE scope = 'global' AND name = 'private_integrations_migrated'").fetchone()
+    owner = json.loads(marker["value"]).get("owner") if marker else "global"
+    row = database.execute("SELECT value FROM settings WHERE scope = ? AND name = 'strava_config'", (owner,)).fetchone()
+    if row:
+        config = json.loads(row["value"])
+        if config.get("client_id") and config.get("client_secret"):
+            database.execute("INSERT OR IGNORE INTO settings(scope, name, value) VALUES ('global', 'strava_app_config', ?)", (row["value"],))
 
 
 def user_scope() -> str:
@@ -159,6 +331,8 @@ def merge_settings(base: dict, updates: dict) -> dict:
 
 def user_setting(name: str, default: Any = None, scope: str | None = None) -> Any:
     scope = scope or user_scope()
+    if name in ("strava_config", "nutrition_config", "nutrition_secrets"):
+        return get_setting(name, default, scope=scope) if scope.startswith(("user:", "setup:")) else default
     base = get_setting(name, default)
     if scope == "global":
         return base
