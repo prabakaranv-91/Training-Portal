@@ -31,7 +31,13 @@ Rules:
 - Fix spelling to the common name: "ildli"->"idli", "panner sanwitch"->"paneer sandwich", "briyani"->"biryani", "chapathi"->"chapati".
 - Translate regional words to the common English/Indian name: "mor"/"moru"/"chaas"->"buttermilk", "thayir"/"dahi"->"curd",
   "muttai"/"anda"->"egg", "sadam"/"chawal"->"rice", "paruppu"->"dal", "kozhi"->"chicken". Number words like "oru"/"ek" mean 1.
-- "iso whey" / "whey isolate" -> name "whey isolate"; plain whey/protein shake -> "whey protein".
+- Preserve nutrition-changing qualifiers and product names; never simplify a specific food into a generic one.
+    Examples: whey isolate is not regular whey, egg white is not whole egg, skimmed milk is not whole milk,
+    brown rice is not white rice, and unsweetened yogurt is not sweetened yogurt.
+- "iso whey", "iso whey protein", "isolate whey", "whey isolate", "whey protein isolate" -> name "whey isolate".
+    Plain whey/protein shake without an isolate qualifier -> "whey protein". Keep these separate in mixed meals.
+    Without a product label, estimate whey isolate as 30 g per scoop with approximately 27 g protein;
+    this is an estimate, not a verified brand value. Do not use regular whey values for isolate.
 - "cut" means a cup ("1 cut sambar" -> qty 1, unit "cup", name "sambar").
 - Milk or sugar that is only part of a drink ("coffee with milk") is NOT a separate item.
 - qty defaults to 1; convert words to numbers ("two" -> 2, "half" -> 0.5, "2-3" -> 3).
@@ -39,6 +45,13 @@ Rules:
 - total_grams: realistic weight in grams of the whole quantity eaten (e.g. 2 idli = 80).
 - per100g: realistic nutrition per 100 g of that food as typically prepared in India
   (kcal, protein, carbs, fat, fiber, sugar in grams; sodium in mg).
+- nutrition_basis: "label" only when the message explicitly supplies nutrition values for the food;
+    otherwise "estimate". Brand names alone are not label evidence.
+    User-supplied label values take priority over generic estimates. Convert per-serving values to per100g,
+    use the supplied serving weight, and scale total_grams by the quantity eaten. Estimate unspecified nutrients.
+    Label numbers describe nutrition, not extra foods or quantities eaten.
+    Example: "2 scoops iso whey, label says 26 g protein per 35 g scoop" means qty 2, total_grams 70,
+    protein per100g 74.2857, nutrition_basis "label", and 52 g protein eaten, not 54 g.
 - Ignore anything that is not food or drink. Return an empty list if there is no food.
 
 Message: \"\"\"{text}\"\"\""""
@@ -54,13 +67,14 @@ SCHEMA = {
             "qty": _NUM,
             "unit": {"type": "STRING", "enum": UNITS},
             "total_grams": _NUM,
+            "nutrition_basis": {"type": "STRING", "enum": ["estimate", "label"]},
             "per100g": {
                 "type": "OBJECT",
                 "properties": {k: _NUM for k in ("kcal", "protein", "carbs", "fat", "fiber", "sugar", "sodium")},
                 "required": ["kcal", "protein", "carbs", "fat", "fiber", "sugar", "sodium"],
             },
         },
-        "required": ["input", "name", "qty", "unit", "total_grams", "per100g"],
+        "required": ["input", "name", "qty", "unit", "total_grams", "nutrition_basis", "per100g"],
     },
 }
 
@@ -90,6 +104,7 @@ def llm_parse(text: str) -> list[dict[str, Any]]:
             "qty": float(it.get("qty") or 1),
             "unit": it.get("unit") if it.get("unit") in UNITS else "serving",
             "total_grams": float(it["total_grams"]) if it.get("total_grams") else None,
+            "nutrition_basis": "label" if it.get("nutrition_basis") == "label" else "estimate",
             "per100g": {k: float((it.get("per100g") or {}).get(k) or 0)
                         for k in ("kcal", "protein", "carbs", "fat", "fiber", "sugar", "sodium")},
         })

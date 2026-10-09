@@ -84,7 +84,7 @@ FOODS: dict[str, dict[str, Any]] = {
     "Whole egg": _f(["egg", "whole egg", "boiled egg", "egg boiled", "fried egg", "poached egg"], 143, 12.6, 0.7, 9.5, 0, 0.4, 142, {"piece": 50}),
     "Egg white": _f(["egg white", "white egg", "egg whites only"], 52, 10.9, 0.7, 0.2, 0, 0.7, 166, {"piece": 33}),
     "Omelette": _f(["omelette", "omelet", "omlet"], 154, 10.6, 0.6, 12, 0, 0.4, 300, {"piece": 110}),
-    "Whey isolate": _f(["iso whey", "whey isolate", "whey protein isolate", "isolate", "iso"], 367, 83, 3.3, 1.0, 0, 1.0, 230, {"scoop": 30}, "scoop"),
+    "Whey isolate": _f(["iso whey", "iso whey protein", "isolate whey", "whey isolate", "whey protein isolate", "isolate", "iso"], 382, 90, 3.3, 1.0, 0, 1.0, 230, {"scoop": 30}, "scoop"),
     "Whey protein": _f(["whey", "whey protein", "protein powder", "protein shake"], 395, 79, 10, 5.0, 0, 5.0, 200, {"scoop": 30}, "scoop"),
     "Chicken breast (cooked)": _f(["chicken breast", "grilled chicken", "chicken"], 165, 31, 0, 3.6, 0, 0, 74, {"piece": 120, "cup": 140}, "serving"),
     "Chicken curry": _f(["chicken curry", "chicken gravy", "chicken masala"], 140, 13, 4.0, 8.0, 1.0, 1.5, 400, {"cup": 200, "bowl": 200}, "cup"),
@@ -595,7 +595,10 @@ def _analyse_ai(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         # Exact alias match only: partial hits mislabel dishes ("paneer biryani" -> chicken biryani).
         norm = _norm(name)
         local = next((food for alias, food in _ALIAS_INDEX if alias == norm), None)
-        if local:
+        if it.get("nutrition_basis") == "label":
+            grams = it.get("total_grams") or _grams(qty, unit, FOODS[local] if local else {"units": {}})
+            per100, label, source = it["per100g"], local or name.capitalize(), "User label + LLM estimates"
+        elif local:
             food = FOODS[local]
             # Generic "serving" from the model -> use the dish's own default portion.
             use_unit = None if unit == "serving" and "serving" not in food["units"] else unit

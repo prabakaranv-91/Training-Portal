@@ -28,6 +28,10 @@ logger = logging.getLogger("nutrition.mcp")
 _lock = threading.Lock()
 _loop: asyncio.AbstractEventLoop | None = None
 _queue: asyncio.Queue | None = None
+_thread: threading.Thread | None = None
+_task: asyncio.Task | None = None
+_ready = threading.Event()
+_startup_done = threading.Event()
 _cache: dict[str, list[dict[str, Any]]] = {}
 _status: dict[str, dict[str, Any]] = {}
 
@@ -63,7 +67,7 @@ def status() -> dict[str, Any]:
         "model": cfg.get("model") or "",
         "provider": cfg.get("provider") or "",
         "keyConfigured": bool(food_mcp_server._api_key()),
-        "running": _loop is not None,
+        "running": _ready.is_set(),
         "callsToday": _usage_today(),
         "dailyLimit": _daily_limit(),
         **_status.get(app_db.user_scope(), {"lastError": None, "lastOk": None}),
@@ -75,6 +79,8 @@ async def _serve(queue: asyncio.Queue) -> None:
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
+            _ready.set()
+            _startup_done.set()
             while True:
                 tool, args, fut = await queue.get()
                 try:
@@ -87,29 +93,53 @@ async def _serve(queue: asyncio.Queue) -> None:
 
 
 def _run_loop() -> None:
-    global _loop, _queue
+    global _loop, _queue, _task
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     _queue = asyncio.Queue()
     _loop = loop
     try:
-        loop.run_until_complete(_serve(_queue))
+        _task = loop.create_task(_serve(_queue))
+        loop.run_until_complete(_task)
+    except asyncio.CancelledError:
+        pass
     except Exception as exc:  # noqa: BLE001
         logger.warning("Food MCP server stopped: %s", exc)
         _status.setdefault("global", {})["lastError"] = f"MCP server stopped: {exc}"
     finally:
-        _loop, _queue = None, None
+        _ready.clear()
+        _loop, _queue, _task = None, None, None
         loop.close()
+        _startup_done.set()
 
 
 def _ensure_started() -> None:
+    global _thread
     with _lock:
-        if _loop is None:
-            threading.Thread(target=_run_loop, name="food-mcp", daemon=True).start()
-    for _ in range(100):  # wait for the loop thread to come up
-        if _loop is not None and _queue is not None:
-            return
-        threading.Event().wait(0.05)
+        if _thread is None or not _thread.is_alive():
+            _ready.clear()
+            _startup_done.clear()
+            _thread = threading.Thread(target=_run_loop, name="food-mcp", daemon=True)
+            _thread.start()
+    if not _startup_done.wait(timeout=30) or not _ready.is_set():
+        raise RuntimeError("MCP client did not finish initialization")
+
+
+def prewarm() -> bool:
+    try:
+        _ensure_started()
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Food MCP prewarm failed; built-in parsing remains available: %s", exc)
+        return False
+
+
+def shutdown() -> None:
+    loop, task, thread = _loop, _task, _thread
+    if loop is not None and task is not None and not loop.is_closed():
+        loop.call_soon_threadsafe(task.cancel)
+    if thread is not None:
+        thread.join(timeout=10)
 
 
 def _call_tool(tool: str, args: dict[str, Any]) -> Any:

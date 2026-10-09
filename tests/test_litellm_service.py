@@ -1,3 +1,4 @@
+import asyncio
 import json
 import tempfile
 import unittest
@@ -6,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from backend.utils import app_db
-from backend.services import llm_service
+from backend.services import food_mcp_server, food_parser_client, llm_service, nutrition_service
 
 
 class LiteLLMServiceTests(unittest.TestCase):
@@ -54,6 +55,67 @@ class LiteLLMServiceTests(unittest.TestCase):
             with self.assertRaises(RuntimeError) as error:
                 llm_service.generate("meal", {"type": "OBJECT"})
         self.assertNotIn("fake-private-key", str(error.exception))
+
+    def test_isolate_is_distinct_from_regular_whey(self):
+        items = [
+            {"input": "1 scoop iso whey protein", "name": "whey isolate", "qty": 1, "unit": "scoop", "total_grams": 30, "nutrition_basis": "estimate", "per100g": {"protein": 90}},
+            {"input": "1 scoop whey protein", "name": "whey protein", "qty": 1, "unit": "scoop", "total_grams": 30, "nutrition_basis": "estimate", "per100g": {"protein": 79}},
+        ]
+        with patch.object(food_mcp_server, "_generate", return_value=items) as generate:
+            parsed = food_mcp_server.llm_parse("1 scoop iso whey protein and 1 scoop whey protein")
+        result = nutrition_service._analyse_ai(parsed)
+        self.assertEqual([item["name"] for item in result], ["Whey isolate", "Whey protein"])
+        self.assertEqual([item["protein"] for item in result], [27, 23.7])
+        self.assertIn('"iso whey protein"', generate.call_args.args[0])
+        self.assertEqual(nutrition_service._lookup("iso whey protein")["name"], "Whey isolate")
+
+    def test_explicit_label_values_override_generic_nutrition(self):
+        items = [{"input": "2 scoops iso whey, 26 g protein per 35 g scoop", "name": "whey isolate", "qty": 2, "unit": "scoop", "total_grams": 70, "nutrition_basis": "label", "per100g": {"protein": 26 / 35 * 100}}]
+        with patch.object(food_mcp_server, "_generate", return_value=items):
+            parsed = food_mcp_server.llm_parse(items[0]["input"])
+        result = nutrition_service._analyse_ai(parsed)[0]
+        self.assertEqual(result["protein"], 52)
+        self.assertEqual(result["grams"], 70)
+        self.assertIn("User label", result["source"])
+
+    def test_parser_preserves_other_food_subtypes(self):
+        items = [{"input": "2 egg whites", "name": "egg white", "qty": 2, "unit": "piece", "total_grams": 66, "per100g": {"protein": 10.9}}]
+        with patch.object(food_mcp_server, "_generate", return_value=items):
+            parsed = food_mcp_server.llm_parse("2 egg whites")
+        result = nutrition_service._analyse_ai(parsed)[0]
+        self.assertEqual(result["name"], "Egg white")
+        self.assertEqual(result["protein"], 7.2)
+        self.assertEqual(parsed[0]["nutrition_basis"], "estimate")
+
+    def test_prewarm_does_not_call_model_or_use_quota(self):
+        with patch.object(food_parser_client, "_ensure_started") as ensure, patch.object(food_parser_client, "_count_call") as count, patch.object(llm_service, "generate") as generate:
+            self.assertTrue(food_parser_client.prewarm())
+        ensure.assert_called_once_with()
+        count.assert_not_called()
+        generate.assert_not_called()
+
+    def test_failed_prewarm_leaves_backend_available(self):
+        with patch.object(food_parser_client, "_ensure_started", side_effect=RuntimeError("startup failed")):
+            self.assertFalse(food_parser_client.prewarm())
+
+    def test_startup_requires_completed_mcp_handshake(self):
+        thread = SimpleNamespace(is_alive=lambda: True)
+        with patch.object(food_parser_client, "_thread", thread), patch.object(food_parser_client._startup_done, "wait", return_value=True) as wait, patch.object(food_parser_client._ready, "is_set", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "initialization"):
+                food_parser_client._ensure_started()
+        wait.assert_called_once_with(timeout=30)
+
+    def test_backend_lifespan_prewarms_and_shuts_down(self):
+        from backend.main import app, lifespan
+
+        async def exercise():
+            async with lifespan(app):
+                prewarm.assert_called_once_with()
+                shutdown.assert_not_called()
+
+        with patch.object(food_parser_client, "prewarm", return_value=True) as prewarm, patch.object(food_parser_client, "shutdown") as shutdown:
+            asyncio.run(exercise())
+        shutdown.assert_called_once_with()
 
 
 if __name__ == "__main__":

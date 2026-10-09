@@ -17,6 +17,7 @@ import sqlite3
 import requests
 import threading
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Cookie, FastAPI, HTTPException, Request, Response
@@ -30,7 +31,16 @@ from backend.utils import app_db, auth_cookies, garmin_auth_store
 from backend.services import food_parser_client, llm_service, nutrition_service, sheets_sync, strava_service
 from backend.services.garmin_service import GarminService
 
-app = FastAPI(title="Fit Squad", version="1.0.0")
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    await run_in_threadpool(food_parser_client.prewarm)
+    try:
+        yield
+    finally:
+        await run_in_threadpool(food_parser_client.shutdown)
+
+
+app = FastAPI(title="Fit Squad", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
