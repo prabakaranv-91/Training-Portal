@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import sys
 from typing import Any
 
 from backend.utils import app_db
@@ -218,5 +220,15 @@ async def review_day(day_json: str, db_scope: str = "global") -> str:
         app_db.current_user.reset(token)
 
 
+def configure_stdio_logging() -> None:
+    for name in ("LiteLLM", "LiteLLM Router", "LiteLLM Proxy"):
+        logger = logging.getLogger(name)
+        logger.setLevel(logging.WARNING)
+        for handler in logger.handlers:
+            if isinstance(handler, logging.StreamHandler):
+                handler.setStream(sys.stderr)
+
+
 if __name__ == "__main__":
+    configure_stdio_logging()
     mcp.run()

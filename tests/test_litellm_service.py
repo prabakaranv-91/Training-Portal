@@ -1,5 +1,7 @@
 import asyncio
+import io
 import json
+import logging
 import tempfile
 import unittest
 from pathlib import Path
@@ -161,6 +163,18 @@ class LiteLLMServiceTests(unittest.TestCase):
             self.assertEqual(app_db.current_user.get(), "user:first")
 
         asyncio.run(exercise())
+
+    def test_mcp_diagnostics_do_not_corrupt_protocol_stdout(self):
+        protocol = io.StringIO()
+        diagnostics = io.StringIO()
+        logger = logging.Logger("protocol-test")
+        logger.addHandler(logging.StreamHandler(protocol))
+        with patch.object(food_mcp_server.logging, "getLogger", return_value=logger), patch.object(food_mcp_server.sys, "stderr", diagnostics):
+            food_mcp_server.configure_stdio_logging()
+            logger.info("verbose diagnostic")
+            logger.error("provider diagnostic")
+        self.assertEqual(protocol.getvalue(), "")
+        self.assertIn("provider diagnostic", diagnostics.getvalue())
 
     def test_startup_requires_completed_mcp_handshake(self):
         thread = SimpleNamespace(is_alive=lambda: True)
