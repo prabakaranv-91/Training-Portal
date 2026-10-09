@@ -7,6 +7,8 @@ let contributorsNutrient = null;
 let toastTimer;
 let weightData = null;
 let weightChart = null;
+let programData = null;
+let programSaving = false;
 let redirectingToLogin = false;
 
 const $ = (selector) => document.querySelector(selector);
@@ -116,9 +118,68 @@ async function initialize() {
     }
     $("#composer-wrap").hidden = false;
     $("#insight-rail").hidden = false;
-    await Promise.all([loadRecentDays(), loadDay(today), loadWeight()]);
+    await Promise.all([loadRecentDays(), loadDay(today), loadWeight(), loadProgram()]);
   } catch (error) {
     if (!redirectingToLogin) showError(error.message);
+  }
+}
+
+async function loadProgram() {
+  try {
+    programData = await api("/api/nutrition/program");
+    renderProgram();
+  } catch (_) {
+    $("#program-current").textContent = "Program unavailable";
+  }
+}
+
+function renderProgram() {
+  const button = $("#program-current");
+  const select = $("#program-picker");
+  const options = programData?.options || [];
+  const current = options.find(option => option.key === programData?.current);
+  button.textContent = current?.label || "Program unavailable";
+  button.title = current ? `Edit current program: ${current.label}` : "Current program unavailable";
+  button.setAttribute("aria-label", button.title);
+  button.setAttribute("aria-expanded", "false");
+  button.disabled = !current || programSaving;
+  button.hidden = false;
+  select.hidden = true;
+  select.disabled = programSaving;
+  select.innerHTML = options.map(option => `<option value="${escapeHtml(option.key)}">${escapeHtml(option.label)}</option>`).join("");
+  select.value = programData?.current || "";
+}
+
+async function updateProgram() {
+  const select = $("#program-picker");
+  if (programSaving) return;
+  if (select.value === programData?.current) {
+    renderProgram();
+    $("#program-current").focus();
+    return;
+  }
+  programSaving = true;
+  select.disabled = true;
+  let saved = false;
+  try {
+    programData = await api("/api/nutrition/program", { method: "POST", body: JSON.stringify({ program: select.value, date: localDate() }) });
+    saved = true;
+    renderProgram();
+    const date = selectedDate;
+    const day = await api(`/api/nutrition/day?date=${encodeURIComponent(date)}`);
+    if (selectedDate === date) {
+      currentDay = day;
+      renderDay(day);
+      void loadReview(day);
+    }
+    void loadRecentDays();
+    toast("Program updated.");
+  } catch (error) {
+    toast(saved ? `Program saved, but daily targets could not refresh: ${error.message}` : error.message);
+  } finally {
+    programSaving = false;
+    renderProgram();
+    $("#program-current").focus();
   }
 }
 
@@ -504,6 +565,23 @@ $("#chat-logout-btn").addEventListener("click", async () => {
   }
 });
 $("#weight-period").addEventListener("change", renderWeight);
+$("#program-current").addEventListener("click", () => {
+  if (programSaving || !programData) return;
+  $("#program-current").hidden = true;
+  $("#program-current").setAttribute("aria-expanded", "true");
+  $("#program-picker").hidden = false;
+  $("#program-picker").focus();
+});
+$("#program-picker").addEventListener("change", updateProgram);
+$("#program-picker").addEventListener("blur", () => {
+  if (!programSaving) renderProgram();
+});
+$("#program-picker").addEventListener("keydown", event => {
+  if (event.key !== "Escape" || programSaving) return;
+  event.preventDefault();
+  renderProgram();
+  $("#program-current").focus();
+});
 $("#conversation").addEventListener("submit", async event => {
   const form = event.target.closest(".food-quantity-form");
   if (!form) return;
