@@ -80,15 +80,36 @@ async def _serve(queue: asyncio.Queue) -> None:
             await session.initialize()
             _ready.set()
             _startup_done.set()
-            while True:
-                tool, args, fut = await queue.get()
+            limits = {"parse_food_text": asyncio.Semaphore(1), "review_day": asyncio.Semaphore(1)}
+            active: set[asyncio.Task] = set()
+
+            async def invoke(tool: str, args: dict[str, Any], fut: asyncio.Future) -> None:
                 try:
-                    res = await asyncio.wait_for(session.call_tool(tool, args), 45)
+                    async with limits[tool]:
+                        res = await asyncio.wait_for(session.call_tool(tool, args), 45)
                     if res.isError:
                         raise RuntimeError(" ".join(getattr(c, "text", "") for c in res.content) or "tool error")
-                    fut.set_result(json.loads(getattr(res.content[0], "text", "null")))
+                    if not fut.done():
+                        fut.set_result(json.loads(getattr(res.content[0], "text", "null")))
+                except asyncio.CancelledError:
+                    if not fut.done():
+                        fut.cancel()
+                    raise
                 except Exception as exc:  # noqa: BLE001
-                    fut.set_exception(exc)
+                    if not fut.done():
+                        fut.set_exception(exc)
+
+            try:
+                while True:
+                    tool, args, fut = await queue.get()
+                    task = asyncio.create_task(invoke(tool, args, fut))
+                    active.add(task)
+                    task.add_done_callback(active.discard)
+            finally:
+                pending = tuple(active)
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
 
 
 def _run_loop() -> None:

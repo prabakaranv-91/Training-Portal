@@ -207,6 +207,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .program-picker { background: var(--fc-panel-raised); }
 .program-picker:focus-visible { outline: 2px solid var(--fc-mint); outline-offset: 2px; }
 .program-current[hidden], .program-picker[hidden] { display: none; }
+.mutation-pending { opacity: .55; cursor: progress; }
+.mutation-pending button { pointer-events: none; }
 .weight-period { max-width: 96px; padding: 2px 0; border: 0; background: var(--fc-panel); color: var(--fc-muted); font-size: 12px; cursor: pointer; }
 .weight-summary { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .weight-summary b { color: var(--fc-text); font-size: 18px; font-variant-numeric: tabular-nums; }

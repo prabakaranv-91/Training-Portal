@@ -135,6 +135,7 @@ async function refreshSetup() {
   document.getElementById("setup-model-detail").textContent = [providerLabel, setupState.llm.model].filter(Boolean).join(" · ");
   document.getElementById("setup-link-strava").hidden = !setupState.account?.canLinkStrava || setupState.account?.stravaLinked;
   renderSetupStep();
+  document.dispatchEvent(new CustomEvent("fit-squad-nutrition-readiness", { detail: { ready: Boolean(setupState.nutritionReady) } }));
 }
 
 async function verifySavedIntegrations() {

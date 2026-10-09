@@ -10,6 +10,7 @@ let weightChart = null;
 let programData = null;
 let programSaving = false;
 let recentDayRows = [];
+let waitingForNutritionSetup = false;
 let redirectingToLogin = false;
 
 const $ = (selector) => document.querySelector(selector);
@@ -110,6 +111,7 @@ async function initialize() {
       return;
     }
     if (!session.nutritionReady) {
+      waitingForNutritionSetup = true;
       $("#composer-wrap").hidden = true;
       $("#insight-rail").hidden = true;
       $("#conversation").innerHTML = `<section class="chat-setup-required"><h2>Complete your nutrition setup</h2><p>Verify your Google sheet and LLM model to unlock food logging, nutrition analysis and the daily tracker.</p><button type="button" id="complete-chat-setup">Complete setup</button><a href="/dashboard.html">Use Dashboard for now</a></section>`;
@@ -117,12 +119,19 @@ async function initialize() {
       requestChatSetup();
       return;
     }
+    waitingForNutritionSetup = false;
     $("#composer-wrap").hidden = false;
     $("#insight-rail").hidden = false;
     await Promise.all([loadRecentDays(), loadDay(today), loadWeight(), loadProgram()]);
   } catch (error) {
     if (!redirectingToLogin) showError(error.message);
   }
+}
+
+async function nutritionReadinessChanged(event) {
+  if (!event.detail?.ready || !waitingForNutritionSetup) return;
+  waitingForNutritionSetup = false;
+  await initialize();
 }
 
 async function loadProgram() {
@@ -278,7 +287,7 @@ function nutritionGoalStatus(day, now = new Date()) {
 
 function renderRecentDays() {
     const rows = recentDayRows.map(day => day.date === currentDay?.date ? { ...day, intake: currentDay.intake, targets: currentDay.targets, weightKg: currentDay.weightKg } : day);
-    if (currentDay?.date === localDate() && !rows.some(day => day.date === currentDay.date)) rows.push(currentDay);
+    if (currentDay?.date && !rows.some(day => day.date === currentDay.date) && (currentDay.date === localDate() || currentDay.entries?.some(entry => !entry.revoked))) rows.push(currentDay);
     const items = rows.sort((first, second) => second.date.localeCompare(first.date)).slice(0, 12);
     $("#recent-days").innerHTML = items.length ? items.map((day) => {
       const dateLabel = friendlyDate(day.date, { weekday: "short", day: "numeric", month: "short" });
@@ -318,7 +327,7 @@ async function loadDay(date) {
   try {
     currentDay = await api(`/api/nutrition/day?date=${encodeURIComponent(date)}`);
     renderDay(currentDay);
-    await loadReview(currentDay);
+    void loadReview(currentDay);
   } catch (error) {
     currentDay = null;
     if (!redirectingToLogin) showError(error.message);
@@ -529,7 +538,6 @@ async function submitFood(event) {
     currentDay = result.day;
     renderDay(currentDay);
     void loadReview(currentDay);
-    void loadRecentDays();
   } catch (error) {
     pending.remove();
     input.value = text;
@@ -569,7 +577,11 @@ async function performAction(button) {
   }
   if (action === "refresh-review") return loadReview(currentDay, true);
   if (["remove-entry", "remove-item"].includes(action) && !confirm("Remove this logged food?")) return;
+  const date = selectedDate;
+  const pendingRow = button.closest(".food-item, .entry-thread, .food-quantity-row");
   button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  pendingRow?.classList.add("mutation-pending");
   try {
     if (action === "remove-entry" || action === "remove-item") {
       const query = action === "remove-item" ? `?item=${encodeURIComponent(item)}` : "";
@@ -580,10 +592,18 @@ async function performAction(button) {
     } else if (action === "reanalyze") {
       await api(`/api/nutrition/entries/${encodeURIComponent(id)}/reanalyse`, { method: "POST" });
     }
-    await loadDay(selectedDate);
+    const day = await api(`/api/nutrition/day?date=${encodeURIComponent(date)}`);
+    if (selectedDate === date) {
+      currentDay = day;
+      renderDay(day);
+      void loadReview(day);
+    }
   } catch (error) {
     toast(error.message);
     button.disabled = false;
+  } finally {
+    button.removeAttribute("aria-busy");
+    pendingRow?.classList.remove("mutation-pending");
   }
 }
 
@@ -619,6 +639,7 @@ $("#chat-logout-btn").addEventListener("click", async () => {
   }
 });
 $("#weight-period").addEventListener("change", renderWeight);
+document.addEventListener("fit-squad-nutrition-readiness", nutritionReadinessChanged);
 setInterval(renderRecentDays, 60000);
 $("#program-current").addEventListener("click", () => {
   if (programSaving || !programData) return;
@@ -654,7 +675,6 @@ $("#conversation").addEventListener("submit", async event => {
       renderDay(day);
       loadReview(day);
     }
-    await loadRecentDays();
     toast("Quantity updated.");
   } catch (error) {
     toast(error.message);

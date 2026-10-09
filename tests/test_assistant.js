@@ -52,3 +52,89 @@ test("missing nutrient targets cannot be shown as fully achieved", () => {
   const missingIntake = day("2026-10-08", { sugar: null });
   assert.equal(context.nutritionGoalStatus(missingIntake, now).state, "unknown");
 });
+
+test("successful settings verification refreshes a blocked chat exactly once", async () => {
+  let refreshes = 0;
+  const readiness = vm.createContext({ waitingForNutritionSetup: true, initialize: async () => { refreshes++; } });
+  vm.runInContext(source.slice(source.indexOf("async function nutritionReadinessChanged("), source.indexOf("\nasync function loadProgram(")), readiness);
+  await readiness.nutritionReadinessChanged({ detail: { ready: false } });
+  assert.equal(refreshes, 0);
+  await readiness.nutritionReadinessChanged({ detail: { ready: true } });
+  await readiness.nutritionReadinessChanged({ detail: { ready: true } });
+  assert.equal(refreshes, 1);
+  assert.equal(readiness.waitingForNutritionSetup, false);
+});
+
+test("day refresh finishes without waiting for the optional AI review", async () => {
+  const controls = new Map();
+  const getControl = selector => {
+    if (!controls.has(selector)) controls.set(selector, { setAttribute() {}, querySelector: () => ({ textContent: "" }), innerHTML: "", value: "" });
+    return controls.get(selector);
+  };
+  let finishReview;
+  const review = new Promise(resolve => { finishReview = resolve; });
+  const refresh = vm.createContext({ today: "2026-10-09", busy: false, redirectingToLogin: false, document: { querySelectorAll: () => [] }, friendlyDate: value => value, api: async () => ({ date: "2026-10-09" }), renderDay() {}, loadReview: () => review, showError: error => { throw new Error(error); } });
+  refresh.$ = getControl;
+  vm.runInContext(source.slice(source.indexOf("async function loadDay("), source.indexOf("\nfunction renderDay(")), refresh);
+  let finished = false;
+  const pending = refresh.loadDay("2026-10-09").then(() => { finished = true; });
+  await new Promise(setImmediate);
+  try {
+    assert.equal(finished, true);
+    assert.equal(getControl("#send-btn").disabled, false);
+  } finally {
+    finishReview();
+    await pending;
+  }
+});
+
+test("deletion keeps the conversation visible and does not wait for AI review", async () => {
+  const classes = new Set();
+  const row = { classList: { add: value => classes.add(value), remove: value => classes.delete(value) } };
+  const attributes = new Map();
+  const button = { dataset: { action: "remove-entry", id: "meal" }, closest: () => row, setAttribute: (key, value) => attributes.set(key, value), removeAttribute: key => attributes.delete(key) };
+  let finishDay;
+  const day = new Promise(resolve => { finishDay = resolve; });
+  let rendered = false;
+  const requests = [];
+  const mutation = vm.createContext({ selectedDate: "2026-10-09", confirm: () => true, api: async path => { requests.push(path); return path.startsWith("/api/nutrition/day") ? day : { status: "revoked" }; }, renderDay: () => { rendered = true; }, loadReview: () => new Promise(() => {}), loadRecentDays: () => { throw new Error("Unnecessary history reload"); }, loadDay: () => { throw new Error("Full-chat loader must not run"); }, toast: error => { throw new Error(error); } });
+  vm.runInContext(source.slice(source.indexOf("async function performAction("), source.indexOf("\nfunction resizeComposer(")), mutation);
+  const pending = mutation.performAction(button);
+  await new Promise(setImmediate);
+  assert.equal(button.disabled, true);
+  assert.equal(classes.has("mutation-pending"), true);
+  assert.equal(rendered, false);
+  finishDay({ date: "2026-10-09" });
+  await pending;
+  assert.equal(rendered, true);
+  assert.equal(classes.has("mutation-pending"), false);
+  assert.equal(attributes.has("aria-busy"), false);
+  assert.equal(requests.length, 2);
+});
+
+test("failed deletion clears pending feedback and permits retry", async () => {
+  const classes = new Set();
+  const row = { classList: { add: value => classes.add(value), remove: value => classes.delete(value) } };
+  const button = { dataset: { action: "remove-entry", id: "meal" }, closest: () => row, setAttribute() {}, removeAttribute() {} };
+  let message;
+  const mutation = vm.createContext({ selectedDate: "2026-10-09", confirm: () => true, api: async () => { throw new Error("Sheet unavailable"); }, toast: value => { message = value; } });
+  vm.runInContext(source.slice(source.indexOf("async function performAction("), source.indexOf("\nfunction resizeComposer(")), mutation);
+  await mutation.performAction(button);
+  assert.equal(button.disabled, false);
+  assert.equal(classes.has("mutation-pending"), false);
+  assert.equal(message, "Sheet unavailable");
+});
+
+test("meal submission unlocks without reloading full history", async () => {
+  const input = { value: "1 banana", focus() {} };
+  const send = { disabled: false };
+  const conversation = { append() {}, scrollHeight: 0 };
+  const requests = [];
+  const submission = vm.createContext({ busy: false, selectedDate: "2026-10-09", document: { createElement: () => ({ remove() {} }) }, escapeHtml: value => value, resizeComposer() {}, api: async path => { requests.push(path); return { day: { date: "2026-10-09" } }; }, renderDay() {}, loadReview: () => new Promise(() => {}), loadRecentDays: () => { throw new Error("Unnecessary history reload"); }, toast: error => { throw new Error(error); } });
+  submission.$ = selector => ({ "#food-input": input, "#send-btn": send, "#conversation": conversation })[selector];
+  vm.runInContext(source.slice(source.indexOf("async function submitFood("), source.indexOf("\nasync function performAction(")), submission);
+  await submission.submitFood({ preventDefault() {} });
+  assert.equal(submission.busy, false);
+  assert.equal(send.disabled, false);
+  assert.deepEqual(requests, ["/api/nutrition/log"]);
+});

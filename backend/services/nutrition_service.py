@@ -631,7 +631,6 @@ def _load(user: str) -> dict[str, Any]:
 
 
 def add_entry(user: str, text: str, date: str) -> dict[str, Any]:
-    _load(user)
     items = analyse(text)
     entry = {
         "id": uuid.uuid4().hex,

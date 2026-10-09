@@ -13,6 +13,7 @@ Choose the provider, model and API key in Settings.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -191,20 +192,20 @@ mcp = FastMCP("training-lab-food-parser")
 
 
 @mcp.tool()
-def parse_food_text(text: str, db_scope: str = "global") -> str:
+async def parse_food_text(text: str, db_scope: str = "global") -> str:
     """Identify foods eaten in a free-text message (typos, Indian dishes, slang).
 
     Returns a JSON list of {input, name, qty, unit, total_grams, per100g}.
     """
     token = app_db.current_user.set(db_scope)
     try:
-        return json.dumps(llm_parse(text))
+        return json.dumps(await asyncio.to_thread(llm_parse, text))
     finally:
         app_db.current_user.reset(token)
 
 
 @mcp.tool()
-def review_day(day_json: str, db_scope: str = "global") -> str:
+async def review_day(day_json: str, db_scope: str = "global") -> str:
     """Review a full day of eating against the user's program and say which foods to avoid.
 
     day_json: {program, targets, intake, burn, workoutKcal, inProgress, foods:[{name,qty,unit,kcal,protein,fat,sugar,sodium}]}
@@ -212,7 +213,7 @@ def review_day(day_json: str, db_scope: str = "global") -> str:
     """
     token = app_db.current_user.set(db_scope)
     try:
-        return json.dumps(llm_review(json.loads(day_json)))
+        return json.dumps(await asyncio.to_thread(llm_review, json.loads(day_json)))
     finally:
         app_db.current_user.reset(token)
 

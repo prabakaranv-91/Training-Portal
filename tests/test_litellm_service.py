@@ -98,6 +98,70 @@ class LiteLLMServiceTests(unittest.TestCase):
         with patch.object(food_parser_client, "_ensure_started", side_effect=RuntimeError("startup failed")):
             self.assertFalse(food_parser_client.prewarm())
 
+    def test_add_entry_does_not_read_the_whole_sheet_before_saving(self):
+        with patch.object(nutrition_service, "_load", side_effect=AssertionError("Unnecessary sheet read")), patch.object(nutrition_service, "analyse", return_value=[]), patch.object(nutrition_service.sheets_sync, "push_entry") as write:
+            entry = nutrition_service.add_entry("user", "food", "2026-10-09")
+        write.assert_called_once_with("user", entry)
+
+    def test_slow_day_review_does_not_block_food_parsing(self):
+        async def exercise():
+            started = asyncio.Event()
+            finish = asyncio.Event()
+
+            class Transport:
+                async def __aenter__(self):
+                    return None, None
+
+                async def __aexit__(self, *args):
+                    return False
+
+            class Session(Transport):
+                def __init__(self, *args):
+                    pass
+
+                async def __aenter__(self):
+                    return self
+
+                async def initialize(self):
+                    pass
+
+                async def call_tool(self, tool, args):
+                    if tool == "review_day":
+                        started.set()
+                        await finish.wait()
+                    return SimpleNamespace(isError=False, content=[SimpleNamespace(text=json.dumps({"tool": tool}))])
+
+            queue = asyncio.Queue()
+            loop = asyncio.get_running_loop()
+            review = loop.create_future()
+            parsed = loop.create_future()
+            with patch.object(food_parser_client, "stdio_client", return_value=Transport()), patch.object(food_parser_client, "ClientSession", Session), patch.object(food_parser_client, "_ready"), patch.object(food_parser_client, "_startup_done"):
+                worker = asyncio.create_task(food_parser_client._serve(queue))
+                try:
+                    queue.put_nowait(("review_day", {}, review))
+                    await asyncio.wait_for(started.wait(), 2)
+                    queue.put_nowait(("parse_food_text", {}, parsed))
+                    self.assertEqual((await asyncio.wait_for(parsed, 2))["tool"], "parse_food_text")
+                    self.assertFalse(review.done())
+                    finish.set()
+                    await asyncio.wait_for(review, 2)
+                finally:
+                    finish.set()
+                    worker.cancel()
+                    await asyncio.gather(worker, return_exceptions=True)
+
+        asyncio.run(exercise())
+
+    def test_concurrent_mcp_tools_keep_user_scopes_separate(self):
+        async def exercise():
+            with patch.object(food_mcp_server, "llm_parse", side_effect=lambda text: [{"scope": app_db.current_user.get()}]), patch.object(food_mcp_server, "llm_review", side_effect=lambda day: {"scope": app_db.current_user.get()}):
+                parsed, reviewed = await asyncio.gather(food_mcp_server.parse_food_text("meal", "user:first"), food_mcp_server.review_day("{}", "user:second"))
+            self.assertEqual(json.loads(parsed)[0]["scope"], "user:first")
+            self.assertEqual(json.loads(reviewed)["scope"], "user:second")
+            self.assertEqual(app_db.current_user.get(), "user:first")
+
+        asyncio.run(exercise())
+
     def test_startup_requires_completed_mcp_handshake(self):
         thread = SimpleNamespace(is_alive=lambda: True)
         with patch.object(food_parser_client, "_thread", thread), patch.object(food_parser_client._startup_done, "wait", return_value=True) as wait, patch.object(food_parser_client._ready, "is_set", return_value=False):
