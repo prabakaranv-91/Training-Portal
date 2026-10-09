@@ -100,8 +100,17 @@ or offline write queue. A successful mutation requires the sheet to acknowledge
 the write. Sheet failures return an error rather than an empty day or local fallback.
 Changing sheet cells is reflected by the next request or page refresh.
 
-Apps Script **version 8** is required. Existing sheet rows remain readable; new
+Apps Script **version 8 or later** is required. Existing sheet rows remain readable; new
 metadata columns preserve complete entry and day information in the sheet.
+The latest download is **version 9**, which batches entry updates, avoids per-row
+deletions, and preserves unrelated rows and extra columns. Redeploy it to enable
+these Google-side performance improvements. Restarting the local app does not
+update an existing Apps Script deployment.
+
+Chat confirms a meal once Google Sheets acknowledges the entry write. Tracker
+refreshes and daily-total updates happen afterward without delaying confirmation.
+A failed sheet write is never reported as saved. Chat entries are displayed in
+chronological order, irrespective of their sheet row order.
 
 To upgrade an existing deployment:
 
@@ -111,7 +120,7 @@ To upgrade an existing deployment:
 4. Return to Settings and select Save and check for Google Sheets.
 
 Old sheet verifications are invalidated by this upgrade. Nutrition remains blocked
-until the version 8 deployment verifies successfully. Existing local databases and
+until a version 8-or-later deployment verifies successfully. Existing local databases and
 backups are historical only and are not used as a fallback; they are not deleted
 automatically before the live sheet data can be verified.
 

@@ -1,5 +1,5 @@
 /**
- * Training Lab — authoritative nutrition storage (Google Apps Script Web App), version 8.
+ * Training Lab — authoritative nutrition storage (Google Apps Script Web App), version 9.
  *
  * Deploy: Extensions ▸ Apps Script ▸ paste your downloaded script ▸
  * Deploy ▸ Manage deployments ▸
@@ -10,7 +10,7 @@
  */
 
 const TOKEN = "PASTE_SHEETS_TOKEN_HERE"; // Your setup download fills this in.
-const VERSION = 8;
+const VERSION = 9;
 const ENTRY_HEADERS = ["user","entryId","itemIndex","date","time","text","food","qty","unit","grams",
   "kcal","protein","carbs","fat","fiber","sugar","sodium","source","revoked","updatedAt","entryJson"];
 const DAY_HEADERS = ["user","date","intakeKcal","protein","carbs","fat","fiber","sugar","sodium",
@@ -50,8 +50,15 @@ function sheet(name, headers) {
   if (!sh) {
     sh = ss.insertSheet(name);
     sh.setFrozenRows(1);
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+  } else {
+    const headerRange = sh.getRange(1, 1, 1, headers.length);
+    const existing = headerRange.getValues()[0];
+    if (existing.some((header, index) => header && header !== headers[index])) {
+      throw new Error("Sheet headers conflict with the nutrition schema. Existing data was not overwritten.");
+    }
+    if (existing.some((header, index) => header !== headers[index])) headerRange.setValues([headers]);
   }
-  sh.getRange(1, 1, 1, headers.length).setValues([headers]);
   return sh;
 }
 
@@ -65,8 +72,14 @@ function upsertEntry(user, entry) {
     i.source, !!(entry.revoked || i.revoked), now, idx === 0 ? JSON.stringify(entry) : ""]);
   if (!rows.length) rows.push([user, entry.id, -1, entry.date, entry.time, entry.text,
     "", 0, "", 0, 0, 0, 0, 0, 0, 0, 0, "", !!entry.revoked, now, JSON.stringify(entry)]);
-  sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
-  for (let index = ids.length - 1; index >= 0; index--) if (ids[index][0] === entry.id) sh.deleteRow(index + 2);
+  const matching = ids.flatMap((row, index) => row[0] === entry.id ? [index + 2] : []);
+  const contiguous = matching.length === rows.length && matching.every((row, index) => row === matching[0] + index);
+  if (contiguous) {
+    sh.getRange(matching[0], 1, rows.length, rows[0].length).setValues(rows);
+  } else {
+    sh.getRange(last + 1, 1, rows.length, rows[0].length).setValues(rows);
+    if (matching.length) sh.getRangeList(matching.map(row => `A${row}:U${row}`)).clearContent();
+  }
 }
 
 function upsertDay(user, date, d) {

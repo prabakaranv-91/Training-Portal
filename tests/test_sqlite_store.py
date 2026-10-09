@@ -262,6 +262,29 @@ class SQLiteStoreTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["code"], "sheets_storage_unavailable")
 
+    def test_fast_food_acknowledgement_does_not_wait_for_day_assessment(self):
+        entry = {"id": "saved-entry", "date": "2026-10-09", "items": []}
+        with patch.object(main, "_nutrition_ready", return_value=True), patch.object(main.nutrition_service, "add_entry", return_value=entry) as save, patch.object(main.nutrition_service, "assess", side_effect=AssertionError("Day assessment must not delay acknowledgement")), patch.object(main, "_energy_for", side_effect=AssertionError("Tracker fetch must not delay acknowledgement")):
+            response = self.client.post("/api/nutrition/log?include_day=false", json={"text": "1 banana", "date": "2026-10-09"})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["saved"])
+        self.assertEqual(response.json()["entry"]["id"], "saved-entry")
+        save.assert_called_once()
+
+    def test_fast_food_save_failure_is_not_acknowledged(self):
+        with patch.object(main, "_nutrition_ready", return_value=True), patch.object(main.nutrition_service, "add_entry", side_effect=sheets_sync.SheetsStorageError("Sheet unavailable")):
+            response = self.client.post("/api/nutrition/log?include_day=false", json={"text": "1 banana"})
+        self.assertEqual(response.status_code, 503)
+        self.assertNotIn("saved", response.json())
+
+    def test_food_log_preserves_default_day_response(self):
+        entry = {"id": "saved-entry"}
+        day = {"date": "2026-10-09", "entries": [entry]}
+        with patch.object(main, "_nutrition_ready", return_value=True), patch.object(main.nutrition_service, "add_entry", return_value=entry), patch.object(main, "_energy_for", return_value={}), patch.object(main.nutrition_service, "assess", return_value=day):
+            response = self.client.post("/api/nutrition/log", json={"text": "1 banana", "date": "2026-10-09"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["day"], day)
+
     def test_different_verified_emails_are_not_silently_merged(self):
         expiry = int(time.time()) + 3600
         app_db.save_session("garmin", "first", "one", {"email": "one@example.invalid", "tokens": "fake"}, expiry)

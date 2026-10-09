@@ -11,6 +11,7 @@ let programData = null;
 let programSaving = false;
 let recentDayRows = [];
 let waitingForNutritionSetup = false;
+let savedMealRefresh = 0;
 let redirectingToLogin = false;
 
 const $ = (selector) => document.querySelector(selector);
@@ -339,7 +340,8 @@ async function loadDay(date) {
 function renderDay(day) {
   renderBalance(day);
   renderRecentDays();
-  const entries = day.entries || [];
+  const entries = [...(day.entries || [])].sort((first, second) =>
+    (first.time || "99:99").localeCompare(second.time || "99:99", undefined, { numeric: true }));
   const dateLabel = friendlyDate(day.date, { weekday: "long", day: "numeric", month: "long" });
   const empty = `<div class="conversation-empty"><div class="empty-orbit" aria-hidden="true">✳</div>
     <h2>What have you eaten?</h2>
@@ -454,7 +456,7 @@ function renderEntry(entry) {
         data-action="${item.revoked ? "restore-item" : "remove-item"}" data-id="${entryId}" data-item="${index}">${item.revoked ? "↶" : "×"}</button>
       <div id="${escapeHtml(panelId)}" class="food-inline-details" hidden>${renderFoodPanel(item, item.revoked ? [] : [{ entryId: entry.id, index, item }])}</div></div>`;
   }).join("");
-  return `<article class="entry-thread" data-entry="${entryId}">
+  return `<article class="entry-thread" data-entry="${entryId}" data-time="${escapeHtml(entry.time || "")}">
     <header class="entry-heading"><div class="user-message">${escapeHtml(entry.text)}</div>
       <div class="thread-meta"><span class="response-total">${number(entry.totals?.kcal)} kcal</span><span>${escapeHtml(entry.time || "Logged")}</span><button class="thread-action" data-action="remove-entry" data-id="${entryId}">Remove entry</button></div></header>
     <div class="food-response"><div class="food-list">${items}</div></div>
@@ -518,12 +520,48 @@ function showError(message) {
   $("#conversation").innerHTML = `<div class="auth-notice"><div class="notice-mark">!</div><div><b>Could not load this day</b><p>${escapeHtml(message)}</p></div></div>`;
 }
 
+function insertSavedEntry(pending, entry) {
+  const conversation = $("#conversation");
+  if ([...conversation.querySelectorAll(".entry-thread[data-entry]")].some(thread => thread.dataset.entry === String(entry.id))) {
+    pending.remove();
+    return;
+  }
+  let saved;
+  if (pending.isConnected === false) {
+    conversation.insertAdjacentHTML("beforeend", renderEntry(entry));
+    saved = conversation.lastElementChild;
+  } else {
+    pending.insertAdjacentHTML("beforebegin", renderEntry(entry));
+    saved = pending.previousElementSibling;
+  }
+  pending.remove();
+  const later = [...conversation.querySelectorAll(".entry-thread[data-time]")].find(thread => thread !== saved &&
+    (thread.dataset.time || "99:99").localeCompare(entry.time || "99:99", undefined, { numeric: true }) > 0);
+  const anchor = later || conversation.querySelector(".day-food-details, .nutrient-contributors");
+  anchor?.before(saved);
+}
+
+async function refreshSavedMeal(date) {
+  const refresh = ++savedMealRefresh;
+  try {
+    const day = await api(`/api/nutrition/day?date=${encodeURIComponent(date)}`);
+    if (selectedDate === date && refresh === savedMealRefresh && !busy) {
+      currentDay = day;
+      renderDay(day);
+      void loadReview(day);
+    }
+  } catch (error) {
+    if (selectedDate === date && refresh === savedMealRefresh) toast(`Meal saved. Daily totals could not refresh: ${error.message}`);
+  }
+}
+
 async function submitFood(event) {
   event.preventDefault();
   if (busy) return;
   const input = $("#food-input");
   const text = input.value.trim();
   if (!text) return;
+  const date = selectedDate;
   busy = true;
   $("#send-btn").disabled = true;
   const pending = document.createElement("article");
@@ -534,10 +572,10 @@ async function submitFood(event) {
   input.value = "";
   resizeComposer();
   try {
-    const result = await api("/api/nutrition/log", { method: "POST", body: JSON.stringify({ text, date: selectedDate }) });
-    currentDay = result.day;
-    renderDay(currentDay);
-    void loadReview(currentDay);
+    const result = await api("/api/nutrition/log?include_day=false", { method: "POST", body: JSON.stringify({ text, date }) });
+    if (selectedDate === date) insertSavedEntry(pending, result.entry);
+    else pending.remove();
+    void refreshSavedMeal(date);
   } catch (error) {
     pending.remove();
     input.value = text;

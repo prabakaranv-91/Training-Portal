@@ -970,10 +970,12 @@ def _nutrition_user(garmin_session: str | None) -> str:
 
 
 @app.post("/api/nutrition/log")
-def nutrition_log(req: NutritionLogRequest, garmin_session: str | None = Cookie(default=None)):
+def nutrition_log(req: NutritionLogRequest, garmin_session: str | None = Cookie(default=None), include_day: bool = True):
     user = _nutrition_user(garmin_session)
     day = (req.date or dt.date.today()).isoformat()
     entry = nutrition_service.add_entry(user, req.text, day)
+    if not include_day:
+        return {"entry": entry, "date": day, "saved": True}
     return {"entry": entry, "day": nutrition_service.assess(user, day, _energy_for(garmin_session, day))}
 
 
