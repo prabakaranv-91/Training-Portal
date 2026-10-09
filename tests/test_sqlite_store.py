@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from backend import main
 from backend.utils import app_db, auth_cookies
-from backend.services import sheets_sync
+from backend.services import nutrition_service, sheets_sync
 
 
 class SQLiteStoreTests(unittest.TestCase):
@@ -39,8 +39,8 @@ class SQLiteStoreTests(unittest.TestCase):
             app_db.migrate_legacy(database, self.root, data, {})
         self.assertEqual(app_db.get_setting("strava_config")["client_id"], "old")
         self.assertTrue(source.exists())
-        self.assertEqual(app_db.adopt_legacy("nutrition_log", "legacy_user:example", "user:one", {})["entries"][0]["id"], "old")
-        self.assertEqual(app_db.adopt_legacy("nutrition_log", "legacy_user:example", "user:two", {}), {})
+        self.assertIsNone(app_db.get_setting("nutrition_log", scope="legacy_user:example"))
+        self.assertTrue((data / "nutrition_log_example.json").exists())
 
     def test_settings_are_saved_without_returning_secrets(self):
         initial = self.client.get("/api/settings/integrations").json()
@@ -94,7 +94,7 @@ class SQLiteStoreTests(unittest.TestCase):
         self.assertIsNone(auth_cookies.decode("strava", {"strava_session": cookie}))
 
     def test_sheet_worker_uses_originating_user_credentials(self):
-        app_db.set_setting("nutrition_config", {"google_sheets": {"web_app_url": "https://example.invalid/one"}}, scope="user:one")
+        app_db.set_setting("nutrition_config", {"google_sheets": {"enabled": True, "web_app_url": "https://example.invalid/one"}}, scope="user:one")
         app_db.set_setting("nutrition_secrets", {"sheets_token": "one-token"}, scope="user:one")
         response = MagicMock()
         response.json.return_value = {"ok": True}
@@ -151,7 +151,7 @@ class SQLiteStoreTests(unittest.TestCase):
         self.assertEqual(script.headers["cache-control"], "no-store")
         self.client.post("/api/settings/integrations", headers=self.headers, json={"sheets_url": "https://script.google.com/macros/s/fake/exec", "llm_provider": "openai", "llm_model": "gpt-test", "llm_api_key": "fake-key"})
         self.assertFalse(self.client.get("/api/settings/integrations").json()["sheets"]["ready"])
-        with patch.object(main.sheets_sync, "_post", return_value={"ok": True}):
+        with patch.object(main.sheets_sync, "_post", return_value={"ok": True, "version": 8}):
             self.assertTrue(self.client.post("/api/settings/check/sheets", headers=self.headers).json()["sheets"]["ready"])
         response = MagicMock()
         response.json.return_value = {"supportedGenerationMethods": ["generateContent"]}
@@ -190,7 +190,7 @@ class SQLiteStoreTests(unittest.TestCase):
 
     def test_both_verified_integrations_unlock_nutrition(self):
         self.client.post("/api/settings/integrations", headers=self.headers, json={"sheets_url": "https://script.google.com/macros/s/fake/exec", "sheets_token": "sheet-secret", "llm_provider": "openai", "llm_model": "gpt-test", "llm_api_key": "ai-secret"})
-        with patch.object(main.sheets_sync, "_post", return_value={"ok": True}):
+        with patch.object(main.sheets_sync, "_post", return_value={"ok": True, "version": 8}):
             self.client.post("/api/settings/check/sheets", headers=self.headers)
         self.assertFalse(self.client.get("/api/session").json()["nutritionReady"])
         response = MagicMock()
@@ -198,7 +198,8 @@ class SQLiteStoreTests(unittest.TestCase):
         with patch.object(main.llm_service, "generate", return_value={"ok": True}):
             self.client.post("/api/settings/check/llm", headers=self.headers)
         self.assertTrue(self.client.get("/api/session").json()["nutritionReady"])
-        self.assertEqual(self.client.get("/api/nutrition/history").status_code, 200)
+        with patch.object(main.sheets_sync, "fetch_log", return_value={"entries": [], "days": {}}):
+            self.assertEqual(self.client.get("/api/nutrition/history").status_code, 200)
         self.client.post("/api/settings/integrations", headers=self.headers, json={"llm_enabled": False})
         self.assertFalse(self.client.get("/api/session").json()["nutritionReady"])
         self.assertEqual(self.client.get("/api/nutrition/history").status_code, 403)
@@ -217,7 +218,7 @@ class SQLiteStoreTests(unittest.TestCase):
         self.assertNotIn("private-test-secret", response.headers["location"])
         self.assertNotIn("client_id", self.client.get("/api/settings/integrations").json()["strava"])
 
-    def test_verified_provider_link_preserves_both_histories(self):
+    def test_verified_provider_link_does_not_merge_local_nutrition(self):
         expiry = int(time.time()) + 3600
         app_db.save_session("garmin", "garmin", "g-id", {"email": " Same@Example.invalid ", "tokens": "fake"}, expiry)
         app_db.save_session("strava", "strava", "42", {"refresh_token": "fake"}, expiry)
@@ -227,7 +228,39 @@ class SQLiteStoreTests(unittest.TestCase):
         app_db.link_provider("user:garmin:g-id", "strava", "42")
         app_db.link_provider("user:garmin:g-id", "strava", "42")
         self.assertEqual(app_db.fetch_session("strava", "strava")["ownerScope"], "user:garmin:g-id")
-        self.assertEqual(len(app_db.get_setting("nutrition_log", scope="user:garmin:g-id")["entries"]), 2)
+        self.assertEqual(app_db.get_setting("nutrition_log", scope="user:garmin:g-id")["entries"], [{"id": "first"}])
+        self.assertEqual(app_db.get_setting("nutrition_log", scope="user:strava:42")["entries"], [{"id": "second"}])
+
+    def test_nutrition_reads_only_the_sheet_not_local_data(self):
+        app_db.set_setting("nutrition_log", {"entries": [{"id": "local-entry"}], "days": {}}, scope=self.scope)
+        sheet = {"entries": [{"id": "sheet-entry", "date": "2026-10-09"}], "days": {}}
+        with patch.object(sheets_sync, "fetch_log", return_value=sheet), patch.object(app_db, "get_setting", side_effect=AssertionError("Local nutrition read")), patch.object(app_db, "set_setting", side_effect=AssertionError("Local nutrition write")):
+            self.assertEqual(nutrition_service.entries_for("user", "2026-10-09")[0]["id"], "sheet-entry")
+
+    def test_sheet_outage_never_falls_back_to_local_nutrition(self):
+        app_db.set_setting("nutrition_log", {"entries": [{"id": "local-entry"}], "days": {}}, scope=self.scope)
+        with patch.object(sheets_sync, "fetch_log", side_effect=sheets_sync.SheetsStorageError("offline")):
+            with self.assertRaises(sheets_sync.SheetsStorageError):
+                nutrition_service.entries_for("user", "2026-10-09")
+
+    def test_failed_sheet_write_is_not_saved_locally(self):
+        with patch.object(sheets_sync, "fetch_log", return_value={"entries": [], "days": {}}), patch.object(nutrition_service, "analyse", return_value=[]), patch.object(sheets_sync, "push_entry", side_effect=sheets_sync.SheetsStorageError("offline")), patch.object(app_db, "set_setting", side_effect=AssertionError("Local nutrition write")):
+            with self.assertRaises(sheets_sync.SheetsStorageError):
+                nutrition_service.add_entry("user", "food", "2026-10-09")
+
+    def test_old_sheet_script_cannot_unlock_nutrition(self):
+        self.client.post("/api/settings/integrations", headers=self.headers, json={"sheets_url": "https://script.google.com/macros/s/fake/exec", "sheets_token": "sheet-secret"})
+        with patch.object(sheets_sync, "_post", return_value={"ok": True, "version": 7}):
+            response = self.client.post("/api/settings/check/sheets", headers=self.headers)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("version 8", response.json()["detail"])
+        self.assertFalse(self.client.get("/api/settings/integrations").json()["sheets"]["ready"])
+
+    def test_sheet_outage_returns_503_not_an_empty_day(self):
+        with patch.object(main, "_nutrition_ready", return_value=True), patch.object(main, "_energy_for", return_value={"source": "estimate"}), patch.object(sheets_sync, "fetch_log", side_effect=sheets_sync.SheetsStorageError("offline")):
+            response = self.client.get("/api/nutrition/day?date=2026-10-09")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["code"], "sheets_storage_unavailable")
 
     def test_different_verified_emails_are_not_silently_merged(self):
         expiry = int(time.time()) + 3600

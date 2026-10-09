@@ -8,14 +8,14 @@ setupModal.innerHTML = `<section class="setup-dialog"><header><h2 id="setup-titl
   <div class="setup-account"><div class="setup-apps"><strong>Connected apps</strong><ul id="connected-apps-list"></ul></div><a id="setup-link-strava" href="/api/strava/connect?link=1" hidden>Link Strava to this tracker</a></div>
   <form id="setup-form"><div id="setup-ready-summary" class="setup-ready-summary" hidden><h3>Settings are up to date</h3><ul><li>Google sheet: Connected</li><li>AI model: Connected</li></ul><p>No changes are needed.</p><button type="button" id="edit-integration-settings">Change settings</button></div>
     <nav id="setup-steps" aria-label="Settings sections"></nav>
-    <section data-setup-step="0"><h3>1. Google sheet</h3><p class="setup-purpose">Your Google sheet keeps a backup of foods and portions, calories and nutrients, daily targets, weight history and nutrition reviews.</p><a href="#sheet-instructions" class="setup-instructions-link">Instructions</a>
+    <section data-setup-step="0"><h3>1. Google sheet</h3><p class="setup-purpose">Food entries, nutrition details, targets, programs, weights and reviews are stored only in your Google sheet.</p><a href="#sheet-instructions" class="setup-instructions-link">Instructions</a>
       <div id="sheet-instructions" class="setup-instructions" hidden><ol>
         <li>Open <a href="https://sheets.google.com" target="_blank" rel="noopener">Google Sheets</a>, create a blank spreadsheet and give it a name such as My Food Log.</li>
         <li>Select Generate token below, then Download script.</li>
         <li>In your spreadsheet select Extensions, then Apps Script. Delete the sample code. Open the downloaded file in a text editor, copy all its text into the script editor and save.</li>
         <li>Select Deploy, New deployment, the gear icon, then Web app. Choose Execute as: Me and Who has access: Anyone.</li>
         <li>Select Deploy and authorise your own script with Google. Only continue past an unverified-app warning if this is the script you just created.</li>
-        <li>Copy the Web app URL ending in /exec below and select Save and check. If you edit the script later, deploy a new version.</li>
+        <li>Copy the Web app URL ending in /exec below and select Save and check. Version 8 is required. To upgrade an existing script, use Deploy, Manage deployments, Edit, New version, Deploy and keep the same URL.</li>
       </ol></div>
       <div class="setup-actions"><button type="button" id="setup-generate-token">Generate token</button><button type="button" id="setup-download-script" disabled>Download script</button></div><p id="setup-download-note">Generate a token to enable the script download.</p>
       <label>Web app deployment URL<input name="sheets_url" type="url" placeholder="https://script.google.com/macros/s/.../exec" /></label>

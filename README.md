@@ -48,7 +48,8 @@ Open <http://127.0.0.1:8000>.
 3. Strava sign-in uses its consent-based authorization flow.
 4. Sign out from the application to end the active session.
 
-Application data and settings use SQLite under the root `data/` directory.
+Authentication, integration credentials, and provider usage counters use SQLite
+under the root `data/` directory. Nutrition data uses only the configured Google Sheet.
 
 ## Application settings and migration
 
@@ -77,16 +78,42 @@ Strava's API does not return email, so the app does not guess an email or match 
 display name. To combine an existing Garmin and Strava tracker, sign in with
 Garmin, open **Settings**, select **Link Strava to this tracker**, and approve
 Strava consent once. Both verified logins then resolve to the same profile.
-Existing food histories are merged by entry ID without dropping either history;
-the canonical tracker's existing settings take precedence. Profiles with different
+The linked tracker uses its canonical Google Sheet and user tabs;
+the canonical tracker's existing integration settings take precedence. Profiles with different
 verified email addresses are not silently combined.
 
 Previously migrated settings remain scoped to their existing account. Ambiguous
 legacy configuration remains quarantined for manual recovery. Settings endpoints
 require an authenticated provider session.
 
-Initial setup migrates existing configuration and nutrition data into SQLite.
+Initial setup migrates existing configuration into SQLite, but does not import
+nutrition files or caches. Historical local nutrition files are not read, migrated,
+or synchronized back into the sheet.
 Use Settings to change integrations.
+
+### Google Sheets is the nutrition source of truth
+
+Food entries, portions, nutrition values, removed-item history, day summaries,
+programs, weights, and reviews are read from and written directly to the configured
+Google Sheet. There is no local nutrition database, disk cache, browser storage,
+or offline write queue. A successful mutation requires the sheet to acknowledge
+the write. Sheet failures return an error rather than an empty day or local fallback.
+Changing sheet cells is reflected by the next request or page refresh.
+
+Apps Script **version 8** is required. Existing sheet rows remain readable; new
+metadata columns preserve complete entry and day information in the sheet.
+
+To upgrade an existing deployment:
+
+1. Open Settings after signing in and download the personalized Apps Script.
+2. In the existing spreadsheet, open Extensions > Apps Script and replace the code.
+3. Select Deploy > Manage deployments > Edit > New version > Deploy. Keep the same URL.
+4. Return to Settings and select Save and check for Google Sheets.
+
+Old sheet verifications are invalidated by this upgrade. Nutrition remains blocked
+until the version 8 deployment verifies successfully. Existing local databases and
+backups are historical only and are not used as a fallback; they are not deleted
+automatically before the live sheet data can be verified.
 
 Run the test suite from the repository root with
 `.venv\Scripts\python.exe -m unittest discover -s tests -v`.

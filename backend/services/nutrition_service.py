@@ -9,8 +9,7 @@ Nutrition log: parse free-text food intake, look up nutrition, keep history.
     2. USDA FoodData Central (free API; key via env USDA_FDC_API_KEY,
        defaults to the public DEMO_KEY).
     3. Open Food Facts (free, no key).
-- History is stored as JSON at ~/.training_lab/nutrition_log.json
-    (stored in the application SQLite database).
+- Nutrition history is read from and written only to the configured Google Sheet.
 """
 
 from __future__ import annotations
@@ -39,7 +38,6 @@ _LOCK = threading.Lock()
 USDA_URL = "https://api.nal.usda.gov/fdc/v1/foods/search"
 OFF_URL = "https://world.openfoodfacts.org/cgi/search.pl"
 HTTP_HEADERS = {"User-Agent": "TrainingLab/1.0 (personal nutrition log)"}
-_LOOKUP_CACHE: dict[str, dict[str, Any]] = {}
 
 # ------------------------------------------------------------ food table
 # Values per 100 g: kcal, protein, carbs, fat, fiber, sugar (g), sodium (mg).
@@ -524,18 +522,9 @@ def _lookup(item: str) -> dict[str, Any] | None:
         return {"name": local, "source": "Built-in table", "per100": food["per100"],
                 "units": food["units"], "default": food["default"], "query": corrected}
     item = corrected
-    key = _norm(item)
-    with _LOCK:
-        if not _LOOKUP_CACHE:
-            _LOOKUP_CACHE.update(app_db.get_setting("food_lookup_cache", {}))
-        if key in _LOOKUP_CACHE:
-            return _LOOKUP_CACHE[key]
     found = _usda_lookup(item) or _off_lookup(item)
-    if found:  # misses aren't cached so they can be retried later
+    if found:
         found["query"] = item
-        with _LOCK:
-            _LOOKUP_CACHE[key] = found
-            app_db.set_setting("food_lookup_cache", _LOOKUP_CACHE)
     return found
 
 
@@ -631,32 +620,18 @@ def _sum(items: list[dict[str, Any]]) -> dict[str, float]:
 # ------------------------------------------------------------------ storage
 
 
-def _log_scope(user: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "_", user.lower()).strip("_") or "default"
-    return app_db.current_user.get() or f"legacy_user:{slug}"
-
-
 def _load(user: str) -> dict[str, Any]:
-    scope = _log_scope(user)
-    data = app_db.get_setting("nutrition_log", scope=scope)
-    if data is None:
-        owner = app_db.get_setting("private_integrations_migrated", {}).get("owner")
-        if scope.startswith("user:") and scope != owner:
-            return {"entries": [], "days": {}}
-        slug = re.sub(r"[^a-z0-9]+", "_", user.lower()).strip("_") or "default"
-        data = app_db.adopt_legacy("nutrition_log", f"legacy_user:{slug}", scope, None)
-        if data is None:
-            data = app_db.adopt_legacy("nutrition_log", "legacy_user:default", scope, {"entries": [], "days": {}})
+    data = sheets_sync.fetch_log(user)
     data.setdefault("entries", [])
     data.setdefault("days", {})
+    data.setdefault("weights", [])
+    data.setdefault("programs", [])
+    data.setdefault("coach", {})
     return data
 
 
-def _save(user: str, data: dict[str, Any]) -> None:
-    app_db.set_setting("nutrition_log", data, scope=_log_scope(user))
-
-
 def add_entry(user: str, text: str, date: str) -> dict[str, Any]:
+    _load(user)
     items = analyse(text)
     entry = {
         "id": uuid.uuid4().hex,
@@ -666,16 +641,12 @@ def add_entry(user: str, text: str, date: str) -> dict[str, Any]:
         "items": items,
         "totals": _sum(items),
     }
-    with _LOCK:
-        data = _load(user)
-        data["entries"].append(entry)
-        _save(user, data)
     sheets_sync.push_entry(user, entry)
     return entry
 
 
 def set_revoked(user: str, entry_id: str, revoked: bool, item: int | None = None) -> dict[str, Any] | None:
-    """Revoke/restore a whole entry or one of its items; kept on disk for history."""
+    """Revoke/restore an entry or item while retaining its history in Sheets."""
     with _LOCK:
         data = _load(user)
         entry = next((e for e in data["entries"] if e.get("id") == entry_id), None)
@@ -689,8 +660,7 @@ def set_revoked(user: str, entry_id: str, revoked: bool, item: int | None = None
             entry["items"][item]["revoked"] = revoked
             entry["totals"] = _sum([i for i in entry["items"] if not i.get("revoked")])
         entry["revokedAt" if revoked else "restoredAt"] = dt.datetime.now().isoformat(timespec="seconds")
-        _save(user, data)
-    sheets_sync.push_entry(user, entry)
+        sheets_sync.push_entry(user, entry)
     return entry
 
 
@@ -713,8 +683,7 @@ def set_item_qty(user: str, entry_id: str, item: int, qty: float) -> dict[str, A
             it[k] = round((it.get(k) or 0) * factor, 1)
         entry["totals"] = _sum([i for i in entry["items"] if not i.get("revoked")])
         entry["editedAt"] = dt.datetime.now().isoformat(timespec="seconds")
-        _save(user, data)
-    sheets_sync.push_entry(user, entry)
+        sheets_sync.push_entry(user, entry)
     return entry
 
 
@@ -731,8 +700,7 @@ def reanalyse_entry(user: str, entry_id: str) -> dict[str, Any] | None:
             return None
         entry["items"] = items
         entry["totals"] = _sum(items)
-        _save(user, data)
-    sheets_sync.push_entry(user, entry)
+        sheets_sync.push_entry(user, entry)
     return entry
 
 
@@ -745,27 +713,11 @@ def _active(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def save_day_snapshot(user: str, date: str, snapshot: dict[str, Any]) -> None:
-    with _LOCK:
-        data = _load(user)
-        changed = data["days"].get(date) != snapshot
-        data["days"][date] = snapshot
-        _save(user, data)
-    if changed:  # avoid a sheet write on every page refresh
-        sheets_sync.push_day(user, date, snapshot)
+    sheets_sync.push_day(user, date, snapshot)
 
 
 def sync_all_to_sheets(user: str) -> dict[str, int]:
     data = _load(user)
-    for e in data["entries"]:
-        sheets_sync.push_entry(user, e)
-    for date, snap in data["days"].items():
-        sheets_sync.push_day(user, date, snap)
-    for p in data.get("programs", []):
-        sheets_sync.push_program(user, p)
-    for w in data.get("weights", []):
-        sheets_sync.push_weight(user, w)
-    for date, c in (data.get("coach") or {}).items():
-        sheets_sync.push_review(user, date, c["sig"], c["review"])
     return {"entries": len(data["entries"]), "days": len(data["days"]), "programs": len(data.get("programs", [])),
             "weights": len(data.get("weights", []))}
 
@@ -776,7 +728,7 @@ KCAL_PER_KG = 7700  # energy in ~1 kg of body weight change
 
 
 def coach(user: str, date: str, refresh: bool = False) -> dict[str, Any]:
-    """AI review of the day's meals, stored locally and in the Google Sheet.
+    """AI review of the day's meals, stored exclusively in the Google Sheet.
 
     It is regenerated only when the day's food or program changed (or on `refresh`),
     so reopening the page reuses the stored review instead of spending provider quota.
@@ -799,14 +751,7 @@ def coach(user: str, date: str, refresh: bool = False) -> dict[str, Any]:
     sig = uuid.uuid5(uuid.NAMESPACE_OID, json.dumps(["v4", day["program"], foods, model_config.get("provider"), model_config.get("model")], sort_keys=True)).hex
     now = dt.datetime.now()
     cached = (data.get("coach") or {}).get(date)
-    origin = "cache"
-    if not cached:
-        # Reuse the sheet review across installs instead of requesting another completion.
-        saved = sheets_sync.fetch_review(user, date)
-        if saved and saved.get("review"):
-            cached, origin = {"sig": saved.get("sig"), "review": saved["review"],
-                              "at": now.isoformat(timespec="seconds")}, "sheet"
-            _store_review(user, date, cached)
+    origin = "sheet"
     if cached and cached.get("sig") == sig and not refresh:
         return {"source": "litellm", "from": origin, "stale": False, "at": cached.get("at"), **cached["review"]}
     review = food_parser_client.review(day)
@@ -816,21 +761,17 @@ def coach(user: str, date: str, refresh: bool = False) -> dict[str, Any]:
         return {"source": None}
     entry = {"sig": sig, "review": review, "at": now.isoformat(timespec="seconds")}
     _store_review(user, date, entry)
-    sheets_sync.push_review(user, date, sig, review)
     return {"source": "litellm", "from": "litellm", "stale": False, "at": entry["at"], **review}
 
 
 def _store_review(user: str, date: str, entry: dict[str, Any]) -> None:
-    with _LOCK:
-        data = _load(user)
-        data.setdefault("coach", {})[date] = entry
-        _save(user, data)
+    sheets_sync.push_review(user, date, entry["sig"], entry["review"])
 
 
 def weight_for(user: str, date: str, data: dict[str, Any] | None = None) -> float | None:
     """Latest weight logged on or before `date`."""
     kg = None
-    for w in sorted((data or _load(user)).get("weights", []), key=lambda w: w["date"]):
+    for w in sorted((data if data is not None else _load(user)).get("weights", []), key=lambda w: w["date"]):
         if w["date"] <= date:
             kg = w["kg"]
     return kg
@@ -839,10 +780,6 @@ def weight_for(user: str, date: str, data: dict[str, Any] | None = None) -> floa
 def set_weight(user: str, kg: float, date: str, source: str = "manual") -> dict[str, Any]:
     entry = {"date": date, "kg": round(kg, 1), "source": source,
              "setAt": dt.datetime.now().isoformat(timespec="seconds")}
-    with _LOCK:
-        data = _load(user)
-        data["weights"] = [w for w in data.get("weights", []) if w["date"] != date] + [entry]
-        _save(user, data)
     sheets_sync.push_weight(user, entry)
     return entry
 
@@ -1092,7 +1029,7 @@ def _program_kcal(program: str, burn: float) -> int:
 
 def program_for(user: str, date: str, data: dict[str, Any] | None = None) -> str:
     """Program in effect on `date` (latest one set on or before it)."""
-    progs = sorted((data or _load(user)).get("programs", []), key=lambda p: p["from"])
+    progs = sorted((data if data is not None else _load(user)).get("programs", []), key=lambda p: p["from"])
     current = "maintain"
     for p in progs:
         if p["from"] <= date and p["program"] in PROGRAMS:
@@ -1115,10 +1052,7 @@ def set_program(user: str, program: str, date: str) -> dict[str, Any]:
         raise ValueError("Unknown program")
     entry = {"from": date, "program": program, "label": PROGRAMS[program]["label"],
              "setAt": dt.datetime.now().isoformat(timespec="seconds")}
-    with _LOCK:
-        data = _load(user)
-        data["programs"] = [p for p in data.get("programs", []) if p["from"] != date] + [entry]
-        _save(user, data)
+    _load(user)
     sheets_sync.push_program(user, entry)
     return entry
 
@@ -1311,9 +1245,10 @@ def _estimate_workout_kcal(w: dict[str, Any], weight: float) -> float:
 
 def assess(user: str, date: str, energy: dict[str, Any]) -> dict[str, Any]:
     """Compare the day's intake with burn/workout and give suggestions."""
-    entries = entries_for(user, date)
+    data = _load(user)
+    entries = [entry for entry in data["entries"] if entry.get("date") == date]
     intake = _sum([e["totals"] for e in _active(entries)])
-    logged_kg = weight_for(user, date)
+    logged_kg = weight_for(user, date, data)
     external_kg = energy.get("weightKg")
     weight = external_kg or logged_kg or DEFAULT_WEIGHT_KG
     weight_source = (energy.get("weightSource") or energy.get("source") or "garmin") if external_kg else "logged" if logged_kg else "default"
@@ -1334,7 +1269,7 @@ def assess(user: str, date: str, energy: dict[str, Any]) -> dict[str, Any]:
     burn_active = max(active or 0, workout_kcal) if active is not None else workout_kcal + 0.2 * bmr
     burn = round(bmr + burn_active)
 
-    program = program_for(user, date)
+    program = program_for(user, date, data)
     prog = PROGRAMS[program]
     target_kcal = _program_kcal(program, burn)
     protein_per_kg = prog["protein"] or (1.8 if workout_kcal >= 500 else 1.6 if workouts else 1.4)
@@ -1363,7 +1298,7 @@ def assess(user: str, date: str, energy: dict[str, Any]) -> dict[str, Any]:
     tips = _suggestions(intake, targets, status, workout_kcal, workout_min, is_today, program, burn)
     cut = _eliminations(entries, intake, targets, program)
     tips[1:1] = cut["tips"]
-    review = ((_load(user).get("coach") or {}).get(date) or {}).get("review")
+    review = ((data.get("coach") or {}).get(date) or {}).get("review")
     for e in entries:
         _annotate(e["items"], program, review)
 
@@ -1387,8 +1322,9 @@ def assess(user: str, date: str, energy: dict[str, Any]) -> dict[str, Any]:
         "cutTips": cut["tips"],
         "inProgress": is_today,
     }
-    if entries:
-        save_day_snapshot(user, date, {k: result[k] for k in ("intake", "targets", "burn", "status", "weightKg", "program")})
+    snapshot = {key: result[key] for key in ("intake", "targets", "burn", "status", "weightKg", "program")}
+    if entries and data["days"].get(date) != snapshot:
+        save_day_snapshot(user, date, snapshot)
     return result
 
 

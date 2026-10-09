@@ -32,7 +32,6 @@ _thread: threading.Thread | None = None
 _task: asyncio.Task | None = None
 _ready = threading.Event()
 _startup_done = threading.Event()
-_cache: dict[str, list[dict[str, Any]]] = {}
 _status: dict[str, dict[str, Any]] = {}
 
 
@@ -168,9 +167,6 @@ def parse(text: str) -> list[dict[str, Any]] | None:
     """Foods in `text` via the MCP server, or None to fall back to the regex parser."""
     if not is_enabled():
         return None
-    key = f"{app_db.user_scope()}\u0000{text.strip().lower()}"
-    if key in _cache:
-        return _cache[key]
     try:
         items = _call_tool("parse_food_text", {"text": text})
     except Exception as exc:  # noqa: BLE001
@@ -179,7 +175,6 @@ def parse(text: str) -> list[dict[str, Any]] | None:
         return None
     _status.setdefault(app_db.user_scope(), {})["lastOk"] = True
     _status.setdefault(app_db.user_scope(), {})["lastError"] = None
-    _cache[key] = items
     return items
 
 

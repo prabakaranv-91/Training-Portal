@@ -17,6 +17,7 @@ DB_PATH = PROJECT_ROOT / "data" / "app.sqlite3"
 DEFAULT_DB_PATH = DB_PATH
 current_user: ContextVar[str | None] = ContextVar("database_user", default=None)
 _schema_lock = threading.Lock()
+NUTRITION_DATA_SETTINGS = ("nutrition_log", "food_lookup_cache", "sheets_pending")
 
 
 def _legacy_json(path: Path, default):
@@ -39,9 +40,7 @@ def migrate_legacy(database, root: Path, data_root: Path, environment: dict[str,
         "strava_config": _legacy_json(root / "strava_config.json", {}),
         "nutrition_config": _legacy_json(root / "nutrition_config.json", {}),
         "nutrition_secrets": _legacy_json(root / "nutrition_secrets.json", {}),
-        "sheets_pending": _legacy_json(data_root / "sheets_pending.json", []),
         "gemini_usage": _legacy_json(data_root / "gemini_usage.json", {}),
-        "food_lookup_cache": _legacy_json(data_root / "food_lookup_cache.json", {}),
     }
     for variable, key in (("STRAVA_CLIENT_ID", "client_id"), ("STRAVA_CLIENT_SECRET", "client_secret"), ("STRAVA_YEARLY_GOAL_KM", "yearly_goal_km")):
         if environment.get(variable):
@@ -62,9 +61,6 @@ def migrate_legacy(database, root: Path, data_root: Path, environment: dict[str,
     for key, session in auth.get("sessions", {}).items():
         if session.get("expiresAt", 0) > time.time() and session.get("userId") in auth.get("users", {}):
             database.execute("INSERT OR IGNORE INTO sessions(provider, session_hash, user_id, expires_at) VALUES ('garmin', ?, ?, ?)", (key, session["userId"], session["expiresAt"]))
-    for path in data_root.glob("nutrition_log*.json"):
-        scope = "legacy_user:" + path.stem.removeprefix("nutrition_log_") if path.stem != "nutrition_log" else "legacy_user:default"
-        database.execute("INSERT OR IGNORE INTO settings(scope, name, value) VALUES (?, 'nutrition_log', ?)", (scope, json.dumps(_legacy_json(path, {}))))
     legacy_strava = _legacy_json(Path.home() / ".strava_portal_tokens.json", {}) if root == APP_ROOT else {}
     if legacy_strava.get("refresh_token"):
         user_id = str((legacy_strava.get("athlete") or {}).get("id") or "legacy")
@@ -206,12 +202,14 @@ def delete_setup_session(session_id: str) -> None:
 
 def _move_settings(database, source: str, destination: str) -> None:
     for row in database.execute("SELECT name, value FROM settings WHERE scope = ?", (source,)).fetchall():
+        if row["name"] in NUTRITION_DATA_SETTINGS:
+            continue
         existing = database.execute("SELECT value FROM settings WHERE scope = ? AND name = ?", (destination, row["name"])).fetchone()
         value = json.loads(row["value"])
         if existing and isinstance(value, dict):
             value = merge_settings(json.loads(existing["value"]), value)
         database.execute("INSERT INTO settings(scope, name, value) VALUES (?, ?, ?) ON CONFLICT(scope, name) DO UPDATE SET value = excluded.value", (destination, row["name"], json.dumps(value)))
-    database.execute("DELETE FROM settings WHERE scope = ?", (source,))
+    database.execute("DELETE FROM settings WHERE scope = ? AND name NOT IN (?, ?, ?)", (source, *NUTRITION_DATA_SETTINGS))
 
 
 def retire_local_accounts(database) -> None:
@@ -267,20 +265,15 @@ def link_provider(owner: str, provider: str, user_id: str) -> None:
             if source_email and target_email and source_email["email"] != target_email["email"]:
                 raise ValueError("These profiles belong to different verified email addresses.")
             for row in database.execute("SELECT name, value FROM settings WHERE scope = ?", (source,)).fetchall():
+                if row["name"] in NUTRITION_DATA_SETTINGS:
+                    continue
                 destination = database.execute("SELECT value FROM settings WHERE scope = ? AND name = ?", (owner, row["name"])).fetchone()
                 value = json.loads(row["value"])
                 if destination:
                     current = json.loads(destination["value"])
-                    if row["name"] == "nutrition_log":
-                        value = merge_settings(value, current)
-                        for field, key in (("entries", "id"), ("weights", "date"), ("programs", "from")):
-                            records = {item.get(key): item for item in json.loads(row["value"]).get(field, [])}
-                            records.update({item.get(key): item for item in current.get(field, [])})
-                            value[field] = list(records.values())
-                    else:
-                        value = merge_settings(value, current) if isinstance(value, dict) and isinstance(current, dict) else current
+                    value = merge_settings(value, current) if isinstance(value, dict) and isinstance(current, dict) else current
                 database.execute("INSERT INTO settings(scope, name, value) VALUES (?, ?, ?) ON CONFLICT(scope, name) DO UPDATE SET value = excluded.value", (owner, row["name"], json.dumps(value)))
-            database.execute("DELETE FROM settings WHERE scope = ?", (source,))
+            database.execute("DELETE FROM settings WHERE scope = ? AND name NOT IN (?, ?, ?)", (source, *NUTRITION_DATA_SETTINGS))
             database.execute("UPDATE account_owners SET owner_scope = ? WHERE owner_scope = ?", (owner, source))
         database.execute("INSERT INTO account_owners(provider, user_id, owner_scope) VALUES (?, ?, ?) ON CONFLICT(provider, user_id) DO UPDATE SET owner_scope = excluded.owner_scope", (provider, user_id, owner))
 
@@ -298,13 +291,6 @@ def privatize_integrations(database) -> None:
         if row:
             database.execute("INSERT OR IGNORE INTO settings(scope, name, value) VALUES (?, ?, ?)", (owner, name, row["value"]))
             database.execute("DELETE FROM settings WHERE scope = 'global' AND name = ?", (name,))
-    row = database.execute("SELECT value FROM settings WHERE scope = 'global' AND name = 'sheets_pending'").fetchone()
-    if row:
-        pending = json.loads(row["value"])
-        for item in pending:
-            if item.get("_scope") in (None, "global"):
-                item["_scope"] = owner
-        database.execute("UPDATE settings SET value = ? WHERE scope = 'global' AND name = 'sheets_pending'", (json.dumps(pending),))
     database.execute("INSERT INTO settings(scope, name, value) VALUES ('global', 'private_integrations_migrated', ?)", (json.dumps({"owner": owner}),))
 
 

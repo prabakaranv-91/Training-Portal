@@ -42,6 +42,11 @@ async def lifespan(application: FastAPI):
 
 app = FastAPI(title="Fit Squad", version="1.0.0", lifespan=lifespan)
 
+
+@app.exception_handler(sheets_sync.SheetsStorageError)
+async def sheets_storage_error(request: Request, error: sheets_sync.SheetsStorageError):
+    return JSONResponse(status_code=503, content={"detail": str(error), "code": "sheets_storage_unavailable"})
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=app_db.get_setting("app_config", {}).get("allowed_origins", ["http://127.0.0.1:8000", "http://localhost:8000"]),
@@ -808,14 +813,13 @@ def save_integration_settings(req: IntegrationSettingsRequest, request: Request,
     with app_db.connection() as database:
         for name, value in (("nutrition_config", nutrition), ("nutrition_secrets", secrets_config)):
             database.execute("INSERT INTO settings(scope, name, value) VALUES (?, ?, ?) ON CONFLICT(scope, name) DO UPDATE SET value = excluded.value", (scope, name, json.dumps(value)))
-    food_parser_client._cache.clear()
     return _settings_status()
 
 
 def _integration_fingerprint(name: str) -> str:
     config = app_db.user_setting("nutrition_config", {})
     secret = app_db.user_setting("nutrition_secrets", {})
-    values = [(config.get("google_sheets") or {}).get("web_app_url"), secret.get("sheets_token")] if name == "sheets" else [llm_service.config().get("provider"), llm_service.config().get("model"), llm_service.api_key()]
+    values = [(config.get("google_sheets") or {}).get("web_app_url"), secret.get("sheets_token"), "sheet-only-v8"] if name == "sheets" else [llm_service.config().get("provider"), llm_service.config().get("model"), llm_service.api_key()]
     return hashlib.sha256(json.dumps(values).encode()).hexdigest()
 
 
@@ -834,6 +838,10 @@ def check_integration(provider: str, request: Request, garmin_session: str | Non
             result = sheets_sync._post({"action": "info"})
             if not result.get("ok"):
                 raise ValueError("Sheet did not confirm readiness")
+            if int(result.get("version") or 0) < 8:
+                raise HTTPException(status_code=400, detail="Update your Google Sheets Apps Script to version 8: download the script in Settings, replace the existing script, and deploy a new version using the same URL.")
+        except HTTPException:
+            raise
         except Exception:
             raise HTTPException(status_code=400, detail="Could not connect to your sheet. Check the deployment URL, token and access setting, then deploy a new version.") from None
         config.setdefault("google_sheets", {})["enabled"] = True
@@ -1029,7 +1037,7 @@ def nutrition_sheets_sync(garmin_session: str | None = Cookie(default=None)):
     user = _nutrition_user(garmin_session)
     if not sheets_sync.is_configured():
         raise HTTPException(status_code=400, detail="Google Sheets sync is not configured.")
-    return {"user": user, "queued": nutrition_service.sync_all_to_sheets(user)}
+    return {"user": user, "source": "google_sheets", "records": nutrition_service.sync_all_to_sheets(user)}
 
 
 @app.post("/api/nutrition/entries/{entry_id}/reanalyse")
