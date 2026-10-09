@@ -4,9 +4,12 @@ setupModal.hidden = true;
 setupModal.setAttribute("role", "dialog");
 setupModal.setAttribute("aria-modal", "true");
 setupModal.setAttribute("aria-labelledby", "setup-title");
-setupModal.innerHTML = `<section class="setup-dialog"><header><h2 id="setup-title">Settings</h2><button type="button" id="setup-close" aria-label="Close settings">×</button></header>
-  <div class="setup-account"><div class="setup-apps"><strong>Connected apps</strong><ul id="connected-apps-list"></ul></div><a id="setup-link-strava" href="/api/strava/connect?link=1" hidden>Link Strava to this tracker</a></div>
-  <form id="setup-form"><div id="setup-ready-summary" class="setup-ready-summary" hidden><h3>Settings are up to date</h3><ul><li>Google sheet: Connected</li><li>AI model: Connected</li></ul><p>No changes are needed.</p><button type="button" id="edit-integration-settings">Change settings</button></div>
+setupModal.innerHTML = `<section class="setup-dialog"><header><div><h2 id="setup-title">Settings</h2><p id="setup-profile" class="setup-profile" hidden></p></div><button type="button" id="setup-close" aria-label="Close settings" title="Close settings">×</button></header>
+  <section class="setup-account" aria-labelledby="setup-apps-title"><div class="setup-apps"><h3 id="setup-apps-title">Connected apps</h3><ul id="connected-apps-list" class="setup-connection-list"></ul></div><a id="setup-link-strava" class="setup-link" href="/api/strava/connect?link=1" hidden>Link Strava to this tracker <span aria-hidden="true">↗</span></a></section>
+  <form id="setup-form"><section id="setup-ready-summary" class="setup-ready-summary" aria-labelledby="setup-connections-title" hidden>
+    <div class="setup-section-heading"><h3 id="setup-connections-title">Nutrition connections</h3><span class="setup-status-pill is-connected">Ready</span></div>
+    <ul class="setup-connection-list"><li><div class="setup-connection-name"><strong>Google Sheet</strong><span>Verified connection</span></div><span class="setup-status-pill is-connected">Connected</span></li><li><div class="setup-connection-name"><strong>AI model</strong><span id="setup-model-detail"></span></div><span class="setup-status-pill is-connected">Connected</span></li></ul>
+    <div class="setup-summary-actions"><button type="button" id="edit-integration-settings">Edit connections</button></div></section>
     <nav id="setup-steps" aria-label="Settings sections"></nav>
     <section data-setup-step="0"><h3>1. Google sheet</h3><p class="setup-purpose">Food entries, nutrition details, targets, programs, weights and reviews are stored only in your Google sheet.</p><a href="#sheet-instructions" class="setup-instructions-link">Instructions</a>
       <div id="sheet-instructions" class="setup-instructions" hidden><ol>
@@ -124,7 +127,12 @@ async function refreshSetup() {
   document.getElementById("setup-download-script").disabled = !setupState.sheets.tokenConfigured || setupBusy;
   document.getElementById("setup-download-note").textContent = setupState.sheets.tokenConfigured ? "Download the script and follow Instructions." : "Generate a token to enable the script download.";
   const apps = [{ name: "Garmin", connected: setupState.garmin.ready }, { name: "Strava", connected: setupState.strava.ready }];
-  document.getElementById("connected-apps-list").innerHTML = apps.map(app => `<li><span>${app.name}</span><span>${app.connected ? "Connected" : "Not connected"}</span></li>`).join("");
+  document.getElementById("connected-apps-list").innerHTML = apps.map(app => `<li><strong>${app.name}</strong><span class="setup-status-pill ${app.connected ? "is-connected" : "is-disconnected"}">${app.connected ? "Connected" : "Not connected"}</span></li>`).join("");
+  const profile = document.getElementById("setup-profile");
+  profile.textContent = setupState.account?.email || "";
+  profile.hidden = !profile.textContent;
+  const providerLabel = providerKnown ? providerSelect.selectedOptions[0]?.textContent : setupState.llm.provider;
+  document.getElementById("setup-model-detail").textContent = [providerLabel, setupState.llm.model].filter(Boolean).join(" · ");
   document.getElementById("setup-link-strava").hidden = !setupState.account?.canLinkStrava || setupState.account?.stravaLinked;
   renderSetupStep();
 }
@@ -159,7 +167,7 @@ async function openSetup(event) {
     editingIntegrationSettings = missing >= 0;
     setupStep = missing < 0 ? 0 : missing;
     renderSetupStep();
-    setupStatus.textContent = missing < 0 ? "All settings are up to date." : "";
+    setupStatus.textContent = "";
   }
   catch (error) { setupStatus.textContent = error.message; }
 }

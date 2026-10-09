@@ -9,6 +9,7 @@ let weightData = null;
 let weightChart = null;
 let programData = null;
 let programSaving = false;
+let recentDayRows = [];
 let redirectingToLogin = false;
 
 const $ = (selector) => document.querySelector(selector);
@@ -231,20 +232,72 @@ function renderWeight() {
   });
 }
 
-async function loadRecentDays() {
-  try {
-    const { days } = await api("/api/nutrition/history?days=30");
-    const items = [...days].reverse().slice(0, 12);
+function nutritionGoalStatus(day, now = new Date()) {
+  const rules = [["Calories", "kcal", "kcal", "range"], ["Protein", "protein", "g", "minimum"], ["Carbs", "carbs", "g", "range"], ["Fat", "fat", "g", "range"], ["Fibre", "fiber", "g", "minimum"], ["Sugar", "sugar", "g", "limit"], ["Sodium", "sodium", "mg", "limit"]];
+  const isToday = day.date === localDate(now);
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  const expected = .8 * Math.max(0, Math.min(1, (minutes - 420) / 1020));
+  let severity = 0;
+  let complete = true;
+  const missing = [];
+  const details = [];
+  const format = value => value.toLocaleString(undefined, { maximumFractionDigits: 1 });
+  for (const [label, key, unit, kind] of rules) {
+    const target = Number(key === "kcal" ? day.targets?.kcal ?? day.targetKcal : day.targets?.[key]);
+    const rawValue = day.intake?.[key];
+    const value = Number(rawValue);
+    if (!Number.isFinite(target) || target <= 0 || rawValue == null || !Number.isFinite(value) || value < 0) {
+      missing.push(label);
+      complete = false;
+      continue;
+    }
+    const ratio = value / target;
+    let level = 0;
+    if (kind === "limit") level = ratio > 1.2 ? 2 : ratio > 1.05 ? 1 : 0;
+    else if (ratio < .8) {
+      complete = false;
+      level = isToday ? minutes >= 1080 && ratio < expected * .8 ? 1 : 0 : ratio < .65 ? 2 : 1;
+    } else if (kind === "range" && ratio > 1.2) level = ratio > 1.4 ? 2 : 1;
+    severity = Math.max(severity, level);
+    const difference = target - value;
+    const outcome = difference > 0 ? `${format(difference)} ${unit} ${kind === "limit" ? "below limit" : "left to target"}` : difference < 0 ? `${format(-difference)} ${unit} above ${kind === "limit" ? "limit" : "target"}` : "target reached";
+    details.push(`${label}: ${format(value)} / ${format(target)} ${unit}; ${outcome}.`);
+  }
+  const state = severity === 2 ? "off" : severity === 1 ? "near" : missing.length ? "unknown" : isToday && !complete ? "progress" : "met";
+  const label = { off: "Needs attention", near: isToday ? "Needs attention / behind pace" : "Close to targets", unknown: "Targets incomplete", progress: "Day in progress", met: isToday ? "On target so far" : "On target" }[state];
+  const symbol = { off: "\u2691", near: "\u25d4", unknown: "\u2013", progress: "\u25f7", met: "\u2713" }[state];
+  if (isToday) {
+    const remaining = 1440 - minutes;
+    details.unshift(`${Math.floor(remaining / 60)}h ${remaining % 60}m left today. Early intake is not graded as a finished day.`);
+    if (state === "near") details.unshift("Check excesses or catch up on remaining targets. Evening pace is estimated, not a missed-goal verdict.");
+  }
+  if (missing.length) details.push(`Targets or intake unavailable: ${missing.join(", ")}. A complete nutrition assessment is not possible.`);
+  details.push("Daily comparison allows normal variation: calories, carbs and fat within 20%; protein and fibre at least 80%. Sugar and sodium have a 5% estimation allowance, not an increased recommended limit.");
+  return { state, label, symbol, detail: `${label}\n${details.join("\n")}` };
+}
+
+function renderRecentDays() {
+    const rows = recentDayRows.map(day => day.date === currentDay?.date ? { ...day, intake: currentDay.intake, targets: currentDay.targets, weightKg: currentDay.weightKg } : day);
+    if (currentDay?.date === localDate() && !rows.some(day => day.date === currentDay.date)) rows.push(currentDay);
+    const items = rows.sort((first, second) => second.date.localeCompare(first.date)).slice(0, 12);
     $("#recent-days").innerHTML = items.length ? items.map((day) => {
       const dateLabel = friendlyDate(day.date, { weekday: "short", day: "numeric", month: "short" });
       const compactDate = friendlyDate(day.date, { day: "numeric", month: "short" });
       const logged = day.intake.kcal;
       const target = day.targetKcal ?? day.targets?.kcal;
       const aim = target > 0 ? `${number(target)} kcal` : "unavailable";
-      return `<button class="recent-day${day.date === selectedDate ? " active" : ""}" type="button" data-date="${escapeHtml(day.date)}" aria-label="${escapeHtml(`${dateLabel}: ${number(logged)} kcal logged, target ${aim}`)}" title="${escapeHtml(dateLabel)} · Logged / target calories">
-        <span>${escapeHtml(compactDate)}</span><span class="recent-kcal"><strong>${number(logged)}</strong><span class="recent-target"> / ${target > 0 ? number(target) : "—"} kcal</span></span>
+      const goal = nutritionGoalStatus(day);
+      return `<button class="recent-day${day.date === selectedDate ? " active" : ""}" type="button" data-date="${escapeHtml(day.date)}" aria-label="${escapeHtml(`${dateLabel}: ${goal.detail}; ${number(logged)} kcal logged, target ${aim}`)}" title="${escapeHtml(`${dateLabel}\n${goal.detail}`)}">
+        <span class="recent-date"><span class="goal-indicator goal-${goal.state}" aria-hidden="true">${goal.symbol}</span>${escapeHtml(compactDate)}</span><span class="recent-kcal"><strong>${number(logged)}</strong><span class="recent-target"> / ${target > 0 ? number(target) : "—"} kcal</span></span>
       </button>`;
     }).join("") : `<div class="sidebar-empty">Your logged days will appear here.</div>`;
+}
+
+async function loadRecentDays() {
+  try {
+    const { days } = await api("/api/nutrition/history?days=30");
+    recentDayRows = days;
+    renderRecentDays();
   } catch (_) {
     $("#recent-days").innerHTML = `<div class="sidebar-empty">Recent days unavailable.</div>`;
   }
@@ -276,6 +329,7 @@ async function loadDay(date) {
 
 function renderDay(day) {
   renderBalance(day);
+  renderRecentDays();
   const entries = day.entries || [];
   const dateLabel = friendlyDate(day.date, { weekday: "long", day: "numeric", month: "long" });
   const empty = `<div class="conversation-empty"><div class="empty-orbit" aria-hidden="true">✳</div>
@@ -565,6 +619,7 @@ $("#chat-logout-btn").addEventListener("click", async () => {
   }
 });
 $("#weight-period").addEventListener("change", renderWeight);
+setInterval(renderRecentDays, 60000);
 $("#program-current").addEventListener("click", () => {
   if (programSaving || !programData) return;
   $("#program-current").hidden = true;
