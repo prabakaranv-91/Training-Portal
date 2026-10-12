@@ -52,7 +52,7 @@ case "${1:-up}" in
         fi
         docker compose pull proxy
         docker compose up --detach --build --force-recreate --wait --wait-timeout 180
-        printf '%s\n' "Stack started. Open https://<APP_DOMAIN> using the domain in .env."
+        printf '%s\n' "Stack started. Open https://<APP_DOMAIN>:8443 using the domain in .env."
         ;;
     backup)
         backup_database

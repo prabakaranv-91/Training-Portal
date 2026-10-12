@@ -4,9 +4,13 @@
 }
 
 {$APP_DOMAIN} {
+    tls {
+        issuer acme {
+            disable_tlsalpn_challenge
+        }
+    }
     encode zstd gzip
     header {
-        Strict-Transport-Security "max-age=31536000"
         X-Content-Type-Options "nosniff"
         Referrer-Policy "no-referrer"
         X-Frame-Options "DENY"
@@ -19,8 +23,12 @@
     @cross_origin {
         method POST PUT PATCH DELETE
         header Origin *
-        not header Origin https://{$APP_DOMAIN}
+        not header Origin https://{$APP_DOMAIN}:8443
     }
     respond @cross_origin "Cross-origin request denied" 403
     reverse_proxy app:8000
+}
+
+http://{$APP_DOMAIN} {
+    redir https://{$APP_DOMAIN}:8443{uri} permanent
 }

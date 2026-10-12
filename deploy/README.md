@@ -11,7 +11,7 @@ or credentials are included in the image.
   Install using https://docs.docker.com/engine/install/ for your distribution.
 - A domain such as `fitness.example.com`, with an A record pointing at the server.
   Only add an AAAA record if the server also accepts IPv6 traffic.
-- Inbound TCP ports 80 and 443 allowed by the server and cloud firewall. Keep SSH
+- Inbound TCP ports 80 and 8443 allowed by the server and cloud firewall. Keep SSH
   restricted to administrator addresses. Do not expose port 8000.
 - Outbound HTTPS access to certificate authorities, Garmin, Strava and AI providers.
 - A practical starting size is 2 CPU cores and 2 GB RAM; monitor actual usage.
@@ -29,14 +29,17 @@ sh deploy.sh up
 
 Set `APP_DOMAIN` to your hostname only, without `https://`, a port or a path.
 Set `ACME_EMAIL` to your real administrator email. Replace the example values.
-Caddy obtains a certificate and redirects HTTP to HTTPS automatically once DNS
-and the firewall are correct. Open `https://YOUR_DOMAIN` and sign in with Garmin
+Caddy obtains a certificate using HTTP validation on port 80 and redirects HTTP
+to HTTPS on port 8443. Keep port 80 free for Caddy; this setup cannot share it
+with an existing Nginx listener. Public port 443 is not used. HSTS is not enabled
+because its automatic browser upgrades would send port-80 URLs to port 443.
+Open `https://YOUR_DOMAIN:8443` and sign in with Garmin
 or Strava; configure and verify your AI model in Settings to enable nutrition.
 
 For Strava, register an API application at https://www.strava.com/settings/api.
 Set its Authorization Callback Domain to your hostname and set both
 `STRAVA_CLIENT_ID` and `STRAVA_CLIENT_SECRET` in `.env`. The callback URL is
-`https://YOUR_DOMAIN/api/strava/callback`. Environment credentials override saved
+`https://YOUR_DOMAIN:8443/api/strava/callback`. Environment credentials override saved
 SQLite credentials; setting only one disables Strava rather than mixing secrets.
 Provider approval and athlete capacity limits may restrict who can sign in.
 
@@ -119,7 +122,7 @@ SQLite file alone while ignoring its WAL. Treat migrations as sensitive transfer
 - Keep the OS, Docker, Caddy and Python dependencies patched. The Caddy image uses
   a maintained major-version tag; use tested digests for reproducible releases.
 
-If HTTPS does not work, check DNS, ports 80/443, conflicting web servers, and
+If HTTPS does not work, check DNS, ports 80/8443, conflicting web servers, and
 `docker compose logs proxy`. If the app is unhealthy, check
 `docker compose logs app`, disk space and volume permissions. Certificate issuance
 can take longer than the launcher's wait window; inspect logs before retrying.

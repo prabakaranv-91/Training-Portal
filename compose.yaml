@@ -6,7 +6,7 @@ services:
     restart: unless-stopped
     init: true
     environment:
-      AUTH_ALLOWED_ORIGINS: https://${APP_DOMAIN:?Set APP_DOMAIN in .env}
+      AUTH_ALLOWED_ORIGINS: https://${APP_DOMAIN:?Set APP_DOMAIN in .env}:8443
       STRAVA_CLIENT_ID: ${STRAVA_CLIENT_ID:-}
       STRAVA_CLIENT_SECRET: ${STRAVA_CLIENT_SECRET:-}
     volumes:
@@ -41,7 +41,7 @@ services:
       ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in .env}
     ports:
       - "80:80"
-      - "443:443"
+      - "8443:443"
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
