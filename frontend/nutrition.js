@@ -29,6 +29,28 @@ function nutriLocalDate(d = new Date()) {
   return new Date(d - off).toISOString().slice(0, 10);
 }
 
+function updateNutritionDateCaption() {
+  const input = document.getElementById("nutri-date");
+  if (!input.value) input.value = nutriLocalDate();
+  input.max = nutriLocalDate();
+  const caption = document.getElementById("nutri-date-caption");
+  const date = new Date(`${input.value}T00:00:00`);
+  caption.textContent = date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  caption.title = date.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+}
+
+function openNutritionDatePicker(event) {
+  const input = document.getElementById("nutri-date");
+  if (typeof input.showPicker !== "function") return false;
+  try {
+    input.showPicker();
+    event?.preventDefault();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 function nutriFmt(v, unit = "") {
   if (v == null) return "–";
   return `${Math.round(v).toLocaleString()}${unit}`;
@@ -38,6 +60,7 @@ async function loadNutrition() {
   const dateEl = document.getElementById("nutri-date");
   if (!dateEl.value) dateEl.value = nutriLocalDate();
   dateEl.max = nutriLocalDate();
+  updateNutritionDateCaption();
   setNutritionBusy(true);
   document.getElementById("nutri-chat-sub").textContent = "Loading\u2026";
   document.getElementById("nutri-messages").innerHTML =
@@ -829,7 +852,12 @@ document.getElementById("nutri-input").addEventListener("keydown", (e) => {
     document.getElementById("nutri-form").requestSubmit();
   }
 });
+document.getElementById("nutri-date").addEventListener("click", openNutritionDatePicker);
+document.getElementById("nutri-date").addEventListener("keydown", event => {
+  if (event.key === "Enter" || event.key === " ") openNutritionDatePicker(event);
+});
 document.getElementById("nutri-date").addEventListener("change", loadNutrition);
+updateNutritionDateCaption();
 document.getElementById("nutri-messages").addEventListener("click", (e) => {
   if (nutriBusy) return;
   const qtyBtn = e.target.closest(".nutri-qty");

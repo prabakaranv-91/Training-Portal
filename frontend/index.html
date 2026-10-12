@@ -85,7 +85,7 @@
               <img id="user-avatar" class="user-avatar hidden" alt="Profile picture" />
             </div>
             <span id="user-name" class="user-name"></span>
-            <a class="btn-ghost chat-nav-link" href="/" title="Open Chatbox"><i data-lucide="message-circle" aria-hidden="true"></i><span>Chatbox</span></a>
+            <a class="btn-ghost chat-nav-link" href="/" title="Open Fit Squad" aria-label="Open Fit Squad chat"><i data-lucide="message-circle" aria-hidden="true"></i></a>
             <button id="dashboard-menu-toggle" class="btn-ghost dashboard-menu-toggle" type="button" title="Menu" aria-label="Dashboard menu" aria-expanded="false" aria-controls="dashboard-nav"><i data-lucide="menu" aria-hidden="true"></i></button>
           </div>
         </div>
@@ -102,30 +102,31 @@
 
         <div class="dash-row">
         <section class="panel run-report">
-          <div class="panel-head">
+          <div class="panel-head report-panel-head">
             <h2>🏃 Report</h2>
-            <div class="panel-controls">
-              <select id="mileage-mode">
-                <option value="monthly">Monthly · year</option>
-                <option value="weekly" selected>Weekly · 12 wk</option>
-              </select>
-              <button id="open-insights" class="btn-link">🏅 Running insights →</button>
-            </div>
+            <select id="mileage-mode" class="report-duration" aria-label="Report duration" title="Report duration">
+              <option value="monthly">12 months</option>
+              <option value="weekly" selected>12 weeks</option>
+            </select>
           </div>
           <div class="report-cards" id="report-cards"><!-- filled by JS --></div>
           <div class="run-chart-wrap">
             <canvas id="mileage-chart"></canvas>
           </div>
+          <div class="report-footer"><button id="open-insights" class="btn-link" type="button"><i data-lucide="award" aria-hidden="true"></i><span>Running insights</span></button></div>
         </section>
 
         <section class="panel nutrition-panel">
-          <div class="panel-head">
-            <h2>🍽️ Nutrition log</h2>
-            <div class="panel-controls nutri-controls">
-              <input type="date" id="nutri-date" />
+          <div class="panel-head nutrition-panel-head">
+            <div class="nutrition-heading"><h2>🍽️ Nutrition log</h2><span id="nutri-date-caption" class="nutri-date-caption"></span></div>
+            <div class="nutri-calendar">
+              <label class="btn-ghost nutri-date-toggle" for="nutri-date" title="Choose nutrition date"><i data-lucide="calendar-days" aria-hidden="true"></i></label>
+              <input type="date" id="nutri-date" aria-label="Choose nutrition date" title="Choose nutrition date" />
+            </div>
+          </div>
+          <div class="panel-controls nutri-controls">
               <button id="nutri-ideas-btn" class="btn-link" type="button" title="What to eat next for a balanced day">🥗 Eat next</button>
               <button id="nutri-history-btn" class="btn-link" type="button" title="Program, weight, progress and daily history">🎯 Nutrition plan</button>
-            </div>
           </div>
           <div class="nutri-chat">
             <div id="nutri-summary" class="nutri-summary"></div>
@@ -141,15 +142,18 @@
         <section class="panel activities-panel">
           <div class="panel-head">
             <h2>Activities</h2>
-            <div id="compare-controls" class="compare-controls">
+            <div class="activity-panel-actions">
+              <div id="compare-controls" class="compare-controls">
                 <button id="compare-mode-btn" class="btn-ghost" type="button"><i data-lucide="columns-2" aria-hidden="true"></i><span>Compare</span></button>
                 <div id="compare-actions" class="compare-actions hidden">
                   <button id="compare-run" class="btn-primary btn-sm" type="button" disabled>Compare</button>
                   <button id="compare-cancel" class="btn-ghost btn-sm" type="button">Cancel</button>
                 </div>
+              </div>
+              <button id="activity-filter-toggle" class="btn-ghost activity-filter-toggle" type="button" title="Activity filters" aria-label="Activity filters" aria-expanded="false" aria-controls="activity-filters"><i data-lucide="list-filter" aria-hidden="true"></i></button>
             </div>
           </div>
-          <div class="activity-filters" role="group" aria-label="Activity filters">
+          <div id="activity-filters" class="activity-filters" role="group" aria-label="Activity filters" hidden>
             <label for="activity-range">Date range
               <select id="activity-range">
                 <option value="days:30" selected>Last 30 days</option>

@@ -9,38 +9,43 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;family=Source+Sans+3:wght@400;500;600;700&amp;display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="assistant.css?v=2026100702" />
+    <link rel="stylesheet" href="assistant.css?v=20261012dateicon" />
     <link rel="stylesheet" href="setup.css" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
-    <script src="assistant.js?v=2026100702" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
+    <script src="assistant.js?v=20261012dateicon" defer></script>
     <script src="setup.js" defer></script>
   </head>
   <body>
+    <div id="sidebar-backdrop" class="sidebar-backdrop" hidden aria-hidden="true"></div>
     <div class="food-shell sidebar-collapsed">
-      <aside id="food-sidebar" class="food-sidebar" aria-label="Recent logs navigation" hidden>
+      <aside id="food-sidebar" class="food-sidebar" aria-labelledby="sidebar-title" hidden>
         <div class="sidebar-header">
-          <h2>Recent Logs</h2>
-          <button id="sidebar-toggle" class="food-action sidebar-toggle" type="button" aria-label="Hide sidebar" title="Hide sidebar" aria-expanded="false" aria-controls="food-sidebar">☰</button>
+          <h2 id="sidebar-title">Fit Squad</h2>
+          <button id="sidebar-toggle" class="food-action sidebar-toggle" type="button" aria-label="Close menu" title="Close menu" aria-expanded="false" aria-controls="food-sidebar"><i data-lucide="x" aria-hidden="true"></i></button>
         </div>
+        <h3 class="sidebar-section-title">Recent logs</h3>
         <nav id="recent-days" class="recent-days" aria-label="Recent food logs"></nav>
         <div class="sidebar-bottom">
-          <nav aria-label="Workspace navigation"><a class="sidebar-menu-item" href="/dashboard.html" title="Open dashboard"><span class="sidebar-menu-icon" aria-hidden="true">▦</span><span>Dashboard</span><span class="sidebar-menu-arrow" aria-hidden="true">→</span></a>
-            <button id="configure-chat-integrations" class="sidebar-menu-item" type="button"><span class="sidebar-menu-icon" aria-hidden="true">⚙</span><span>Settings</span></button>
-            <button id="chat-logout-btn" class="sidebar-menu-item" type="button" title="Sign out"><span class="sidebar-menu-icon" aria-hidden="true">↪</span><span>Logout</span></button>
+          <nav aria-label="Workspace navigation">
+            <button id="configure-chat-integrations" class="sidebar-menu-item" type="button"><span class="sidebar-menu-icon" aria-hidden="true"><i data-lucide="settings"></i></span><span>Settings</span></button>
+            <button id="chat-logout-btn" class="sidebar-menu-item" type="button" title="Sign out"><span class="sidebar-menu-icon" aria-hidden="true"><i data-lucide="log-out"></i></span><span>Sign out</span></button>
           </nav>
         </div>
       </aside>
 
       <main class="food-main">
         <header class="chat-header">
-          <button id="sidebar-open" class="food-action sidebar-toggle" type="button" aria-label="Show sidebar" title="Show sidebar" aria-expanded="false" aria-controls="food-sidebar">☰</button>
+          <button id="sidebar-open" class="food-action sidebar-toggle" type="button" aria-label="Open menu" title="Open menu" aria-expanded="false" aria-controls="food-sidebar"><i data-lucide="menu" aria-hidden="true"></i></button>
           <div class="chat-heading">
-            <h1>Chatbox</h1>
+            <h1>Fit Squad</h1>
             <p id="day-caption"></p>
           </div>
-          <label class="date-control">
-            <input id="food-date" type="date" aria-label="Choose conversation date" />
-          </label>
+          <a class="food-action chat-dashboard-link" href="/dashboard.html" title="Dashboard" aria-label="Open dashboard"><i data-lucide="layout-dashboard" aria-hidden="true"></i></a>
+          <div class="date-control">
+            <label id="date-toggle" class="food-action date-toggle" for="food-date" title="Choose date"><i data-lucide="calendar-days" aria-hidden="true"></i></label>
+            <input id="food-date" class="native-date-picker" type="date" aria-label="Choose conversation date" title="Choose date" />
+          </div>
         </header>
 
         <section id="conversation" class="conversation" aria-label="Assistant conversation" aria-live="polite">
@@ -48,14 +53,14 @@
         </section>
 
         <div id="composer-wrap" class="composer-wrap" hidden>
-          <label class="composer-label" for="food-input">Log a meal</label>
+          <div class="composer-caption"><label class="composer-label" for="food-input">Log a meal</label><p class="composer-note" title="Nutrition values are estimates. Review portions and details when needed.">Nutrition values are estimates.</p></div>
           <form id="food-form" class="composer">
             <textarea id="food-input" rows="1" maxlength="1000" placeholder="What did you eat?" required></textarea>
             <button id="send-btn" class="send-btn" type="submit" aria-label="Log food" title="Log food">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6" /></svg>
             </button>
           </form>
-          <p class="composer-note">Nutrition values are estimates. Review portions and details when needed.</p>
+          <a class="mobile-details-cue" href="#insight-rail" aria-label="Scroll to program, nutrients and daily review"><i data-lucide="arrow-down" aria-hidden="true"></i><span>Scroll for details</span></a>
         </div>
       </main>
 

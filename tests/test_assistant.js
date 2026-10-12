@@ -11,6 +11,63 @@ vm.runInContext(source.slice(source.indexOf("function nutritionGoalStatus("), so
 const targets = { kcal: 2000, protein: 120, carbs: 250, fat: 60, fiber: 30, sugar: 50, sodium: 2300 };
 const now = new Date(2026, 9, 9, 9);
 
+test("the calendar icon opens the native picker and preserves Safari fallback", () => {
+  let opened = 0;
+  let prevented = 0;
+  const input = { showPicker: () => { opened++; } };
+  const event = { preventDefault: () => { prevented++; } };
+  const picker = vm.createContext({ $: () => input });
+  vm.runInContext(source.slice(source.indexOf("function openDatePicker("), source.indexOf("\nwindow.lucide")), picker);
+  assert.equal(picker.openDatePicker(event), true);
+  assert.equal(opened, 1);
+  assert.equal(prevented, 1);
+  delete input.showPicker;
+  assert.equal(picker.openDatePicker(event), false);
+  assert.equal(prevented, 1);
+  input.showPicker = () => { throw new Error("Native activation required"); };
+  assert.equal(picker.openDatePicker(event), false);
+  assert.equal(prevented, 1);
+});
+
+test("activity filters expand on demand without resetting selections", () => {
+  const dashboardSource = fs.readFileSync(path.join(__dirname, "../frontend/app.js"), "utf8");
+  const attributes = new Map();
+  const controls = { "activity-filters": { hidden: true }, "activity-filter": { value: "running" }, "activity-filter-toggle": { setAttribute: (name, value) => attributes.set(name, value) } };
+  const filters = vm.createContext({ document: { getElementById: id => controls[id] } });
+  vm.runInContext(dashboardSource.slice(dashboardSource.indexOf("function setActivityFiltersOpen("), dashboardSource.indexOf('\ndocument.getElementById("activity-filter-toggle").addEventListener')), filters);
+  filters.setActivityFiltersOpen(true);
+  assert.equal(controls["activity-filters"].hidden, false);
+  assert.equal(attributes.get("aria-expanded"), "true");
+  filters.setActivityFiltersOpen(false);
+  assert.equal(controls["activity-filters"].hidden, true);
+  assert.equal(controls["activity-filter"].value, "running");
+});
+
+test("mobile navigation isolates the chat and closing restores it", () => {
+  const attributes = new Map();
+  const classes = new Map();
+  const media = { matches: true };
+  const control = () => ({ hidden: true, inert: false, focus() {}, setAttribute: (name, value) => attributes.set(name, value), removeAttribute: name => attributes.delete(name), classList: { toggle: (name, value) => classes.set(name, value) } });
+  const controls = Object.fromEntries([".food-shell", "#food-sidebar", "#sidebar-open", "#sidebar-toggle", "#sidebar-backdrop", ".food-main", "#insight-rail"].map(selector => [selector, control()]));
+  const drawer = vm.createContext({ $: selector => controls[selector], window: { matchMedia: () => media }, document: { body: control() } });
+  vm.runInContext(source.slice(source.indexOf("function setSidebarCollapsed("), source.indexOf('\n$("#sidebar-toggle").addEventListener')), drawer);
+  drawer.setSidebarCollapsed(false);
+  assert.equal(controls["#food-sidebar"].hidden, false);
+  assert.equal(controls["#sidebar-backdrop"].hidden, false);
+  assert.equal(controls[".food-main"].inert, true);
+  assert.equal(attributes.get("aria-modal"), "true");
+  drawer.setSidebarCollapsed(true);
+  assert.equal(controls["#food-sidebar"].hidden, true);
+  assert.equal(controls["#sidebar-backdrop"].hidden, true);
+  assert.equal(controls[".food-main"].inert, false);
+  assert.equal(attributes.has("aria-modal"), false);
+  media.matches = false;
+  drawer.setSidebarCollapsed(false);
+  assert.equal(controls["#sidebar-backdrop"].hidden, true);
+  assert.equal(controls["#sidebar-open"].hidden, true);
+  assert.equal(controls[".food-main"].inert, false);
+});
+
 test("closing the dashboard menu hides its options and resets the toggle", () => {
   const dashboardSource = fs.readFileSync(path.join(__dirname, "../frontend/app.js"), "utf8");
   const removed = [];

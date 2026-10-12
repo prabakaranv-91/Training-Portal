@@ -241,7 +241,7 @@ function closeSetup() {
   else if (setupTrigger?.getClientRects().length) setupTrigger.focus();
   else {
     const settingsButton = document.getElementById("open-settings");
-    (settingsButton?.getClientRects().length ? settingsButton : document.getElementById("dashboard-menu-toggle"))?.focus();
+    (settingsButton?.getClientRects().length ? settingsButton : document.getElementById("dashboard-menu-toggle") || document.getElementById("sidebar-open"))?.focus();
   }
 }
 document.getElementById("edit-integration-settings").addEventListener("click", () => { editingIntegrationSettings = true; setupStep = 0; renderSetupStep(); });

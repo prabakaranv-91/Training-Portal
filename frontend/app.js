@@ -405,6 +405,24 @@ window.addEventListener("resize", () => {
   }, 200);
 });
 
+function setActivityFiltersOpen(open) {
+  document.getElementById("activity-filters").hidden = !open;
+  document.getElementById("activity-filter-toggle").setAttribute("aria-expanded", String(open));
+}
+
+document.getElementById("activity-filter-toggle").addEventListener("click", () => setActivityFiltersOpen(document.getElementById("activity-filters").hidden));
+document.getElementById("activity-filters").addEventListener("keydown", event => {
+  if (event.key === "Escape") {
+    event.stopPropagation();
+    setActivityFiltersOpen(false);
+    document.getElementById("activity-filter-toggle").focus();
+  }
+});
+document.getElementById("activity-filters").addEventListener("change", () => {
+  const applied = document.getElementById("activity-range").value !== "days:30" || document.getElementById("activity-filter").value !== "all" || document.getElementById("activity-tag-filter").value !== "all";
+  document.getElementById("activity-filter-toggle").classList.toggle("has-active-filters", applied);
+});
+
 document.getElementById("activity-filter").addEventListener("change", (e) => {
   currentSportFilter = e.target.value;
   renderActivities(currentSportFilter);
@@ -1279,7 +1297,7 @@ function renderMileageChart() {
         tooltip: { callbacks: { label: (c) => `${c.parsed.y} km (click for runs)` } },
       },
       scales: {
-        x: { ticks: { color: "#9fb0cc" }, grid: { display: false } },
+        x: { ticks: { color: "#9fb0cc", font: { size: 9 }, maxRotation: 0, minRotation: 0, autoSkip: true, maxTicksLimit: 12, padding: 3, callback(value) { const label = this.getLabelForValue(value); return mileageMode === "monthly" ? String(label).slice(0, 3) : label; } }, grid: { display: false } },
         y: {
           ticks: { color: "#9fb0cc", callback: (v) => `${v}` },
           grid: { color: "#243450" },

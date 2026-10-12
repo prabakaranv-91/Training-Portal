@@ -658,9 +658,22 @@ function resizeComposer() {
 }
 
 function setSidebarCollapsed(collapsed) {
+  const sidebar = $("#food-sidebar");
+  const mobileOpen = !collapsed && window.matchMedia("(max-width: 650px)").matches;
   $(".food-shell").classList.toggle("sidebar-collapsed", collapsed);
-  $("#food-sidebar").hidden = collapsed;
-  $("#sidebar-open").hidden = !collapsed;
+  sidebar.hidden = collapsed;
+  $("#sidebar-open").hidden = !collapsed && !mobileOpen;
+  $("#sidebar-backdrop").hidden = !mobileOpen;
+  document.body.classList.toggle("mobile-sidebar-open", mobileOpen);
+  $(".food-main").inert = mobileOpen;
+  $("#insight-rail").inert = mobileOpen;
+  if (mobileOpen) {
+    sidebar.setAttribute("role", "dialog");
+    sidebar.setAttribute("aria-modal", "true");
+  } else {
+    sidebar.removeAttribute("role");
+    sidebar.removeAttribute("aria-modal");
+  }
   $("#sidebar-toggle").setAttribute("aria-expanded", String(!collapsed));
   $("#sidebar-open").setAttribute("aria-expanded", String(!collapsed));
   $(collapsed ? "#sidebar-open" : "#sidebar-toggle").focus();
@@ -668,6 +681,24 @@ function setSidebarCollapsed(collapsed) {
 
 $("#sidebar-toggle").addEventListener("click", () => setSidebarCollapsed(true));
 $("#sidebar-open").addEventListener("click", () => setSidebarCollapsed(false));
+$("#sidebar-backdrop").addEventListener("click", () => setSidebarCollapsed(true));
+window.matchMedia("(max-width: 650px)").addEventListener("change", () => setSidebarCollapsed(true));
+$(".sidebar-bottom").addEventListener("click", event => {
+  if (window.matchMedia("(max-width: 650px)").matches && event.target.closest("a, button")) setSidebarCollapsed(true);
+}, true);
+$("#food-sidebar").addEventListener("keydown", event => {
+  if (!window.matchMedia("(max-width: 650px)").matches) return;
+  if (event.key === "Escape") {
+    event.stopPropagation();
+    setSidebarCollapsed(true);
+  }
+  if (event.key === "Tab") {
+    const controls = [...event.currentTarget.querySelectorAll("button, a")].filter(control => !control.disabled && control.getClientRects().length);
+    const first = controls[0], last = controls.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  }
+});
 $("#chat-logout-btn").addEventListener("click", async () => {
   const button = $("#chat-logout-btn");
   if (button.disabled) return;
@@ -733,7 +764,27 @@ $("#food-input").addEventListener("keydown", event => {
     $("#food-form").requestSubmit();
   }
 });
-$("#food-date").addEventListener("change", event => loadDay(event.target.value));
+function openDatePicker(event) {
+  const input = $("#food-date");
+  if (typeof input.showPicker !== "function") return false;
+  try {
+    input.showPicker();
+    event?.preventDefault();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+window.lucide?.createIcons();
+$("#food-date").addEventListener("click", openDatePicker);
+$("#food-date").addEventListener("keydown", event => {
+  if (event.key === "Enter" || event.key === " ") openDatePicker(event);
+});
+$("#food-date").addEventListener("change", event => {
+  if (!event.target.value || event.target.value > today) return;
+  loadDay(event.target.value);
+});
 $("#macro-list").addEventListener("click", event => {
   const control = event.target.closest("[data-nutrient]");
   if (control) showNutrientContributors(control.dataset.nutrient);
@@ -750,7 +801,10 @@ $("#food-details-btn").addEventListener("click", () => {
 });
 $("#recent-days").addEventListener("click", event => {
   const button = event.target.closest("[data-date]");
-  if (button) loadDay(button.dataset.date);
+  if (button) {
+    if (window.matchMedia("(max-width: 650px)").matches) setSidebarCollapsed(true);
+    loadDay(button.dataset.date);
+  }
 });
 $("#conversation").addEventListener("click", event => {
   const button = event.target.closest("[data-action]");
