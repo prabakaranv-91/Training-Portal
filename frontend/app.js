@@ -75,7 +75,13 @@ document.getElementById("dashboard-menu-toggle").addEventListener("click", () =>
   document.getElementById("dashboard-menu-toggle").setAttribute("aria-expanded", String(expanded));
 });
 document.getElementById("dashboard-nav").addEventListener("click", event => {
-  if (event.target.closest("button, a")) closeDashboardMenu();
+  const action = event.target.closest("button, a");
+  if (action) {
+    closeDashboardMenu();
+    if (document.activeElement === action && document.getElementById("dashboard-view").classList.contains("active")) {
+      document.getElementById("dashboard-menu-toggle").focus();
+    }
+  }
 });
 document.addEventListener("click", event => {
   if (!event.target.closest(".dashboard-topbar")) closeDashboardMenu();
@@ -361,7 +367,7 @@ function closeSettings() {
     resetLoginChoices();
     linkingGarmin = false;
   }
-  document.getElementById(window.matchMedia("(max-width: 860px)").matches ? "dashboard-menu-toggle" : "open-settings").focus();
+  document.getElementById("dashboard-menu-toggle").focus();
 }
 
 document.getElementById("open-settings").addEventListener("click", () => {
@@ -2530,9 +2536,11 @@ function updateConnectButtons() {
   document.querySelector(".vo2-training-panel").classList.toggle("hidden", !showVo2);
   document.querySelector(".dash-row").classList.toggle("without-garmin", !showVo2);
   for (const id of ["open-insights", "compare-controls"]) document.getElementById(id).classList.toggle("hidden", !garminConnected);
-  // Analysis is Garmin-only; hide it for Strava-only logins.
   const aBtn = document.getElementById("open-analysis");
-  if (aBtn) aBtn.classList.toggle("hidden", !garminConnected);
+  if (aBtn) {
+    aBtn.disabled = !garminConnected;
+    aBtn.title = garminConnected ? "Performance analysis" : "Connect Garmin to use Analysis";
+  }
 }
 
 function setAvatar(url) {

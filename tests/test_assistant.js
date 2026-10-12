@@ -11,6 +11,19 @@ vm.runInContext(source.slice(source.indexOf("function nutritionGoalStatus("), so
 const targets = { kcal: 2000, protein: 120, carbs: 250, fat: 60, fiber: 30, sugar: 50, sodium: 2300 };
 const now = new Date(2026, 9, 9, 9);
 
+test("closing the dashboard menu hides its options and resets the toggle", () => {
+  const dashboardSource = fs.readFileSync(path.join(__dirname, "../frontend/app.js"), "utf8");
+  const removed = [];
+  const attributes = new Map();
+  const menu = { classList: { remove: name => removed.push(name) } };
+  const toggle = { setAttribute: (name, value) => attributes.set(name, value) };
+  const dashboard = vm.createContext({ document: { getElementById: id => id === "dashboard-nav" ? menu : toggle } });
+  vm.runInContext(dashboardSource.slice(dashboardSource.indexOf("function closeDashboardMenu("), dashboardSource.indexOf("\nwindow.lucide")), dashboard);
+  dashboard.closeDashboardMenu();
+  assert.deepEqual(removed, ["is-open"]);
+  assert.equal(attributes.get("aria-expanded"), "false");
+});
+
 test("shared settings offers either missing provider and disables connected providers", () => {
   const setupSource = fs.readFileSync(path.join(__dirname, "../frontend/setup.js"), "utf8");
   const list = { innerHTML: "" };
