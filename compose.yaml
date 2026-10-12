@@ -40,7 +40,7 @@ services:
       APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN in .env}
       ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in .env}
     ports:
-      - "80:80"
+      - "8080:80"
       - "8443:443"
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro

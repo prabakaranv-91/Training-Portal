@@ -61,7 +61,9 @@ sh deploy.sh up
 ```
 
 A domain pointing to the server, Docker Engine with Compose v2, and open TCP ports
-80/8443 are required. Open `https://YOUR_DOMAIN:8443` after deployment.
+8080/8443 are required. Automatic certificates also require public port 80
+certificate-validation requests to be forwarded to port 8080 by an existing
+reverse proxy. Open `https://YOUR_DOMAIN:8443` after deployment.
 See [the deployment guide](deploy/README.md) for Strava
 configuration, updates, backups, restore, and public-launch security requirements.
 The development launchers above remain local-only.
