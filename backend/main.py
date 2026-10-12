@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from backend.utils import app_db, auth_cookies, garmin_auth_store
-from backend.services import food_parser_client, llm_service, nutrition_service, sheets_sync, strava_service
+from backend.services import food_parser_client, llm_service, nutrition_service, strava_service
 from backend.services.garmin_service import GarminService
 
 @asynccontextmanager
@@ -42,10 +42,6 @@ async def lifespan(application: FastAPI):
 
 app = FastAPI(title="Fit Squad", version="1.0.0", lifespan=lifespan)
 
-
-@app.exception_handler(sheets_sync.SheetsStorageError)
-async def sheets_storage_error(request: Request, error: sheets_sync.SheetsStorageError):
-    return JSONResponse(status_code=503, content={"detail": str(error), "code": "sheets_storage_unavailable"})
 
 app.add_middleware(
     CORSMiddleware,
@@ -64,7 +60,7 @@ async def browser_auth(request: Request, call_next):
         if request.url.path.startswith("/api/nutrition/"):
             await run_in_threadpool(_valid_session, request.cookies.get(COOKIE_NAME))
             if not _nutrition_ready():
-                return JSONResponse(status_code=403, content={"detail": "Complete your Google sheet and AI model setup before using nutrition and chat.", "code": "nutrition_setup_required"})
+                return JSONResponse(status_code=403, content={"detail": "Configure and verify your AI model before using nutrition and chat.", "code": "nutrition_setup_required"})
         response = await call_next(request)
         if response.status_code < 400:
             session_id = request.cookies.get("garmin_session")
@@ -122,15 +118,13 @@ class GarminTokenRequest(BaseModel):
 
 
 class IntegrationSettingsRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     llm_provider: str | None = Field(default=None, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
     llm_model: str | None = Field(default=None, max_length=200, pattern=r"^[a-zA-Z0-9/._:@-]+$")
     llm_api_key: str | None = Field(default=None, max_length=4096)
     llm_enabled: bool | None = None
     strava_client_id: str | None = Field(default=None, max_length=254)
     strava_client_secret: str | None = Field(default=None, max_length=4096)
-    sheets_url: str | None = Field(default=None, max_length=2048)
-    sheets_token: str | None = Field(default=None, max_length=4096)
-    sheets_enabled: bool | None = None
     gemini_api_key: str | None = Field(default=None, max_length=4096)
     gemini_model: str | None = Field(default=None, max_length=200, pattern=r"^[a-zA-Z0-9._-]+$")
     gemini_enabled: bool | None = None
@@ -726,18 +720,15 @@ def _settings_access(request: Request, session_id: str | None) -> None:
 
 def _nutrition_ready() -> bool:
     config = app_db.user_setting("nutrition_config", {})
-    secrets_config = app_db.user_setting("nutrition_secrets", {})
     checks = app_db.get_setting("integration_checks", {}, scope=app_db.user_scope())
-    sheets = config.get("google_sheets") or {}
     llm = llm_service.config()
     llm_check = checks.get("llm") or checks.get("gemini") or {}
-    return bool(sheets.get("enabled") and sheets.get("web_app_url") and secrets_config.get("sheets_token") and llm.get("enabled", True) and llm_service.api_key() and checks.get("sheets", {}).get("fingerprint") == _integration_fingerprint("sheets") and llm_check.get("fingerprint") == _integration_fingerprint("llm"))
+    return bool(llm.get("enabled", True) and llm_service.api_key() and llm_check.get("fingerprint") == _integration_fingerprint("llm"))
 
 
 def _settings_status() -> dict:
     nutrition = app_db.user_setting("nutrition_config", {})
     secrets_config = app_db.user_setting("nutrition_secrets", {})
-    sheets = nutrition.get("google_sheets") or {}
     llm = llm_service.config()
     checks = app_db.get_setting("integration_checks", {}, scope=app_db.user_scope())
     bound_request = (auth_cookies._state.get() or {}).get("request")
@@ -749,7 +740,6 @@ def _settings_status() -> dict:
     return {
         "scope": "application" if app_db.user_scope() == "global" else "user",
         "strava": {"configured": strava_service.is_configured(), "ready": strava_service.is_connected()},
-        "sheets": {"url": sheets.get("web_app_url") or "", "enabled": bool(sheets.get("enabled")), "tokenConfigured": bool(secrets_config.get("sheets_token")), "ready": ready("sheets") and bool(sheets.get("enabled"))},
         "llm": {"provider": llm.get("provider", ""), "model": llm.get("model", ""), "enabled": bool(llm.get("enabled", True)), "keyConfigured": bool(llm_service.api_key()), "ready": ready("llm") and bool(llm.get("enabled", True))},
         "garmin": {"ready": bool(garmin_service and garmin_service.is_authenticated)},
         "usda": {"keyConfigured": bool(secrets_config.get("usda_api_key"))},
@@ -773,32 +763,19 @@ def save_integration_settings(req: IntegrationSettingsRequest, request: Request,
         raise HTTPException(status_code=403, detail="Strava application credentials are managed by the server. Sign in with Strava instead.")
     if req.llm_provider is not None and req.llm_provider != llm_service.config().get("provider") and not (req.llm_api_key or "").strip():
         raise HTTPException(status_code=400, detail="Enter a new API key when changing the LLM provider.")
-    if req.sheets_url:
-        from urllib.parse import urlparse
-        try:
-            parsed = urlparse(req.sheets_url)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Use a valid Apps Script deployment URL.") from None
-        if parsed.scheme != "https" or parsed.netloc.lower() not in ("script.google.com", "script.google.com:443") or not parsed.path.startswith("/macros/s/") or not parsed.path.endswith("/exec") or parsed.query or parsed.fragment:
-            raise HTTPException(status_code=400, detail="Use the HTTPS Apps Script deployment URL ending in /exec.")
     scope = app_db.user_scope()
     nutrition = app_db.get_setting("nutrition_config", {}, scope=scope)
     secrets_config = app_db.get_setting("nutrition_secrets", {}, scope=scope)
-    for field, key in (("sheets_token", "sheets_token"), ("gemini_api_key", "gemini_api_key"), ("usda_api_key", "usda_api_key"), ("llm_api_key", "llm_api_key")):
+    for field, key in (("gemini_api_key", "gemini_api_key"), ("usda_api_key", "usda_api_key"), ("llm_api_key", "llm_api_key")):
         value = getattr(req, field)
         if value is not None and value.strip():
             secrets_config[key] = value.strip()
-    sheets = dict(nutrition.get("google_sheets") or {})
-    if req.sheets_url is not None:
-        sheets["web_app_url"] = req.sheets_url.strip()
-    if req.sheets_enabled is not None:
-        sheets["enabled"] = req.sheets_enabled
     gemini = dict(nutrition.get("gemini") or {})
     if req.gemini_model is not None:
         gemini["model"] = req.gemini_model
     if req.gemini_enabled is not None:
         gemini["enabled"] = req.gemini_enabled
-    nutrition.update(google_sheets=sheets, gemini=gemini)
+    nutrition.update(gemini=gemini)
     llm = dict(nutrition.get("llm") or {})
     if req.llm_provider is not None:
         llm["provider"] = req.llm_provider
@@ -817,9 +794,7 @@ def save_integration_settings(req: IntegrationSettingsRequest, request: Request,
 
 
 def _integration_fingerprint(name: str) -> str:
-    config = app_db.user_setting("nutrition_config", {})
-    secret = app_db.user_setting("nutrition_secrets", {})
-    values = [(config.get("google_sheets") or {}).get("web_app_url"), secret.get("sheets_token"), "sheet-only-v8"] if name == "sheets" else [llm_service.config().get("provider"), llm_service.config().get("model"), llm_service.api_key()]
+    values = [llm_service.config().get("provider"), llm_service.config().get("model"), llm_service.api_key()]
     return hashlib.sha256(json.dumps(values).encode()).hexdigest()
 
 
@@ -828,63 +803,24 @@ def check_integration(provider: str, request: Request, garmin_session: str | Non
     _settings_access(request, garmin_session)
     if request.headers.get("x-app-settings") != "1":
         raise HTTPException(status_code=403, detail="Use the setup form to check the connection.")
-    if provider not in ("sheets", "llm", "gemini"):
+    if provider not in ("llm", "gemini"):
         raise HTTPException(status_code=404, detail="Unknown integration.")
     config = app_db.user_setting("nutrition_config", {})
-    if provider == "sheets":
-        if not sheets_sync._config().get("web_app_url") or not sheets_sync._token():
-            raise HTTPException(status_code=400, detail="Save the deployment URL and token before checking your sheet.")
-        try:
-            result = sheets_sync._post({"action": "info"})
-            if not result.get("ok"):
-                raise ValueError("Sheet did not confirm readiness")
-            if int(result.get("version") or 0) < 8:
-                raise HTTPException(status_code=400, detail="Update your Google Sheets Apps Script to version 8: download the script in Settings, replace the existing script, and deploy a new version using the same URL.")
-        except HTTPException:
-            raise
-        except Exception:
-            raise HTTPException(status_code=400, detail="Could not connect to your sheet. Check the deployment URL, token and access setting, then deploy a new version.") from None
-        config.setdefault("google_sheets", {})["enabled"] = True
-    else:
-        if not llm_service.api_key():
-            raise HTTPException(status_code=400, detail="Save your LLM provider API key in Settings first.")
-        try:
-            checked = llm_service.generate('Return an object with "ok" set to true.', {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]})
-            if checked.get("ok") is not True:
-                raise ValueError("Model did not confirm readiness")
-        except Exception:
-            raise HTTPException(status_code=400, detail="Could not verify the selected LLM. Check provider, model, API key and quota in Settings.") from None
-        config["llm"] = {**llm_service.config(), "enabled": True}
+    if not llm_service.api_key():
+        raise HTTPException(status_code=400, detail="Save your LLM provider API key in Settings first.")
+    try:
+        checked = llm_service.generate('Return an object with "ok" set to true.', {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]})
+        if checked.get("ok") is not True:
+            raise ValueError("Model did not confirm readiness")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Could not verify the selected LLM. Check provider, model, API key and quota in Settings.") from None
+    config["llm"] = {**llm_service.config(), "enabled": True}
     scope = app_db.user_scope()
     checks = app_db.get_setting("integration_checks", {}, scope=scope)
     checks[provider] = {"fingerprint": _integration_fingerprint(provider), "checkedAt": int(time.time())}
     app_db.set_setting("integration_checks", checks, scope=scope)
     app_db.set_setting("nutrition_config", config, scope=scope)
     return _settings_status()
-
-
-@app.post("/api/settings/sheets/token")
-def generate_sheet_token(request: Request, garmin_session: str | None = Cookie(default=None)):
-    _settings_access(request, garmin_session)
-    if request.headers.get("x-app-settings") != "1":
-        raise HTTPException(status_code=403, detail="Use the setup form.")
-    scope = app_db.user_scope()
-    saved = app_db.get_setting("nutrition_secrets", {}, scope=scope)
-    if not saved.get("sheets_token"):
-        saved["sheets_token"] = secrets.token_urlsafe(32)
-        app_db.set_setting("nutrition_secrets", saved, scope=scope)
-    return {"tokenConfigured": True}
-
-
-@app.get("/api/settings/sheets/script")
-def download_sheet_script(request: Request, garmin_session: str | None = Cookie(default=None)):
-    _settings_access(request, garmin_session)
-    token = sheets_sync._token()
-    if not token:
-        raise HTTPException(status_code=400, detail="Generate or save your sheet token first.")
-    script = (Path(__file__).resolve().parent / "apps_script" / "Code.gs").read_text(encoding="utf-8")
-    script = script.replace('"PASTE_SHEETS_TOKEN_HERE"', json.dumps(token), 1)
-    return Response(script, media_type="text/plain", headers={"Content-Disposition": 'attachment; filename="nutrition_sheets.gs"', "Cache-Control": "no-store"})
 
 
 @app.post("/api/settings/garmin/token")
@@ -1023,23 +959,6 @@ def nutrition_ideas(date: dt.date | None = None, garmin_session: str | None = Co
 def nutrition_parser_status(garmin_session: str | None = Cookie(default=None)):
     _valid_session(garmin_session)
     return food_parser_client.status()
-
-
-@app.get("/api/nutrition/sheets")
-def nutrition_sheets_status(check: bool = False, garmin_session: str | None = Cookie(default=None)):
-    user = _nutrition_user(garmin_session)
-    out = {**sheets_sync.status(), "user": user}
-    if check and sheets_sync.is_configured():
-        out["script"] = sheets_sync.script_info()
-    return out
-
-
-@app.post("/api/nutrition/sheets/sync")
-def nutrition_sheets_sync(garmin_session: str | None = Cookie(default=None)):
-    user = _nutrition_user(garmin_session)
-    if not sheets_sync.is_configured():
-        raise HTTPException(status_code=400, detail="Google Sheets sync is not configured.")
-    return {"user": user, "source": "google_sheets", "records": nutrition_service.sync_all_to_sheets(user)}
 
 
 @app.post("/api/nutrition/entries/{entry_id}/reanalyse")

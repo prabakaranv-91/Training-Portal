@@ -4,22 +4,42 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Fit Squad</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;family=Source+Sans+3:wght@400;500;600;700&amp;display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css?v=20261006chooser" />
     <link rel="stylesheet" href="analysis.css" />
-    <link rel="stylesheet" href="nutrition.css?v=2026100126" />
+    <link rel="stylesheet" href="nutrition.css?v=20261007status" />
+    <link rel="stylesheet" href="setup.css" />
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <link rel="stylesheet" href="setup.css" />
   </head>
   <body>
+    <div id="session-loading" class="session-loading" role="status"><span class="loader-ring" aria-hidden="true"></span><span>Loading...</span></div>
     <!-- ============================== LOGIN ============================== -->
-    <div id="login-view" class="view active">
+    <div id="login-view" class="view">
       <div class="login-card">
         <div class="login-logo"><img src="logo.svg" alt="Fit Squad" width="64" height="64" /></div>
         <h1>Fit Squad</h1>
-        <p class="subtitle">Your running lab — track pace, VO₂ max, race predictions and more, across Garmin and Strava.</p>
+        <p class="subtitle">Sign in</p>
 
-        <form id="login-form">
+        <div id="login-providers" class="login-providers" aria-label="Sign-in providers">
+          <button id="garmin-login-choice" class="login-provider" type="button" aria-controls="login-auth" aria-label="Sign in with Garmin">
+            <img src="https://cdn.simpleicons.org/garmin/e8eef9" alt="" width="36" height="36" />
+            <span>Garmin</span>
+          </button>
+          <button id="strava-login-btn" class="login-provider" type="button" aria-label="Sign in with Strava">
+            <img src="https://cdn.simpleicons.org/strava/fc4c02" alt="" width="36" height="36" />
+            <span>Strava</span>
+          </button>
+        </div>
+
+        <div id="login-auth" class="hidden">
+          <div class="login-auth-head">
+            <button id="login-back" class="btn-ghost" type="button" title="Choose another account" aria-label="Choose another account">←</button>
+            <h2>Garmin</h2>
+          </div>
+        <form id="login-form" class="hidden">
           <label for="email">Garmin email</label>
           <input id="email" type="email" autocomplete="username" required />
 
@@ -34,7 +54,6 @@
           <button type="submit" class="btn-primary" id="login-btn">
             Sign in with Garmin
           </button>
-          <button type="button" class="btn-ghost" id="garmin-cache-btn" title="Restore this email's saved local Garmin login">Use saved Garmin login</button>
         </form>
 
         <form id="mfa-form" class="hidden">
@@ -49,15 +68,8 @@
           <button type="submit" class="btn-primary" id="mfa-btn">Verify</button>
         </form>
 
-        <div class="or-divider"><span>or</span></div>
-        <button id="strava-login-btn" class="btn-strava-lg" type="button">
-          🔗 Continue with Strava
-        </button>
-
         <p id="login-error" class="error hidden"></p>
-        <p class="hint">
-          Sign in with either account — you can connect the other one afterwards.
-        </p>
+        </div>
       </div>
     </div>
 
@@ -66,10 +78,10 @@
       <header class="topbar">
         <div class="brand"><img src="logo.svg" alt="" class="brand-logo" /> <span>Fit Squad</span></div>
         <div class="topbar-right">
+          <a class="btn-ghost chat-nav-link" href="/" title="Open Fit Squad"><span aria-hidden="true">▤</span> Fit Squad</a>
           <img id="user-avatar" class="user-avatar hidden" alt="" />
           <span id="user-name" class="user-name"></span>
-          <button id="connect-garmin-btn" class="btn-ghost hidden">⌚ Connect Garmin</button>
-          <button id="strava-btn" class="btn-ghost strava-topbar hidden" type="button">🔗 Connect Strava</button>
+          <button id="open-settings" class="btn-ghost" type="button" title="Settings" aria-haspopup="dialog">⚙ Settings</button>
           <button id="open-analysis" class="btn-ghost">📊 Analysis</button>
           <button id="refresh-btn" class="btn-ghost" title="Refresh">⟳</button>
           <button id="logout-btn" class="btn-ghost">Sign out</button>
@@ -78,11 +90,25 @@
 
       <main class="container">
         <section class="cards" id="stat-cards"><!-- filled by JS --></section>
-        <div class="stat-toggle-wrap">
-          <button class="stat-toggle" id="stat-toggle" type="button">Show more</button>
-        </div>
 
         <div class="dash-row">
+        <section class="panel run-report">
+          <div class="panel-head">
+            <h2>🏃 Report</h2>
+            <div class="panel-controls">
+              <select id="mileage-mode">
+                <option value="monthly">Monthly · year</option>
+                <option value="weekly" selected>Weekly · 12 wk</option>
+              </select>
+              <button id="open-insights" class="btn-link">🏅 Running insights →</button>
+            </div>
+          </div>
+          <div class="report-cards" id="report-cards"><!-- filled by JS --></div>
+          <div class="run-chart-wrap">
+            <canvas id="mileage-chart"></canvas>
+          </div>
+        </section>
+
         <section class="panel nutrition-panel">
           <div class="panel-head">
             <h2>🍽️ Nutrition log</h2>
@@ -97,28 +123,11 @@
           </div>
         </section>
 
-        <section class="panel run-report">
-          <div class="panel-head">
-            <h2>🏃 Running report</h2>
-            <div class="panel-controls">
-              <select id="mileage-mode">
-                <option value="monthly">Monthly · this year</option>
-                <option value="weekly" selected>Weekly · last 12 weeks</option>
-              </select>
-              <button id="open-insights" class="btn-link">🏅 Running insights →</button>
-            </div>
-          </div>
-          <div class="report-cards" id="report-cards"><!-- filled by JS --></div>
-          <div class="run-chart-wrap">
-            <canvas id="mileage-chart"></canvas>
-          </div>
-        </section>
-        </div>
-
-        <section class="panel">
+        <section class="panel vo2-training-panel">
           <h2>VO₂ Max &amp; Training</h2>
           <div id="vo2-panel" class="vo2-grid"></div>
         </section>
+        </div>
 
         <section class="panel">
           <div class="panel-head">
@@ -402,8 +411,29 @@
         <div class="modal-body" id="multi-compare-body"></div>
       </div>
     </div>
-    <script src="app.js"></script>
-    <script src="nutrition.js?v=2026100126"></script>
+
+    <div id="settings-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="modal provider-settings">
+        <div class="modal-head">
+          <h2 id="settings-title">Settings</h2>
+          <button id="settings-close" class="modal-close" type="button" aria-label="Close settings">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="provider-row">
+            <div><strong>Garmin</strong><div id="garmin-connection-status" class="provider-status">Not connected</div></div>
+            <button id="connect-garmin-btn" class="btn-ghost" type="button">Connect</button>
+          </div>
+          <div class="provider-row">
+            <div><strong>Strava</strong><div id="strava-connection-status" class="provider-status">Not connected</div></div>
+            <button id="strava-btn" class="btn-ghost" type="button">Connect</button>
+          </div>
+          <div id="settings-garmin-auth" class="hidden"></div>
+        </div>
+      </div>
+    </div>
+
+    <script src="app.js?v=20261006loading"></script>
+    <script src="nutrition.js?v=2026100125"></script>
     <script src="setup.js"></script>
   </body>
 </html>

@@ -80,10 +80,9 @@ class LocalGarminAuthTests(unittest.TestCase):
             service.email = account["email"]
             service._ready = True
 
-        with patch.object(main.GarminService, "login", autospec=True, side_effect=login), \
-             patch.object(main.GarminService, "restore_account", autospec=True, side_effect=restore), \
-             patch.object(main.sheets_sync, "_post", side_effect=AssertionError("No sheet calls allowed")):
-            browser = TestClient(main.app, base_url="https://example.test")
+           with patch.object(main.GarminService, "login", autospec=True, side_effect=login), \
+               patch.object(main.GarminService, "restore_account", autospec=True, side_effect=restore):
+              browser = TestClient(main.app, base_url="https://example.test")
             response = browser.post("/api/login", json={"email": self.account["email"], "password": "fake"})
             self.assertEqual(response.status_code, 200)
             main.SESSIONS.clear()

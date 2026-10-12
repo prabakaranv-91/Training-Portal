@@ -9,7 +9,7 @@ Nutrition log: parse free-text food intake, look up nutrition, keep history.
     2. USDA FoodData Central (free API; key via env USDA_FDC_API_KEY,
        defaults to the public DEMO_KEY).
     3. Open Food Facts (free, no key).
-- Nutrition history is read from and written only to the configured Google Sheet.
+- Nutrition history is stored in user-scoped SQLite tables.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Any
 import requests
 
 from backend.utils import app_db
-from backend.services import food_parser_client, llm_service, sheets_sync
+from backend.services import food_parser_client, llm_service, nutrition_store
 
 logger = logging.getLogger("nutrition.service")
 
@@ -621,12 +621,9 @@ def _sum(items: list[dict[str, Any]]) -> dict[str, float]:
 
 
 def _load(user: str) -> dict[str, Any]:
-    data = sheets_sync.fetch_log(user)
-    data.setdefault("entries", [])
-    data.setdefault("days", {})
-    data.setdefault("weights", [])
-    data.setdefault("programs", [])
-    data.setdefault("coach", {})
+    data = nutrition_store.load_user(app_db.user_scope())
+    for entry in data["entries"]:
+        entry["totals"] = _sum([item for item in entry["items"] if not item.get("revoked")])
     return data
 
 
@@ -640,7 +637,7 @@ def add_entry(user: str, text: str, date: str) -> dict[str, Any]:
         "items": items,
         "totals": _sum(items),
     }
-    sheets_sync.push_entry(user, entry)
+    nutrition_store.save_entry(app_db.user_scope(), entry)
     return entry
 
 
@@ -659,7 +656,7 @@ def set_revoked(user: str, entry_id: str, revoked: bool, item: int | None = None
             entry["items"][item]["revoked"] = revoked
             entry["totals"] = _sum([i for i in entry["items"] if not i.get("revoked")])
         entry["revokedAt" if revoked else "restoredAt"] = dt.datetime.now().isoformat(timespec="seconds")
-        sheets_sync.push_entry(user, entry)
+        nutrition_store.save_entry(app_db.user_scope(), entry)
     return entry
 
 
@@ -682,7 +679,7 @@ def set_item_qty(user: str, entry_id: str, item: int, qty: float) -> dict[str, A
             it[k] = round((it.get(k) or 0) * factor, 1)
         entry["totals"] = _sum([i for i in entry["items"] if not i.get("revoked")])
         entry["editedAt"] = dt.datetime.now().isoformat(timespec="seconds")
-        sheets_sync.push_entry(user, entry)
+        nutrition_store.save_entry(app_db.user_scope(), entry)
     return entry
 
 
@@ -699,7 +696,7 @@ def reanalyse_entry(user: str, entry_id: str) -> dict[str, Any] | None:
             return None
         entry["items"] = items
         entry["totals"] = _sum(items)
-        sheets_sync.push_entry(user, entry)
+        nutrition_store.save_entry(app_db.user_scope(), entry)
     return entry
 
 
@@ -712,13 +709,7 @@ def _active(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def save_day_snapshot(user: str, date: str, snapshot: dict[str, Any]) -> None:
-    sheets_sync.push_day(user, date, snapshot)
-
-
-def sync_all_to_sheets(user: str) -> dict[str, int]:
-    data = _load(user)
-    return {"entries": len(data["entries"]), "days": len(data["days"]), "programs": len(data.get("programs", [])),
-            "weights": len(data.get("weights", []))}
+    nutrition_store.save_day(app_db.user_scope(), date, snapshot)
 
 
 # ------------------------------------------------------------------ weight
@@ -726,8 +717,28 @@ def sync_all_to_sheets(user: str) -> dict[str, int]:
 KCAL_PER_KG = 7700  # energy in ~1 kg of body weight change
 
 
+def _coach_signature(program: str, foods: list[dict[str, Any]]) -> str:
+    model_config = llm_service.config()
+    return uuid.uuid5(uuid.NAMESPACE_OID, json.dumps(
+        ["v4", program, foods, model_config.get("provider"), model_config.get("model")], sort_keys=True
+    )).hex
+
+
+def _cached_coach(data: dict[str, Any], date: str, entries: list[dict[str, Any]]) -> dict[str, Any] | None:
+    snap = data["days"].get(date)
+    cached = (data.get("coach") or {}).get(date)
+    if not snap or not cached:
+        return None
+    foods = [{k: i.get(k) for k in ("name", "qty", "unit", "kcal", "protein", "fat", "sugar", "sodium")}
+             for e in _active(entries) for i in e["items"] if i.get("found") and not i.get("revoked")]
+    program = PROGRAMS.get(snap.get("program") or "maintain", PROGRAMS["maintain"])["label"]
+    if not foods or cached.get("sig") != _coach_signature(program, foods):
+        return None
+    return {"source": "litellm", "from": "sheet", "stale": False, "at": cached.get("at"), **cached["review"]}
+
+
 def coach(user: str, date: str, refresh: bool = False) -> dict[str, Any]:
-    """AI review of the day's meals, stored exclusively in the Google Sheet.
+    """AI review of the day's meals, stored in the user's SQLite database.
 
     It is regenerated only when the day's food or program changed (or on `refresh`),
     so reopening the page reuses the stored review instead of spending provider quota.
@@ -746,8 +757,7 @@ def coach(user: str, date: str, refresh: bool = False) -> dict[str, Any]:
         "inProgress": date == dt.date.today().isoformat(), "foods": foods,
     }
     # Only the food and program decide freshness; burn/targets drift during the day as workouts sync.
-    model_config = llm_service.config()
-    sig = uuid.uuid5(uuid.NAMESPACE_OID, json.dumps(["v4", day["program"], foods, model_config.get("provider"), model_config.get("model")], sort_keys=True)).hex
+    sig = _coach_signature(day["program"], foods)
     now = dt.datetime.now()
     cached = (data.get("coach") or {}).get(date)
     origin = "sheet"
@@ -764,7 +774,7 @@ def coach(user: str, date: str, refresh: bool = False) -> dict[str, Any]:
 
 
 def _store_review(user: str, date: str, entry: dict[str, Any]) -> None:
-    sheets_sync.push_review(user, date, entry["sig"], entry["review"])
+    nutrition_store.save_review(app_db.user_scope(), date, entry)
 
 
 def weight_for(user: str, date: str, data: dict[str, Any] | None = None) -> float | None:
@@ -779,7 +789,7 @@ def weight_for(user: str, date: str, data: dict[str, Any] | None = None) -> floa
 def set_weight(user: str, kg: float, date: str, source: str = "manual") -> dict[str, Any]:
     entry = {"date": date, "kg": round(kg, 1), "source": source,
              "setAt": dt.datetime.now().isoformat(timespec="seconds")}
-    sheets_sync.push_weight(user, entry)
+    nutrition_store.save_weight(app_db.user_scope(), entry)
     return entry
 
 
@@ -1052,7 +1062,7 @@ def set_program(user: str, program: str, date: str) -> dict[str, Any]:
     entry = {"from": date, "program": program, "label": PROGRAMS[program]["label"],
              "setAt": dt.datetime.now().isoformat(timespec="seconds")}
     _load(user)
-    sheets_sync.push_program(user, entry)
+    nutrition_store.save_program(app_db.user_scope(), entry)
     return entry
 
 
@@ -1321,6 +1331,9 @@ def assess(user: str, date: str, energy: dict[str, Any]) -> dict[str, Any]:
         "cutTips": cut["tips"],
         "inProgress": is_today,
     }
+    cached_coach = _cached_coach(data, date, entries)
+    if cached_coach:
+        result["coachReview"] = cached_coach
     snapshot = {key: result[key] for key in ("intake", "targets", "burn", "status", "weightKg", "program")}
     if entries and data["days"].get(date) != snapshot:
         save_day_snapshot(user, date, snapshot)

@@ -15,6 +15,10 @@ let savedMealRefresh = 0;
 let redirectingToLogin = false;
 
 const $ = (selector) => document.querySelector(selector);
+if (typeof Chart !== "undefined") {
+  Chart.defaults.font.family = getComputedStyle(document.documentElement).getPropertyValue("--font-numeric").trim();
+  document.fonts.ready.then(() => Object.values(Chart.instances).forEach(chart => chart.update("none")));
+}
 const FOOD_RATINGS = {
   best: { symbol: "★", label: "Highly recommended", priority: 1 },
   good: { symbol: "✓", label: "Good choice", priority: 2 },
@@ -115,7 +119,7 @@ async function initialize() {
       waitingForNutritionSetup = true;
       $("#composer-wrap").hidden = true;
       $("#insight-rail").hidden = true;
-      $("#conversation").innerHTML = `<section class="chat-setup-required"><h2>Complete your nutrition setup</h2><p>Verify your Google sheet and LLM model to unlock food logging, nutrition analysis and the daily tracker.</p><button type="button" id="complete-chat-setup">Complete setup</button><a href="/dashboard.html">Use Dashboard for now</a></section>`;
+      $("#conversation").innerHTML = `<section class="chat-setup-required"><h2>Complete your nutrition setup</h2><p>Configure and verify an AI model to unlock food logging, nutrition analysis and the daily tracker.</p><button type="button" id="complete-chat-setup">Complete setup</button><a href="/dashboard.html">Use Dashboard for now</a></section>`;
       $("#complete-chat-setup").addEventListener("click", requestChatSetup);
       requestChatSetup();
       return;
@@ -290,17 +294,19 @@ function renderRecentDays() {
     const rows = recentDayRows.map(day => day.date === currentDay?.date ? { ...day, intake: currentDay.intake, targets: currentDay.targets, weightKg: currentDay.weightKg } : day);
     if (currentDay?.date && !rows.some(day => day.date === currentDay.date) && (currentDay.date === localDate() || currentDay.entries?.some(entry => !entry.revoked))) rows.push(currentDay);
     const items = rows.sort((first, second) => second.date.localeCompare(first.date)).slice(0, 12);
-    $("#recent-days").innerHTML = items.length ? items.map((day) => {
+    const columns = `<div class="recent-log-columns" aria-hidden="true"><span>Date</span><span>Calories<small>logged / target</small></span><span>Weight<small>kg</small></span></div>`;
+    $("#recent-days").innerHTML = columns + (items.length ? items.map((day) => {
       const dateLabel = friendlyDate(day.date, { weekday: "short", day: "numeric", month: "short" });
       const compactDate = friendlyDate(day.date, { day: "numeric", month: "short" });
       const logged = day.intake.kcal;
       const target = day.targetKcal ?? day.targets?.kcal;
       const aim = target > 0 ? `${number(target)} kcal` : "unavailable";
+      const weight = Number.isFinite(day.weightKg) && day.weightKg > 0 ? day.weightKg.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : "—";
       const goal = nutritionGoalStatus(day);
-      return `<button class="recent-day${day.date === selectedDate ? " active" : ""}" type="button" data-date="${escapeHtml(day.date)}" aria-label="${escapeHtml(`${dateLabel}: ${goal.detail}; ${number(logged)} kcal logged, target ${aim}`)}" title="${escapeHtml(`${dateLabel}\n${goal.detail}`)}">
-        <span class="recent-date"><span class="goal-indicator goal-${goal.state}" aria-hidden="true">${goal.symbol}</span>${escapeHtml(compactDate)}</span><span class="recent-kcal"><strong>${number(logged)}</strong><span class="recent-target"> / ${target > 0 ? number(target) : "—"} kcal</span></span>
+      return `<button class="recent-day${day.date === selectedDate ? " active" : ""}" type="button" data-date="${escapeHtml(day.date)}" aria-label="${escapeHtml(`${dateLabel}: ${goal.detail}; ${number(logged)} kcal logged, target ${aim}, weight ${weight === "—" ? "unavailable" : `${weight} kg`}`)}" title="${escapeHtml(`${dateLabel}\n${goal.detail}`)}">
+        <span class="recent-date"><span class="goal-indicator goal-${goal.state}" aria-hidden="true">${goal.symbol}</span>${escapeHtml(compactDate)}</span><span class="recent-kcal"><strong>${number(logged)}</strong><span class="recent-target"> / ${target > 0 ? number(target) : "—"}</span></span><span class="recent-weight">${weight}</span>
       </button>`;
-    }).join("") : `<div class="sidebar-empty">Your logged days will appear here.</div>`;
+    }).join("") : `<div class="sidebar-empty">Your logged days will appear here.</div>`);
 }
 
 async function loadRecentDays() {

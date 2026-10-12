@@ -36,19 +36,15 @@
 .setup-dialog label { display: grid; gap: 4px; margin: 10px 0; color: #a5b6c8; font-size: 13px; }
 .setup-dialog input, .setup-dialog textarea, .setup-dialog select { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid #547897; border-radius: 4px; background: #0d1521; color: #edf4fb; font: inherit; }
 .setup-dialog input:focus, .setup-dialog textarea:focus { outline: 2px solid #75c9f2; outline-offset: 1px; }
-#setup-steps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; margin: 18px 0; border-bottom: 1px solid var(--setup-line); }
+#setup-steps { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; margin: 18px 0; border-bottom: 1px solid var(--setup-line); }
 #setup-steps button { padding: 8px 4px 10px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; font-size: 13px; }
 #setup-steps button[aria-current="step"] { border-bottom-color: #75c9f2; color: #a6d8fa; }
 #setup-steps small { display: block; color: #a5b6c8; font-size: 10px; }
-.setup-instructions { padding: 8px 0; line-height: 1.55; }
-.setup-instructions ol { padding-left: 20px; margin: 0; }
-.setup-instructions li + li { margin-top: 6px; }
-.setup-actions, .setup-dialog footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 0; }
+.setup-dialog footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 0; }
 .setup-dialog footer { justify-content: flex-end; padding: 14px 0 20px; border-top: 1px solid var(--setup-line); }
 #setup-status { margin: 12px 0; padding: 9px 12px; border-left: 2px solid #75c9f2; background: #1b2a3b; color: #a6d8fa; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 #setup-status:empty { display: none; }
 .setup-purpose { color: #a5b6c8; font-size: 13px; line-height: 1.5; }
-#setup-download-note { color: #a5b6c8; font-size: 12px; }
 .nutrition-panel[hidden], #nutri-fab[hidden], #nutri-chatbox[hidden] { display: none !important; }
 .chat-setup-required { max-width: 560px; margin: 16px 0; font-size: 14px; line-height: 1.5; }
 .chat-setup-required h2 { font-size: 18px; }

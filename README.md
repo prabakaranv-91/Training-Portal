@@ -38,6 +38,33 @@ python -m backend.main
 
 Open <http://127.0.0.1:8000>.
 
+## Quick start (macOS / Linux)
+
+```sh
+cd /path/to/garmin
+sh ./start.sh
+```
+
+The launcher creates `.venv` if needed, installs backend dependencies, and starts
+the server on the configured port or the next available port. Python 3.10 or newer
+is required.
+
+## Public Linux Server
+
+Use the Docker Compose deployment for public access with automatic HTTPS,
+persistent storage, and a private backend:
+
+```sh
+cp .env.example .env
+# Set APP_DOMAIN and ACME_EMAIL in .env, then:
+sh deploy.sh up
+```
+
+A domain pointing to the server, Docker Engine with Compose v2, and open TCP ports
+80/443 are required. See [the deployment guide](deploy/README.md) for Strava
+configuration, updates, backups, restore, and public-launch security requirements.
+The development launchers above remain local-only.
+
 ---
 
 ## How login works
@@ -49,23 +76,23 @@ Open <http://127.0.0.1:8000>.
 4. Sign out from the application to end the active session.
 
 Authentication, integration credentials, and provider usage counters use SQLite
-under the root `data/` directory. Nutrition data uses only the configured Google Sheet.
+under the root `data/` directory. Nutrition data is stored in the same SQLite database,
+with every record isolated by the authenticated profile scope.
 
 ## Application settings and migration
 
 Garmin and Strava are the only login identities. There is no pre-login setup or
 local username/password account. Strava sign-in uses its consent-based flow.
 
-After login, the app checks saved **Google sheet** and **AI model** settings
-automatically. If a saved connection is missing or cannot be verified, **Settings**
-guides the required change. Generate the sheet token before the personalized Apps
-Script download becomes available. Nutrition endpoints enforce the same readiness
-requirement; hiding or bypassing the wizard does not unlock them.
+After login, the app checks the saved **AI model** settings automatically. If the
+model is missing or cannot be verified, **Settings** guides the required change.
+Nutrition endpoints enforce the same readiness requirement; hiding or bypassing the
+wizard does not unlock them.
 
 Users who skip setup can use the training Dashboard only. Its nutrition panel and
-food-chat controls remain hidden until both checks pass. Reopen **Settings** to
+food-chat controls remain hidden until the model check passes. Reopen **Settings** to
 complete configuration, then select **Open Fit Squad**. Changing or disabling the
-saved integrations invalidates readiness and blocks nutrition again.
+saved model invalidates readiness and blocks nutrition again.
 
 Models and API keys can be changed only in **Settings**. LiteLLM routes the selected
 provider and model. Supported providers must work with a single API key. Providers
@@ -78,51 +105,23 @@ Strava's API does not return email, so the app does not guess an email or match 
 display name. To combine an existing Garmin and Strava tracker, sign in with
 Garmin, open **Settings**, select **Link Strava to this tracker**, and approve
 Strava consent once. Both verified logins then resolve to the same profile.
-The linked tracker uses its canonical Google Sheet and user tabs;
-the canonical tracker's existing integration settings take precedence. Profiles with different
+The linked tracker uses its canonical nutrition records and integration settings.
+Profiles with different
 verified email addresses are not silently combined.
 
 Previously migrated settings remain scoped to their existing account. Ambiguous
 legacy configuration remains quarantined for manual recovery. Settings endpoints
 require an authenticated provider session.
 
-Initial setup migrates existing configuration into SQLite, but does not import
-nutrition files or caches. Historical local nutrition files are not read, migrated,
-or synchronized back into the sheet.
-Use Settings to change integrations.
+Nutrition records are stored in normalized SQLite tables: entry metadata, individual
+food items, day snapshots, program changes, weights, and day reviews. The database
+uses the authenticated profile scope as part of every record key, so linked providers
+share their profile's history while other users remain isolated. Existing nutrition
+records were imported into SQLite once; the app no longer contacts a spreadsheet.
+A pre-import database backup is retained under `data/backups/`.
 
-### Google Sheets is the nutrition source of truth
-
-Food entries, portions, nutrition values, removed-item history, day summaries,
-programs, weights, and reviews are read from and written directly to the configured
-Google Sheet. There is no local nutrition database, disk cache, browser storage,
-or offline write queue. A successful mutation requires the sheet to acknowledge
-the write. Sheet failures return an error rather than an empty day or local fallback.
-Changing sheet cells is reflected by the next request or page refresh.
-
-Apps Script **version 8 or later** is required. Existing sheet rows remain readable; new
-metadata columns preserve complete entry and day information in the sheet.
-The latest download is **version 9**, which batches entry updates, avoids per-row
-deletions, and preserves unrelated rows and extra columns. Redeploy it to enable
-these Google-side performance improvements. Restarting the local app does not
-update an existing Apps Script deployment.
-
-Chat confirms a meal once Google Sheets acknowledges the entry write. Tracker
-refreshes and daily-total updates happen afterward without delaying confirmation.
-A failed sheet write is never reported as saved. Chat entries are displayed in
-chronological order, irrespective of their sheet row order.
-
-To upgrade an existing deployment:
-
-1. Open Settings after signing in and download the personalized Apps Script.
-2. In the existing spreadsheet, open Extensions > Apps Script and replace the code.
-3. Select Deploy > Manage deployments > Edit > New version > Deploy. Keep the same URL.
-4. Return to Settings and select Save and check for Google Sheets.
-
-Old sheet verifications are invalidated by this upgrade. Nutrition remains blocked
-until a version 8-or-later deployment verifies successfully. Existing local databases and
-backups are historical only and are not used as a fallback; they are not deleted
-automatically before the live sheet data can be verified.
+Chat confirms a meal after the SQLite transaction commits. A failed database write
+is never reported as saved. Chat entries are displayed in chronological order.
 
 Run the test suite from the repository root with
 `.venv\Scripts\python.exe -m unittest discover -s tests -v`.

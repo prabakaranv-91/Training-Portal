@@ -1,0 +1,26 @@
+{
+    email {$ACME_EMAIL}
+    admin off
+}
+
+{$APP_DOMAIN} {
+    encode zstd gzip
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "no-referrer"
+        X-Frame-Options "DENY"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        -Server
+    }
+    request_body {
+        max_size 1MB
+    }
+    @cross_origin {
+        method POST PUT PATCH DELETE
+        header Origin *
+        not header Origin https://{$APP_DOMAIN}
+    }
+    respond @cross_origin "Cross-origin request denied" 403
+    reverse_proxy app:8000
+}

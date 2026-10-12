@@ -17,7 +17,7 @@ DB_PATH = PROJECT_ROOT / "data" / "app.sqlite3"
 DEFAULT_DB_PATH = DB_PATH
 current_user: ContextVar[str | None] = ContextVar("database_user", default=None)
 _schema_lock = threading.Lock()
-NUTRITION_DATA_SETTINGS = ("nutrition_log", "food_lookup_cache", "sheets_pending")
+NUTRITION_DATA_SETTINGS = ("nutrition_log", "food_lookup_cache")
 
 
 def _legacy_json(path: Path, default):
@@ -45,7 +45,7 @@ def migrate_legacy(database, root: Path, data_root: Path, environment: dict[str,
     for variable, key in (("STRAVA_CLIENT_ID", "client_id"), ("STRAVA_CLIENT_SECRET", "client_secret"), ("STRAVA_YEARLY_GOAL_KM", "yearly_goal_km")):
         if environment.get(variable):
             values["strava_config"][key] = environment[variable]
-    for variable, key in (("GEMINI_API_KEY", "gemini_api_key"), ("NUTRITION_SHEETS_TOKEN", "sheets_token"), ("USDA_FDC_API_KEY", "usda_api_key")):
+    for variable, key in (("GEMINI_API_KEY", "gemini_api_key"), ("USDA_FDC_API_KEY", "usda_api_key")):
         if environment.get(variable):
             values["nutrition_secrets"][key] = environment[variable]
     for variable, key in (("NUTRITION_BODY_WEIGHT_KG", "default_weight_kg"), ("NUTRITION_BMR_KCAL", "default_bmr_kcal")):
@@ -110,6 +110,33 @@ def connection():
             CREATE TABLE IF NOT EXISTS user_emails (
                 email TEXT PRIMARY KEY, owner_scope TEXT NOT NULL UNIQUE
             );
+            CREATE TABLE IF NOT EXISTS nutrition_entries (
+                owner_scope TEXT NOT NULL, entry_id TEXT NOT NULL, entry_date TEXT NOT NULL,
+                entry_time TEXT NOT NULL DEFAULT '', text TEXT NOT NULL DEFAULT '', revoked INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (owner_scope, entry_id)
+            );
+            CREATE INDEX IF NOT EXISTS nutrition_entries_by_date ON nutrition_entries(owner_scope, entry_date, entry_time);
+            CREATE TABLE IF NOT EXISTS nutrition_items (
+                owner_scope TEXT NOT NULL, entry_id TEXT NOT NULL, item_index INTEGER NOT NULL, item_json TEXT NOT NULL,
+                PRIMARY KEY (owner_scope, entry_id, item_index),
+                FOREIGN KEY (owner_scope, entry_id) REFERENCES nutrition_entries(owner_scope, entry_id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS nutrition_days (
+                owner_scope TEXT NOT NULL, day_date TEXT NOT NULL, day_json TEXT NOT NULL,
+                PRIMARY KEY (owner_scope, day_date)
+            );
+            CREATE TABLE IF NOT EXISTS nutrition_programs (
+                owner_scope TEXT NOT NULL, start_date TEXT NOT NULL, program_json TEXT NOT NULL,
+                PRIMARY KEY (owner_scope, start_date)
+            );
+            CREATE TABLE IF NOT EXISTS nutrition_weights (
+                owner_scope TEXT NOT NULL, weight_date TEXT NOT NULL, weight_json TEXT NOT NULL,
+                PRIMARY KEY (owner_scope, weight_date)
+            );
+            CREATE TABLE IF NOT EXISTS nutrition_reviews (
+                owner_scope TEXT NOT NULL, review_date TEXT NOT NULL, review_json TEXT NOT NULL,
+                PRIMARY KEY (owner_scope, review_date)
+            );
         """)
         if DB_PATH == DEFAULT_DB_PATH and not database.execute("SELECT 1 FROM settings WHERE scope = 'global' AND name = 'legacy_migrated'").fetchone():
             with database:
@@ -117,6 +144,8 @@ def connection():
         if DB_PATH == DEFAULT_DB_PATH:
             with database:
                 privatize_integrations(database)
+            with database:
+                cleanup_legacy_nutrition_settings(database)
             with database:
                 retire_local_accounts(database)
             with database:
@@ -149,6 +178,7 @@ def save_session(provider: str, session_id: str, user_id: str, account: dict[str
         if owner and owner.startswith("setup:"):
             owned = database.execute("SELECT owner_scope FROM account_owners WHERE provider = ? AND user_id = ?", (provider, user_id)).fetchone()
             destination = owned["owner_scope"] if owned else f"user:{provider}:{user_id}"
+            _move_nutrition_scope(database, owner, destination)
             _move_settings(database, owner, destination)
         elif not existing and owner and owner.startswith("user:"):
             registered = database.execute("SELECT email FROM user_emails WHERE owner_scope = ?", (owner,)).fetchone()
@@ -209,7 +239,8 @@ def _move_settings(database, source: str, destination: str) -> None:
         if existing and isinstance(value, dict):
             value = merge_settings(json.loads(existing["value"]), value)
         database.execute("INSERT INTO settings(scope, name, value) VALUES (?, ?, ?) ON CONFLICT(scope, name) DO UPDATE SET value = excluded.value", (destination, row["name"], json.dumps(value)))
-    database.execute("DELETE FROM settings WHERE scope = ? AND name NOT IN (?, ?, ?)", (source, *NUTRITION_DATA_SETTINGS))
+    placeholders = ", ".join("?" for _ in NUTRITION_DATA_SETTINGS)
+    database.execute(f"DELETE FROM settings WHERE scope = ? AND name NOT IN ({placeholders})", (source, *NUTRITION_DATA_SETTINGS))
 
 
 def retire_local_accounts(database) -> None:
@@ -221,6 +252,7 @@ def retire_local_accounts(database) -> None:
         row = database.execute("SELECT provider, user_id FROM account_owners WHERE owner_scope = ? AND provider IN ('garmin', 'strava') LIMIT 1", (owner["owner_scope"],)).fetchone()
         if row:
             destination = f"user:{row['provider']}:{row['user_id']}"
+            _move_nutrition_scope(database, owner["owner_scope"], destination)
             _move_settings(database, owner["owner_scope"], destination)
             database.execute("UPDATE account_owners SET owner_scope = ? WHERE owner_scope = ?", (destination, owner["owner_scope"]))
     database.execute("DELETE FROM sessions WHERE provider = 'guest'")
@@ -260,6 +292,7 @@ def link_provider(owner: str, provider: str, user_id: str) -> None:
         mapped = database.execute("SELECT owner_scope FROM account_owners WHERE provider = ? AND user_id = ?", (provider, user_id)).fetchone()
         source = mapped["owner_scope"] if mapped else f"user:{provider}:{user_id}"
         if source != owner:
+            _move_nutrition_scope(database, source, owner)
             source_email = database.execute("SELECT email FROM user_emails WHERE owner_scope = ?", (source,)).fetchone()
             target_email = database.execute("SELECT email FROM user_emails WHERE owner_scope = ?", (owner,)).fetchone()
             if source_email and target_email and source_email["email"] != target_email["email"]:
@@ -273,9 +306,59 @@ def link_provider(owner: str, provider: str, user_id: str) -> None:
                     current = json.loads(destination["value"])
                     value = merge_settings(value, current) if isinstance(value, dict) and isinstance(current, dict) else current
                 database.execute("INSERT INTO settings(scope, name, value) VALUES (?, ?, ?) ON CONFLICT(scope, name) DO UPDATE SET value = excluded.value", (owner, row["name"], json.dumps(value)))
-            database.execute("DELETE FROM settings WHERE scope = ? AND name NOT IN (?, ?, ?)", (source, *NUTRITION_DATA_SETTINGS))
+            placeholders = ", ".join("?" for _ in NUTRITION_DATA_SETTINGS)
+            database.execute(f"DELETE FROM settings WHERE scope = ? AND name NOT IN ({placeholders})", (source, *NUTRITION_DATA_SETTINGS))
             database.execute("UPDATE account_owners SET owner_scope = ? WHERE owner_scope = ?", (owner, source))
         database.execute("INSERT INTO account_owners(provider, user_id, owner_scope) VALUES (?, ?, ?) ON CONFLICT(provider, user_id) DO UPDATE SET owner_scope = excluded.owner_scope", (provider, user_id, owner))
+
+
+def _move_nutrition_scope(database, source: str, destination: str) -> None:
+    if not source or source == destination:
+        return
+    entries = database.execute(
+        "SELECT entry_id, entry_date, entry_time, text, revoked FROM nutrition_entries WHERE owner_scope = ?",
+        (source,),
+    ).fetchall()
+    for entry in entries:
+        entry_id = entry["entry_id"]
+        if database.execute("SELECT 1 FROM nutrition_entries WHERE owner_scope = ? AND entry_id = ?", (destination, entry_id)).fetchone():
+            entry_id = secrets.token_hex(16)
+        database.execute(
+            "INSERT INTO nutrition_entries(owner_scope, entry_id, entry_date, entry_time, text, revoked) VALUES (?, ?, ?, ?, ?, ?)",
+            (destination, entry_id, entry["entry_date"], entry["entry_time"], entry["text"], entry["revoked"]),
+        )
+        database.execute(
+            "INSERT INTO nutrition_items(owner_scope, entry_id, item_index, item_json) "
+            "SELECT ?, ?, item_index, item_json FROM nutrition_items WHERE owner_scope = ? AND entry_id = ?",
+            (destination, entry_id, source, entry["entry_id"]),
+        )
+    for table, key in (("nutrition_days", "day_date"), ("nutrition_programs", "start_date"),
+                       ("nutrition_weights", "weight_date"), ("nutrition_reviews", "review_date")):
+        database.execute(
+            f"INSERT OR IGNORE INTO {table}(owner_scope, {key}, {table.removeprefix('nutrition_')[:-1]}_json) "
+            f"SELECT ?, {key}, {table.removeprefix('nutrition_')[:-1]}_json FROM {table} WHERE owner_scope = ?",
+            (destination, source),
+        )
+    for table in ("nutrition_items", "nutrition_entries", "nutrition_days", "nutrition_programs", "nutrition_weights", "nutrition_reviews"):
+        database.execute(f"DELETE FROM {table} WHERE owner_scope = ?", (source,))
+
+
+def cleanup_legacy_nutrition_settings(database) -> None:
+    if database.execute("SELECT 1 FROM settings WHERE scope = 'global' AND name = 'nutrition_sqlite_cleanup_v1'").fetchone():
+        return
+    for row in database.execute("SELECT scope, name, value FROM settings WHERE name IN ('nutrition_config', 'nutrition_secrets', 'integration_checks')").fetchall():
+        value = json.loads(row["value"])
+        if not isinstance(value, dict):
+            continue
+        if row["name"] == "nutrition_config":
+            value.pop("google_sheets", None)
+        elif row["name"] == "nutrition_secrets":
+            value.pop("sheets_token", None)
+        else:
+            value.pop("sheets", None)
+        database.execute("UPDATE settings SET value = ? WHERE scope = ? AND name = ?", (json.dumps(value), row["scope"], row["name"]))
+    database.execute("DELETE FROM settings WHERE name IN ('nutrition_log', 'food_lookup_cache', 'sheets_pending')")
+    database.execute("INSERT INTO settings(scope, name, value) VALUES ('global', 'nutrition_sqlite_cleanup_v1', 'true')")
 
 
 def privatize_integrations(database) -> None:

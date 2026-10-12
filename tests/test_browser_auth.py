@@ -1,3 +1,4 @@
+import os
 import secrets
 import time
 import unittest
@@ -12,6 +13,29 @@ from fastapi.testclient import TestClient
 from backend import main
 from backend.utils import app_db, auth_cookies
 from backend.services import strava_service
+
+
+class StravaServerConfigTests(unittest.TestCase):
+    def test_environment_credentials_override_database(self):
+        with patch.dict(os.environ, {"STRAVA_CLIENT_ID": " server-id ", "STRAVA_CLIENT_SECRET": " server-secret "}), \
+             patch.object(app_db, "get_setting") as setting:
+            self.assertEqual(strava_service._load_config(), {
+                "client_id": "server-id", "client_secret": "server-secret",
+            })
+            setting.assert_not_called()
+
+    def test_partial_environment_credentials_fail_closed(self):
+        with patch.dict(os.environ, {"STRAVA_CLIENT_ID": "server-id", "STRAVA_CLIENT_SECRET": ""}), \
+             patch.object(app_db, "get_setting") as setting:
+            self.assertEqual(strava_service._load_config(), {})
+            setting.assert_not_called()
+
+    def test_database_credentials_remain_supported(self):
+        with patch.dict(os.environ, {"STRAVA_CLIENT_ID": "", "STRAVA_CLIENT_SECRET": ""}), \
+             patch.object(app_db, "get_setting", return_value={"client_id": "saved-id", "client_secret": "saved-secret"}):
+            self.assertEqual(strava_service._load_config(), {
+                "client_id": "saved-id", "client_secret": "saved-secret",
+            })
 
 
 class StravaBrowserAuthTests(unittest.TestCase):

@@ -7,23 +7,11 @@ setupModal.setAttribute("aria-labelledby", "setup-title");
 setupModal.innerHTML = `<section class="setup-dialog"><header><div><h2 id="setup-title">Settings</h2><p id="setup-profile" class="setup-profile" hidden></p></div><button type="button" id="setup-close" aria-label="Close settings" title="Close settings">×</button></header>
   <section class="setup-account" aria-labelledby="setup-apps-title"><div class="setup-apps"><h3 id="setup-apps-title">Connected apps</h3><ul id="connected-apps-list" class="setup-connection-list"></ul></div><a id="setup-link-strava" class="setup-link" href="/api/strava/connect?link=1" hidden>Link Strava to this tracker <span aria-hidden="true">↗</span></a></section>
   <form id="setup-form"><section id="setup-ready-summary" class="setup-ready-summary" aria-labelledby="setup-connections-title" hidden>
-    <div class="setup-section-heading"><h3 id="setup-connections-title">Nutrition connections</h3><span class="setup-status-pill is-connected">Ready</span></div>
-    <ul class="setup-connection-list"><li><div class="setup-connection-name"><strong>Google Sheet</strong><span>Verified connection</span></div><span class="setup-status-pill is-connected">Connected</span></li><li><div class="setup-connection-name"><strong>AI model</strong><span id="setup-model-detail"></span></div><span class="setup-status-pill is-connected">Connected</span></li></ul>
+    <div class="setup-section-heading"><h3 id="setup-connections-title">Nutrition setup</h3><span class="setup-status-pill is-connected">Ready</span></div>
+    <ul class="setup-connection-list"><li><div class="setup-connection-name"><strong>AI model</strong><span id="setup-model-detail"></span></div><span class="setup-status-pill is-connected">Connected</span></li></ul>
     <div class="setup-summary-actions"><button type="button" id="edit-integration-settings">Edit connections</button></div></section>
     <nav id="setup-steps" aria-label="Settings sections"></nav>
-    <section data-setup-step="0"><h3>1. Google sheet</h3><p class="setup-purpose">Food entries, nutrition details, targets, programs, weights and reviews are stored only in your Google sheet.</p><a href="#sheet-instructions" class="setup-instructions-link">Instructions</a>
-      <div id="sheet-instructions" class="setup-instructions" hidden><ol>
-        <li>Open <a href="https://sheets.google.com" target="_blank" rel="noopener">Google Sheets</a>, create a blank spreadsheet and give it a name such as My Food Log.</li>
-        <li>Select Generate token below, then Download script.</li>
-        <li>In your spreadsheet select Extensions, then Apps Script. Delete the sample code. Open the downloaded file in a text editor, copy all its text into the script editor and save.</li>
-        <li>Select Deploy, New deployment, the gear icon, then Web app. Choose Execute as: Me and Who has access: Anyone.</li>
-        <li>Select Deploy and authorise your own script with Google. Only continue past an unverified-app warning if this is the script you just created.</li>
-        <li>Copy the Web app URL ending in /exec below and select Save and check. Version 8 is required. To upgrade an existing script, use Deploy, Manage deployments, Edit, New version, Deploy and keep the same URL.</li>
-      </ol></div>
-      <div class="setup-actions"><button type="button" id="setup-generate-token">Generate token</button><button type="button" id="setup-download-script" disabled>Download script</button></div><p id="setup-download-note">Generate a token to enable the script download.</p>
-      <label>Web app deployment URL<input name="sheets_url" type="url" placeholder="https://script.google.com/macros/s/.../exec" /></label>
-    </section>
-    <section data-setup-step="1" hidden><h3>2. Choose your AI model</h3><p class="setup-purpose">Select an AI provider and model for food estimates and daily reviews. Provider usage limits or charges may apply.</p>
+    <section data-setup-step="0"><h3>Choose your AI model</h3><p class="setup-purpose">Select an AI provider and model for food estimates and daily reviews. Provider usage limits or charges may apply.</p>
       <label>AI provider<select name="llm_provider"><option value="">Choose a provider</option><option value="gemini">Google AI</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="groq">Groq</option><option value="mistral">Mistral</option><option value="openrouter">OpenRouter</option><option value="other">Other provider</option></select></label>
       <label id="llm-custom-provider" hidden>LiteLLM provider ID<input name="llm_custom_provider" pattern="[a-zA-Z0-9_\\-]+" /></label>
       <p class="setup-key-guide"><a id="ai-key-instructions" href="https://docs.litellm.ai/docs/providers" target="_blank" rel="noopener">API key instructions</a></p>
@@ -36,8 +24,8 @@ setupModal.innerHTML = `<section class="setup-dialog"><header><div><h2 id="setup
 document.body.append(setupModal);
 const setupForm = setupModal.querySelector("form");
 const setupStatus = document.getElementById("setup-status");
-const stepNames = ["Google sheet", "AI model"];
-const stepKeys = ["sheets", "llm"];
+const stepNames = ["AI model"];
+const stepKeys = ["llm"];
 let setupStep = 0;
 let setupState = null;
 let setupBusy = false;
@@ -109,7 +97,6 @@ function renderModelOptions(savedModel = "") {
 
 async function refreshSetup() {
   setupState = await setupRequest("/api/settings/integrations");
-  setupForm.elements.sheets_url.value = setupState.sheets.url;
   const providerSelect = setupForm.elements.llm_provider;
   const providerKnown = [...providerSelect.options].some(option => option.value === setupState.llm.provider);
   providerSelect.value = providerKnown ? setupState.llm.provider : setupState.llm.provider ? "other" : "";
@@ -124,8 +111,6 @@ async function refreshSetup() {
     setupForm.elements[name].value = "";
     setupForm.elements[name].placeholder = configured ? "Configured" : "Not configured";
   }
-  document.getElementById("setup-download-script").disabled = !setupState.sheets.tokenConfigured || setupBusy;
-  document.getElementById("setup-download-note").textContent = setupState.sheets.tokenConfigured ? "Download the script and follow Instructions." : "Generate a token to enable the script download.";
   const apps = [{ name: "Garmin", connected: setupState.garmin.ready }, { name: "Strava", connected: setupState.strava.ready }];
   document.getElementById("connected-apps-list").innerHTML = apps.map(app => `<li><strong>${app.name}</strong><span class="setup-status-pill ${app.connected ? "is-connected" : "is-disconnected"}">${app.connected ? "Connected" : "Not connected"}</span></li>`).join("");
   const profile = document.getElementById("setup-profile");
@@ -140,9 +125,6 @@ async function refreshSetup() {
 
 async function verifySavedIntegrations() {
   const checks = [];
-  if (!setupState.sheets.ready && setupState.sheets.enabled && setupState.sheets.url && setupState.sheets.tokenConfigured) {
-    checks.push(setupRequest("/api/settings/check/sheets", {}));
-  }
   if (!setupState.llm.ready && setupState.llm.enabled && setupState.llm.provider && setupState.llm.model && setupState.llm.keyConfigured) {
     checks.push(setupRequest("/api/settings/check/llm", {}));
   }
@@ -184,7 +166,6 @@ document.getElementById("setup-close").addEventListener("click", closeSetup);
 document.getElementById("setup-back").addEventListener("click", () => { setupStep = Math.max(0, setupStep - 1); setupStatus.textContent = ""; renderSetupStep(); });
 document.getElementById("setup-skip").addEventListener("click", closeSetup);
 document.getElementById("setup-steps").addEventListener("click", event => { const button = event.target.closest("[data-step]"); if (button && !setupBusy) { setupStep = Number(button.dataset.step); setupStatus.textContent = ""; renderSetupStep(); } });
-setupModal.querySelectorAll(".setup-instructions-link").forEach(link => link.addEventListener("click", event => { event.preventDefault(); const panel = setupModal.querySelector(link.getAttribute("href")); panel.hidden = !panel.hidden; link.setAttribute("aria-expanded", String(!panel.hidden)); }));
 document.getElementById("configure-chat-integrations")?.addEventListener("click", openSetup);
 const setupDashboardButton = document.createElement("button");
 setupDashboardButton.type = "button"; setupDashboardButton.className = "btn-ghost"; setupDashboardButton.textContent = "Settings";
@@ -201,35 +182,22 @@ async function busySetup(action) {
   setupModal.querySelectorAll("button").forEach(button => { button.disabled = true; });
   try { await action(); }
   catch (error) { setupStatus.textContent = error.message; }
-  finally { setupBusy = false; setupModal.querySelectorAll("button").forEach(button => { button.disabled = false; }); renderSetupStep(); document.getElementById("setup-download-script").disabled = !setupState?.sheets.tokenConfigured; }
+  finally { setupBusy = false; setupModal.querySelectorAll("button").forEach(button => { button.disabled = false; }); renderSetupStep(); }
 }
-
-document.getElementById("setup-generate-token").addEventListener("click", () => busySetup(async () => { await setupRequest("/api/settings/sheets/token", {}); await refreshSetup(); setupStatus.textContent = "Token generated. Download the script, then follow Instructions."; }));
-document.getElementById("setup-download-script").addEventListener("click", () => {
-  if (!setupState?.sheets.tokenConfigured) { setupStatus.textContent = "Generate your sheet token first."; return; }
-  const download = document.createElement("a"); download.href = "/api/settings/sheets/script"; download.download = "nutrition_sheets.gs"; document.body.append(download); download.click(); download.remove();
-});
 
 setupForm.addEventListener("submit", event => {
   event.preventDefault();
   busySetup(async () => {
     const fields = setupForm.elements;
-    if (setupStep === 0) {
-      if (!fields.sheets_url.value || !fields.sheets_url.checkValidity()) throw new Error("Paste the valid Web app URL ending in /exec.");
-      const body = { sheets_url: fields.sheets_url.value.trim(), sheets_enabled: false };
-      await setupRequest("/api/settings/integrations", body); await setupRequest("/api/settings/check/sheets", {});
-    } else if (setupStep === 1) {
-      const provider = fields.llm_provider.value === "other" ? fields.llm_custom_provider.value.trim() : fields.llm_provider.value;
-      const model = fields.llm_model.value === "__custom__" ? fields.llm_custom_model.value.trim() : fields.llm_model.value;
-      if (!provider || fields.llm_provider.value === "other" && !fields.llm_custom_provider.checkValidity()) throw new Error("Choose a valid AI provider.");
-      if (!model || fields.llm_model.value === "__custom__" && !fields.llm_custom_model.checkValidity()) throw new Error("Choose a valid AI model.");
-      const body = { llm_provider: provider, llm_model: model, llm_enabled: false };
-      if (fields.llm_api_key.value.trim()) body.llm_api_key = fields.llm_api_key.value.trim();
-      if (setupState.llm.provider !== provider && !body.llm_api_key) throw new Error("Enter the API key for the new provider.");
-      await setupRequest("/api/settings/integrations", body); await setupRequest("/api/settings/check/llm", {});
-    }
+    const provider = fields.llm_provider.value === "other" ? fields.llm_custom_provider.value.trim() : fields.llm_provider.value;
+    const model = fields.llm_model.value === "__custom__" ? fields.llm_custom_model.value.trim() : fields.llm_model.value;
+    if (!provider || fields.llm_provider.value === "other" && !fields.llm_custom_provider.checkValidity()) throw new Error("Choose a valid AI provider.");
+    if (!model || fields.llm_model.value === "__custom__" && !fields.llm_custom_model.checkValidity()) throw new Error("Choose a valid AI model.");
+    const body = { llm_provider: provider, llm_model: model, llm_enabled: false };
+    if (fields.llm_api_key.value.trim()) body.llm_api_key = fields.llm_api_key.value.trim();
+    if (setupState.llm.provider !== provider && !body.llm_api_key) throw new Error("Enter the API key for the new provider.");
+    await setupRequest("/api/settings/integrations", body); await setupRequest("/api/settings/check/llm", {});
     await refreshSetup(); setupStatus.textContent = "Saved and ready.";
-    if (setupStep < 1) { setupStep++; renderSetupStep(); }
   });
 });
 

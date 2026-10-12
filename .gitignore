@@ -20,15 +20,16 @@ backend/nutrition_secrets.json
 
 # Env / secrets
 .env
-
-# OS / editor
-.DS_Store
-Thumbs.db
-.vscode/
-.idea/
+/backups/
 
 # Application SQLite credentials and data
 data/
 *.sqlite3
 *.sqlite3-wal
 *.sqlite3-shm
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

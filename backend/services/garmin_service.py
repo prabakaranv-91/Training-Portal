@@ -23,7 +23,6 @@ from garminconnect import (
 
 logger = logging.getLogger("garmin.service")
 
-
 def _strength_exercises(raw: Any) -> list[dict[str, Any]]:
     """Find exercise records across Garmin's varying strength DTO shapes."""
     exercises: list[dict[str, Any]] = []

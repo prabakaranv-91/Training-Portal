@@ -21,6 +21,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import os
 import secrets
 import time
 from typing import Any
@@ -47,6 +48,12 @@ _ATHLETE_WEIGHT_CACHE_TTL = 900
 
 
 def _load_config() -> dict[str, str]:
+    environment_id = os.environ.get("STRAVA_CLIENT_ID", "").strip()
+    environment_secret = os.environ.get("STRAVA_CLIENT_SECRET", "").strip()
+    if environment_id or environment_secret:
+        if environment_id and environment_secret:
+            return {"client_id": environment_id, "client_secret": environment_secret}
+        return {}
     data = app_db.get_setting("strava_app_config", {})
     client_id = str(data.get("client_id") or "").strip()
     client_secret = str(data.get("client_secret") or "").strip()

@@ -1,0 +1,14 @@
+*
+!backend/
+!backend/**
+!frontend/
+!frontend/**
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/data/
+backend/tests/
+backend/apps_script/
+backend/*config.json
+backend/*secrets.json
+backend/**/garmin_auth*.json
+backend/**/*.sqlite3*

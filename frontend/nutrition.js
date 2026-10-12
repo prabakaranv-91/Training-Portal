@@ -14,9 +14,9 @@ const NUTRI_ROWS = [
   { key: "sodium", label: "Sodium", unit: "mg", limit: true },
 ];
 const NUTRI_STATUS = {
-  low: { label: "Low", cls: "low" },
-  in_limit: { label: "In limit", cls: "ok" },
-  high: { label: "Exceeds", cls: "high" },
+  low: { label: "Below target", cls: "low" },
+  in_limit: { label: "On target", cls: "ok" },
+  high: { label: "Over target", cls: "high" },
 };
 const NUTRI_UNIT_SHORT = {
   pieces: "pcs", piece: "pc", servings: "serv", serving: "serv",
@@ -59,7 +59,13 @@ function renderNutritionDay(day) {
   nutriDay = day;
   renderNutritionMessages(day);
   renderNutritionSummary(day);
-  loadNutritionCoach(day);
+  if (day.coachReview) {
+    nutriCoachSeq++;
+    const coachEl = document.getElementById("nutri-coach");
+    if (coachEl) nutriFillCoach(coachEl, day, day.coachReview);
+  } else {
+    loadNutritionCoach(day);
+  }
   const label = day.inProgress
     ? "Today"
     : new Date(`${day.date}T00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
@@ -276,13 +282,13 @@ function renderNutritionSummary(day) {
   const balanceCell = (key, limit = false) => {
     const current = intake[key] || 0, target = targets[key] || 0;
     const remaining = target - current;
-    if (remaining > 0) return `<td class="nutri-balance left">${nutriFmt(remaining)}</td>`;
+    if (remaining > 0) return `<td class="nutri-balance left"><span>${nutriFmt(remaining)} left</span></td>`;
     if (limit || key === "kcal") {
       return remaining < 0
-        ? `<td class="nutri-balance over">${nutriFmt(-remaining)} over</td>`
-        : `<td class="nutri-balance met">At limit</td>`;
+        ? `<td class="nutri-balance over"><span>${nutriFmt(-remaining)} over</span></td>`
+        : `<td class="nutri-balance met"><span>At limit</span></td>`;
     }
-    return `<td class="nutri-balance met">Met</td>`;
+    return `<td class="nutri-balance met"><span>Met</span></td>`;
   };
   const tips = day.entries.length ? day.suggestions.join("\n\n") : "";
   const rows = [{ key: "kcal", label: "Calories", unit: "kcal" }, ...NUTRI_ROWS];
@@ -707,7 +713,6 @@ function closeNutritionHistory() {
   document.getElementById("nutri-history-modal").classList.add("hidden");
 }
 
-
 async function deleteNutritionHistoryFood(button) {
   let sources;
   try {
@@ -738,6 +743,7 @@ async function deleteNutritionHistoryFood(button) {
     button.disabled = false;
   }
 }
+
 // ------------------------------------------------------------- wiring
 
 document.addEventListener(

@@ -3,10 +3,17 @@
 
 const API = "";
 let landingInChat = false;
+if (typeof Chart !== "undefined") {
+  Chart.defaults.font.family = getComputedStyle(document.documentElement).getPropertyValue("--font-numeric").trim();
+  document.fonts.ready.then(() => Object.values(Chart.instances).forEach(chart => chart.update("none")));
+}
 let allActivities = [];
 let stravaActivities = [];
 let stravaConnected = false;
 let garminConnected = false;
+let vo2Available = false;
+let stravaConfigured = null;
+let linkingGarmin = false;
 let monthlyKmChart = null;
 let weeklyKmChart = null;
 let mileageChart = null;
@@ -16,6 +23,7 @@ let dashSummary = null;
 let weeklyProgress = null;
 let yearProjection = null;
 let showAllStats = false;
+const dashboardPending = new Set();
 let guidanceData = null;
 let readinessData = null;
 let racePrediction = null;
@@ -80,6 +88,7 @@ async function api(path, options = {}) {
 }
 
 function show(viewId) {
+  document.getElementById("session-loading")?.classList.add("hidden");
   document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
   document.getElementById(viewId).classList.add("active");
 }
@@ -152,7 +161,6 @@ function sportIcon(type) {
   return SPORT_ICONS[type] || "🏅";
 }
 
-
 function activityTypeLabel(type) {
   const raw = String(type || "");
   const fused = {
@@ -199,7 +207,28 @@ function setBtnLoading(btn, loading, loadingText, idleText) {
   }
 }
 
-document.getElementById("garmin-cache-btn").addEventListener("click", async () => {
+function resetLoginChoices() {
+  document.getElementById("login-providers").classList.remove("hidden");
+  document.getElementById("login-auth").classList.add("hidden");
+  document.getElementById("login-form").classList.add("hidden");
+  document.getElementById("mfa-form").classList.add("hidden");
+  document.getElementById("login-error").classList.add("hidden");
+  document.getElementById("password").value = "";
+  document.getElementById("mfa-code").value = "";
+}
+
+document.getElementById("garmin-login-choice").addEventListener("click", () => {
+  document.getElementById("login-providers").classList.add("hidden");
+  document.getElementById("login-auth").classList.remove("hidden");
+  document.getElementById("login-form").classList.remove("hidden");
+  document.getElementById("email").focus();
+});
+document.getElementById("login-back").addEventListener("click", () => {
+  resetLoginChoices();
+  document.getElementById("garmin-login-choice").focus();
+});
+
+document.getElementById("garmin-cache-btn")?.addEventListener("click", async () => {
   const button = document.getElementById("garmin-cache-btn");
   const email = document.getElementById("email").value.trim();
   if (!email) {
@@ -228,29 +257,26 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
   const err = document.getElementById("login-error");
   err.classList.add("hidden");
   setBtnLoading(btn, true, "Signing in…");
-
   try {
     const data = await api("/api/login", {
       method: "POST",
-      body: JSON.stringify({
-        email: document.getElementById("email").value.trim(),
-        password: document.getElementById("password").value,
-      }),
+      body: JSON.stringify({ email: document.getElementById("email").value.trim(), password: document.getElementById("password").value }),
     });
-
     if (data.status === "mfa_required") {
       document.getElementById("login-form").classList.add("hidden");
       document.getElementById("mfa-form").classList.remove("hidden");
-      setBtnLoading(btn, false, "", "Sign in");
       document.getElementById("mfa-code").focus();
       return;
     }
+    document.getElementById("password").value = "";
+    closeSettings();
+    resetLoginChoices();
     await loadDashboard();
   } catch (ex) {
     err.textContent = ex.message;
     err.classList.remove("hidden");
   } finally {
-    setBtnLoading(btn, false, "", "Sign in");
+    setBtnLoading(btn, false, "", "Sign in with Garmin");
   }
 });
 
@@ -261,10 +287,11 @@ document.getElementById("mfa-form").addEventListener("submit", async (e) => {
   err.classList.add("hidden");
   setBtnLoading(btn, true, "Verifying…");
   try {
-    await api("/api/mfa", {
-      method: "POST",
-      body: JSON.stringify({ code: document.getElementById("mfa-code").value.trim() }),
-    });
+    await api("/api/mfa", { method: "POST", body: JSON.stringify({ code: document.getElementById("mfa-code").value.trim() }) });
+    document.getElementById("password").value = "";
+    document.getElementById("mfa-code").value = "";
+    closeSettings();
+    resetLoginChoices();
     await loadDashboard();
   } catch (ex) {
     err.textContent = ex.message;
@@ -276,9 +303,9 @@ document.getElementById("mfa-form").addEventListener("submit", async (e) => {
 
 document.getElementById("logout-btn").addEventListener("click", async () => {
   await api("/api/logout", { method: "POST" }).catch(() => {});
+  closeSettings();
+  resetLoginChoices();
   show("login-view");
-  document.getElementById("login-form").classList.remove("hidden");
-  document.getElementById("mfa-form").classList.add("hidden");
 });
 
 // Log in with Strava (OAuth redirect) from the login screen.
@@ -288,10 +315,47 @@ document.getElementById("strava-login-btn").addEventListener("click", () => {
 
 // Connect Garmin from the dashboard (Strava-first users).
 document.getElementById("connect-garmin-btn").addEventListener("click", () => {
-  show("login-view");
+  linkingGarmin = true;
+  const auth = document.getElementById("settings-garmin-auth");
+  auth.classList.remove("hidden");
+  auth.append(document.getElementById("login-form"), document.getElementById("mfa-form"), document.getElementById("login-error"));
   document.getElementById("login-form").classList.remove("hidden");
   document.getElementById("mfa-form").classList.add("hidden");
   document.getElementById("login-error").classList.add("hidden");
+  document.getElementById("email").focus();
+});
+
+function closeSettings() {
+  document.getElementById("settings-modal").classList.add("hidden");
+  if (linkingGarmin) {
+    const loginAuth = document.getElementById("login-auth");
+    for (const id of ["login-form", "mfa-form", "login-error"]) {
+      loginAuth.insertBefore(document.getElementById(id), loginAuth.querySelector(".hint"));
+    }
+    document.getElementById("settings-garmin-auth").classList.add("hidden");
+    resetLoginChoices();
+    linkingGarmin = false;
+  }
+  document.getElementById("open-settings").focus();
+}
+
+document.getElementById("open-settings").addEventListener("click", () => {
+  updateConnectButtons();
+  document.getElementById("settings-modal").classList.remove("hidden");
+  document.getElementById("settings-close").focus();
+});
+document.getElementById("settings-close").addEventListener("click", closeSettings);
+document.getElementById("settings-modal").addEventListener("click", (event) => {
+  if (event.target.id === "settings-modal") closeSettings();
+});
+document.getElementById("settings-modal").addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeSettings();
+  if (event.key !== "Tab") return;
+  const controls = Array.from(event.currentTarget.querySelectorAll("button, input")).filter((control) => !control.disabled && control.offsetParent !== null);
+  const first = controls[0];
+  const last = controls[controls.length - 1];
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
 });
 
 document.getElementById("refresh-btn").addEventListener("click", () => {
@@ -474,24 +538,63 @@ async function reloadAllActivities() {
 
 function showDashboardLoading() {
   const skel = (cls) => `<div class="${cls} skeleton"></div>`;
-  document.getElementById("stat-cards").innerHTML = skel("stat").repeat(6);
+  const stats = document.getElementById("stat-cards");
+  stats.classList.remove("hidden");
+  stats.setAttribute("aria-busy", "true");
+  stats.innerHTML = skel("stat").repeat(6);
   document.getElementById("vo2-panel").innerHTML =
-    skel("vo2-item") + skel("vo2-item") + `<div class="vo2-status skeleton"></div>`;
+    skel("vo2-item") + `<div class="vo2-status skeleton"></div>`;
   document.getElementById("report-cards").innerHTML =
-    skel("report-card") + skel("report-card");
+    skel("report-card").repeat(3);
+  document.getElementById("nutri-summary").innerHTML =
+    `<div class="empty nutri-loading" role="status"><span class="nutri-spinner" aria-hidden="true"></span> Loading nutrition…</div>`;
   const chartWrap = document.querySelector(".run-report .run-chart-wrap");
   if (chartWrap) chartWrap.classList.add("skeleton");
   document.getElementById("activities-list").innerHTML = activitiesLoadingHtml();
   document.getElementById("activities-count").textContent = "";
 }
 
+async function loadDashboardSection(key, path, render, onError = () => {}) {
+  try {
+    const data = await api(path);
+    dashboardPending.delete(key);
+    render(data);
+  } catch (error) {
+    onError(error);
+  } finally {
+    dashboardPending.delete(key);
+    renderStatCards();
+  }
+}
+
 async function loadDashboard() {
+  if (landingInChat) return;
   show("dashboard-view");
   insightsLoaded = false;
+  dashboardPending.clear();
+  for (const key of ["session", "core", "report", "race", "extras", "training", "activities"]) dashboardPending.add(key);
   showDashboardLoading();
   try {
     const session = await api("/api/session").catch(() => ({}));
     garminConnected = !!session.garmin;
+    stravaConnected = !!session.strava;
+    dashboardPending.delete("session");
+    if (!stravaConnected) dashboardPending.delete("extras");
+    if (!garminConnected) dashboardPending.delete("training");
+    vo2Available = false;
+    guidanceData = null;
+    readinessData = null;
+    lactateThreshold = null;
+    racePrediction = null;
+    weeklyProgress = null;
+    yearProjection = null;
+    runMonthKm = null;
+    if (!stravaConnected) {
+      stravaGear = null;
+      stravaStreak = null;
+      stravaActivities = [];
+      stravaYearlyGoal = null;
+    }
     updateConnectButtons();
 
     const [profile, dash, acts] = await Promise.all([
@@ -502,41 +605,51 @@ async function loadDashboard() {
 
     document.getElementById("user-name").textContent = profile.fullName || profile.email || "";
     setAvatar(profile.avatar);
+    dashboardPending.delete("core");
     renderStatCards(dash.summary);
     renderVo2(dash.vo2max, dash.training);
     allActivities = acts.activities || [];
-    renderActivities(currentSportFilter);
+    if (!stravaConnected) {
+      dashboardPending.delete("activities");
+      renderActivities(currentSportFilter);
+    }
 
     // Strava (extra activity source) loads independently.
     loadStravaStatus();
     if (typeof loadNutrition === "function") api("/api/session").then(state => { if (state.nutritionReady) loadNutrition(); }).catch(() => {});
 
     // Running report loads independently (it scans the year's activities).
-    api("/api/running-report")
-      .then(renderRunningReport)
-      .catch(() => {});
-    api("/api/training-guidance")
-      .then(renderGuidance)
-      .catch(() => {});
-    api("/api/race-prediction")
-      .then((rp) => {
+    loadDashboardSection("report", "/api/running-report", renderRunningReport, () => {
+      document.getElementById("report-cards").innerHTML = `<div class="empty">Report unavailable. Try refreshing.</div>`;
+      document.querySelector(".run-chart-wrap").classList.remove("skeleton");
+    });
+    loadDashboardSection("race", "/api/race-prediction", (rp) => {
         racePrediction = rp;
         renderStatCards();
-      })
-      .catch(() => {});
-    api("/api/lactate-threshold")
-      .then((lt) => {
+      });
+    if (garminConnected) Promise.allSettled([
+      api("/api/training-guidance").then(renderGuidance),
+      api("/api/lactate-threshold").then((lt) => {
         lactateThreshold = lt;
         renderStatCards();
-      })
-      .catch(() => {});
-    api("/api/readiness")
-      .then((r) => {
+      }),
+      api("/api/readiness").then((r) => {
         readinessData = r;
         renderStatCards();
-      })
-      .catch(() => {});
+      }),
+    ]).finally(() => {
+      dashboardPending.delete("training");
+      renderStatCards();
+    });
   } catch (ex) {
+    dashboardPending.clear();
+    renderStatCards();
+    document.getElementById("vo2-panel").innerHTML = "";
+    updateConnectButtons();
+    document.getElementById("report-cards").innerHTML = `<div class="empty">Report unavailable. Try refreshing.</div>`;
+    document.querySelector(".run-chart-wrap").classList.remove("skeleton");
+    document.getElementById("nutri-summary").innerHTML = `<div class="empty">Nutrition unavailable. Try refreshing.</div>`;
+    document.getElementById("activities-list").innerHTML = `<div class="empty">Activities unavailable. Try refreshing.</div>`;
     if (ex.status === 401) {
       show("login-view");
     } else {
@@ -1040,19 +1153,19 @@ function renderRunningReport(r) {
     const projCard = proj
       ? `
       <div class="report-card projection" title="Projected total for ${r.year.label} — the remaining days estimated at your recent 60-day pace, blended with your year-to-date rate.">
-        <div class="rc-label">Projected ${r.year.label}</div>
+        <div class="rc-label" title="Projected ${r.year.label}">${r.year.label} forecast</div>
         <div class="rc-km">${proj.projectedKm.toLocaleString()} <span>km</span></div>
         <div class="rc-sub">≈ ${proj.onPacePerMonth}/mo pace</div>
       </div>`
       : "";
     cards.innerHTML = `
       <div class="report-card">
-        <div class="rc-label">This month · ${r.month.label}</div>
+        <div class="rc-label" title="This month · ${r.month.label}">${r.month.label}</div>
         <div class="rc-km">${r.month.km} <span>km</span></div>
         <div class="rc-sub">${r.month.count} run${r.month.count === 1 ? "" : "s"}</div>
       </div>
       <div class="report-card year">
-        <div class="rc-label">This year · ${r.year.label}</div>
+        <div class="rc-label" title="This year · ${r.year.label}">${r.year.label} YTD</div>
         <div class="rc-km">${r.year.km} <span>km</span></div>
         <div class="rc-sub">${r.year.count} run${r.year.count === 1 ? "" : "s"}</div>
       </div>
@@ -1252,6 +1365,12 @@ function renderStatCards(s) {
 }
 
 function renderStatCardsImpl(sum) {
+  if (dashboardPending.has("session") || dashboardPending.has("core")) {
+    const stats = document.getElementById("stat-cards");
+    stats.classList.remove("hidden");
+    stats.setAttribute("aria-busy", "true");
+    return;
+  }
   const km = sum.totalDistanceMeters ? (sum.totalDistanceMeters / 1000).toFixed(2) : null;
   const sleepH = sum.sleepingSeconds ? (sum.sleepingSeconds / 3600).toFixed(1) : null;
   const wp = weeklyProgress;
@@ -1295,18 +1414,6 @@ function renderStatCardsImpl(sum) {
                 })(),
               ]
             : []),
-          (() => {
-            const goals = buildGoals();
-            const onTrack = goals.filter((g) => g.pct >= g.expectedPct - 5).length;
-            return {
-              key: "goals",
-              icon: "🏅",
-              label: "Goals",
-              sub: goals.length ? `${onTrack}/${goals.length} on track` : "Set a goal",
-              special: "goals",
-              goals,
-            };
-          })(),
           (() => {
             const st = stravaStreak;
             const n = st ? st.weeks : 0;
@@ -1352,6 +1459,7 @@ function renderStatCardsImpl(sum) {
   ];
 
   const card = (c, extra = false) => {
+    if (c.loading) return `<div class="stat skeleton" data-key="${c.key}" role="status" aria-label="Loading ${c.label}"></div>`;
     if (c.special === "goals") {
       const bars = (c.goals || [])
         .map(
@@ -1388,23 +1496,62 @@ function renderStatCardsImpl(sum) {
 
   const container = document.getElementById("stat-cards");
 
-  // Render up to two rows; if more tiles remain, offer a "Show more" toggle.
-  const allCards = [...defaultCards, ...extraCards];
+  // Keep the collapsed stats in one row and reserve its last slot for the toggle.
+  const allCards = [...defaultCards, ...extraCards].filter((item) => {
+    if (["restingHR", "intensity", "bodyBattery", "sleep", "training"].includes(item.key) && !garminConnected) return false;
+    if (item.key === "restingHR" && sum.restingHeartRate == null) return false;
+    if (item.key === "intensity" && sum.intensityMinutes == null) return false;
+    if (item.key === "bodyBattery" && sum.bodyBatteryHighest == null) return false;
+    if (item.key === "sleep" && sum.sleepingSeconds == null) return false;
+    if (item.key === "training" && !dashboardPending.has("training") && !guidanceData && !readinessData && !lactateThreshold?.hr && !lactateThreshold?.paceMinPerKm) return false;
+    if (item.key === "race") return dashboardPending.has("race") || !!racePrediction?.rows?.some((row) => row.garminSec != null || row.stravaSec != null);
+    if (item.key === "streak") return stravaConnected && (dashboardPending.has("extras") || !!stravaStreak);
+    return true;
+  });
+  const goals = buildGoals();
+  if (goals.length) {
+    const onTrack = goals.filter((goal) => goal.pct >= goal.expectedPct - 5).length;
+    allCards.splice(Math.min(1, allCards.length), 0, { key: "goals", icon: "🏅", label: "Goals", sub: `${onTrack}/${goals.length} on track`, special: "goals", goals });
+  } else if (dashboardPending.has("report")) {
+    allCards.splice(Math.min(1, allCards.length), 0, { key: "goals", label: "Goals", loading: true });
+  }
+  if (stravaConnected && dashboardPending.has("extras") && !allCards.some((item) => item.key === "gear")) {
+    allCards.splice(Math.min(2, allCards.length), 0, { key: "gear", label: "Active shoe", loading: true });
+  }
+  for (const item of allCards) {
+    const section = { race: "race", goals: "report", gear: "extras", streak: "extras", training: "training" }[item.key];
+    if (section && dashboardPending.has(section)) item.loading = true;
+  }
+  container.setAttribute("aria-busy", String(dashboardPending.size > 0));
+  container.classList.toggle("hidden", allCards.length === 0);
   const width = container.clientWidth || window.innerWidth || 1000;
   const gap = 8;
-  const minTile = 158;
+  const minTile = 104;
   const cols = Math.max(1, Math.floor((width + gap) / (minTile + gap)));
-  const twoRows = cols * 2;
   const total = allCards.length;
 
   let visible = total;
-  let showToggle = false;
-  if (total > twoRows) {
-    showToggle = true;
-    visible = showAllStats ? total : twoRows;
+  const showToggle = total > cols;
+  if (showToggle && !showAllStats) {
+    visible = Math.max(1, cols - 1);
   }
 
   container.innerHTML = allCards.slice(0, visible).map((c) => card(c)).join("");
+  if (showToggle) {
+    const wrap = document.createElement("div");
+    wrap.className = "stat-toggle-wrap";
+    const toggle = document.createElement("button");
+    toggle.className = "stat-toggle";
+    toggle.id = "stat-toggle";
+    toggle.type = "button";
+    toggle.textContent = showAllStats ? "Show less" : "Show more";
+    toggle.onclick = () => {
+      showAllStats = !showAllStats;
+      renderStatCardsImpl(dashSummary || {});
+    };
+    wrap.append(toggle);
+    container.append(wrap);
+  }
 
   container.querySelectorAll(".stat.clickable").forEach((el) => {
     el.addEventListener("click", () => {
@@ -1423,17 +1570,6 @@ function renderStatCardsImpl(sum) {
     });
   });
 
-  // Show/hide + label the toggle placed below the grid.
-  const wrap = document.querySelector(".stat-toggle-wrap");
-  const toggle = document.getElementById("stat-toggle");
-  if (wrap) wrap.classList.toggle("hidden", !showToggle);
-  if (toggle) {
-    toggle.textContent = showAllStats ? "Show less" : "Show more";
-    toggle.onclick = () => {
-      showAllStats = !showAllStats;
-      renderStatCardsImpl(dashSummary || {});
-    };
-  }
 }
 
 // ------------------------------------------------ weekly mileage popup
@@ -1737,15 +1873,18 @@ function metricInfo(key, s) {
 
 function renderVo2(vo2, training) {
   const panel = document.getElementById("vo2-panel");
-  if (!garminConnected) {
-    panel.innerHTML = `<div class="empty">VO₂ max, training status and readiness come from Garmin. Connect Garmin (top-right) to see them.</div>`;
+  const hasData = garminConnected && (vo2?.runningVo2Max != null || !!training?.trainingStatus);
+  vo2Available = hasData;
+  document.querySelector(".vo2-training-panel").classList.toggle("hidden", !hasData);
+  document.querySelector(".dash-row").classList.toggle("without-garmin", !hasData);
+  if (!hasData) {
+    panel.innerHTML = "";
     return;
   }
   const v = vo2 || {};
-  const items = [
+  const items = v.runningVo2Max != null ? [
     { big: v.runningVo2Max ?? "–", cap: "Running VO₂ max", metric: "running" },
-    { big: v.cyclingVo2Max ?? "–", cap: "Cycling VO₂ max", metric: "cycling" },
-  ];
+  ] : [];
 
   let html = items
     .map(
@@ -1781,7 +1920,7 @@ function renderVo2(vo2, training) {
       </div>`;
   }
 
-  html += `<button id="vo2-analyze-btn" class="btn-analyze">🔬 What improved my VO₂ max?</button>`;
+  if (v.runningVo2Max != null) html += `<button id="vo2-analyze-btn" class="btn-analyze">🔬 VO₂ insights</button>`;
   document.getElementById("vo2-panel").innerHTML = html;
 
   document.querySelectorAll(".vo2-item.clickable").forEach((el) => {
@@ -2355,7 +2494,17 @@ function renderMultiComboChart(cols) {
 
 function updateConnectButtons() {
   const gBtn = document.getElementById("connect-garmin-btn");
-  if (gBtn) gBtn.classList.toggle("hidden", garminConnected);
+  gBtn.disabled = garminConnected;
+  gBtn.textContent = garminConnected ? "Connected" : "Connect";
+  document.getElementById("garmin-connection-status").textContent = garminConnected ? "Connected" : "Not connected";
+  const sBtn = document.getElementById("strava-btn");
+  sBtn.disabled = stravaConnected || stravaConfigured !== true;
+  sBtn.textContent = stravaConnected ? "Connected" : "Connect";
+  document.getElementById("strava-connection-status").textContent = stravaConnected ? "Connected" : stravaConfigured === false ? "Not configured" : stravaConfigured === null ? "Checking connection…" : "Not connected";
+  const showVo2 = garminConnected && (vo2Available || dashboardPending.has("core"));
+  document.querySelector(".vo2-training-panel").classList.toggle("hidden", !showVo2);
+  document.querySelector(".dash-row").classList.toggle("without-garmin", !showVo2);
+  for (const id of ["open-insights", "compare-controls"]) document.getElementById(id).classList.toggle("hidden", !garminConnected);
   // Analysis is Garmin-only; hide it for Strava-only logins.
   const aBtn = document.getElementById("open-analysis");
   if (aBtn) aBtn.classList.toggle("hidden", !garminConnected);
@@ -2375,37 +2524,37 @@ function setAvatar(url) {
 }
 
 async function loadStravaStatus() {
-  const btn = document.getElementById("strava-btn");
   try {
     const st = await api("/api/strava/status");
     stravaConnected = !!st.connected;
+    stravaConfigured = !!st.configured;
     stravaYearlyGoal = st.yearlyGoalKm != null ? st.yearlyGoalKm : null;
     if (st.connected && st.avatar) setAvatar(st.avatar);
 
-    // Topbar button mirrors "Connect Garmin": shown only when Strava is
-    // configured but not yet connected; hidden once connected.
-    if (btn) {
-      const showBtn = !!st.configured && !st.connected;
-      btn.classList.toggle("hidden", !showBtn);
-      btn.textContent = "🔗 Connect Strava";
-    }
+    updateConnectButtons();
 
     if (st.connected) {
       await loadStravaActivities();
-      api("/api/strava/extras")
-        .then((e) => {
+      loadDashboardSection("extras", "/api/strava/extras", (e) => {
           stravaGear = e.gear || null;
           stravaStreak = e.streak || null;
           renderStatCards();
-        })
-        .catch(() => {});
+        });
     } else {
+      dashboardPending.delete("extras");
+      dashboardPending.delete("activities");
       stravaActivities = [];
       stravaGear = null;
       stravaStreak = null;
+      renderStatCards();
+      renderActivities(currentSportFilter);
     }
   } catch (_) {
-    if (btn) btn.classList.add("hidden");
+    dashboardPending.delete("extras");
+    dashboardPending.delete("activities");
+    renderStatCards();
+    renderActivities(currentSportFilter);
+    document.getElementById("strava-connection-status").textContent = "Connection check failed";
   }
 }
 
@@ -2415,9 +2564,12 @@ async function loadStravaActivities() {
     const q = currentActivityQuery; // e.g. days=30 or limit=50
     const res = await api(`/api/strava/activities?${q}`);
     stravaActivities = res.activities || [];
+    dashboardPending.delete("activities");
     renderActivities(currentSportFilter);
   } catch (_) {
     stravaActivities = [];
+    dashboardPending.delete("activities");
+    renderActivities(currentSportFilter);
   }
 }
 

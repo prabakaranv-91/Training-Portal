@@ -100,10 +100,14 @@ class LiteLLMServiceTests(unittest.TestCase):
         with patch.object(food_parser_client, "_ensure_started", side_effect=RuntimeError("startup failed")):
             self.assertFalse(food_parser_client.prewarm())
 
-    def test_add_entry_does_not_read_the_whole_sheet_before_saving(self):
-        with patch.object(nutrition_service, "_load", side_effect=AssertionError("Unnecessary sheet read")), patch.object(nutrition_service, "analyse", return_value=[]), patch.object(nutrition_service.sheets_sync, "push_entry") as write:
-            entry = nutrition_service.add_entry("user", "food", "2026-10-09")
-        write.assert_called_once_with("user", entry)
+    def test_add_entry_does_not_read_before_saving_to_sqlite(self):
+        scope = app_db.current_user.set("user:test")
+        try:
+            with patch.object(nutrition_service.nutrition_store, "load_user", side_effect=AssertionError("Unnecessary database read")), patch.object(nutrition_service, "analyse", return_value=[]), patch.object(nutrition_service.nutrition_store, "save_entry") as write:
+                entry = nutrition_service.add_entry("user", "food", "2026-10-09")
+            write.assert_called_once_with("user:test", entry)
+        finally:
+            app_db.current_user.reset(scope)
 
     def test_slow_day_review_does_not_block_food_parsing(self):
         async def exercise():
