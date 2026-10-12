@@ -369,3 +369,15 @@
   line-height: 1.5;
   margin-top: 4px;
 }
+
+@media (max-width: 650px) {
+  #analysis-content > *, .a-two > *, .form-card, .a-metric { min-width: 0; }
+  .a-two { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .a-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .a-metric { padding: 12px 8px; }
+  .am-val { font-size: 20px; overflow-wrap: anywhere; }
+  .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .fc-top, .zrow { flex-wrap: wrap; }
+  .a-chart, .a-chart.tall { height: 220px; min-width: 0; }
+  .a-chart canvas { max-width: 100%; }
+}

@@ -64,6 +64,30 @@ let lapState = null;
 
 // ----------------------------------------------------------- helpers
 
+function closeDashboardMenu() {
+  document.getElementById("dashboard-nav").classList.remove("is-open");
+  document.getElementById("dashboard-menu-toggle").setAttribute("aria-expanded", "false");
+}
+
+window.lucide?.createIcons();
+document.getElementById("dashboard-menu-toggle").addEventListener("click", () => {
+  const expanded = document.getElementById("dashboard-nav").classList.toggle("is-open");
+  document.getElementById("dashboard-menu-toggle").setAttribute("aria-expanded", String(expanded));
+});
+document.getElementById("dashboard-nav").addEventListener("click", event => {
+  if (event.target.closest("button, a")) closeDashboardMenu();
+});
+document.addEventListener("click", event => {
+  if (!event.target.closest(".dashboard-topbar")) closeDashboardMenu();
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape" && document.getElementById("dashboard-menu-toggle").getAttribute("aria-expanded") === "true") {
+    closeDashboardMenu();
+    document.getElementById("dashboard-menu-toggle").focus();
+  }
+});
+window.matchMedia("(max-width: 860px)").addEventListener("change", closeDashboardMenu);
+
 async function api(path, options = {}) {
   const res = await fetch(`${API}${path}`, {
     credentials: "include",
@@ -88,6 +112,7 @@ async function api(path, options = {}) {
 }
 
 function show(viewId) {
+  closeDashboardMenu();
   document.getElementById("session-loading")?.classList.add("hidden");
   document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
   document.getElementById(viewId).classList.add("active");
@@ -336,7 +361,7 @@ function closeSettings() {
     resetLoginChoices();
     linkingGarmin = false;
   }
-  document.getElementById("open-settings").focus();
+  document.getElementById(window.matchMedia("(max-width: 860px)").matches ? "dashboard-menu-toggle" : "open-settings").focus();
 }
 
 document.getElementById("open-settings").addEventListener("click", () => {
@@ -2587,7 +2612,7 @@ function onStravaButton() {
       .catch(() => toast("Could not disconnect Strava"));
   } else {
     // Full-page redirect to Strava's OAuth consent screen.
-    window.location.href = "/api/strava/connect";
+    window.location.href = garminConnected ? "/api/strava/connect?link=1" : "/api/strava/connect";
   }
 }
 

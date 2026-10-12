@@ -11,6 +11,41 @@ vm.runInContext(source.slice(source.indexOf("function nutritionGoalStatus("), so
 const targets = { kcal: 2000, protein: 120, carbs: 250, fat: 60, fiber: 30, sugar: 50, sodium: 2300 };
 const now = new Date(2026, 9, 9, 9);
 
+test("shared settings offers either missing provider and disables connected providers", () => {
+  const setupSource = fs.readFileSync(path.join(__dirname, "../frontend/setup.js"), "utf8");
+  const list = { innerHTML: "" };
+  const settings = vm.createContext({ setupBusy: false, document: { getElementById: () => list } });
+  vm.runInContext(setupSource.slice(setupSource.indexOf("function renderConnectedApps("), setupSource.indexOf("\nfunction resetSetupGarmin(")), settings);
+  for (const garmin of [false, true]) {
+    for (const strava of [false, true]) {
+      settings.setupState = { garmin: { ready: garmin }, strava: { ready: strava, configured: true } };
+      settings.renderConnectedApps();
+      const garminButton = list.innerHTML.match(/<button[^>]*data-connect-provider="garmin"[^>]*>/)[0];
+      const stravaButton = list.innerHTML.match(/<button[^>]*data-connect-provider="strava"[^>]*>/)[0];
+      assert.equal(garminButton.includes("disabled"), garmin);
+      assert.equal(stravaButton.includes("disabled"), strava);
+    }
+  }
+  settings.setupState = { garmin: { ready: false }, strava: { ready: false, configured: false } };
+  settings.renderConnectedApps();
+  assert.match(list.innerHTML, /Not configured/);
+  assert.match(list.innerHTML, /data-connect-provider="strava" disabled/);
+  settings.setupBusy = true;
+  settings.renderConnectedApps();
+  assert.match(list.innerHTML, /data-connect-provider="garmin" disabled/);
+});
+
+test("dashboard Strava consent links to Garmin only when Garmin is authenticated", () => {
+  const dashboardSource = fs.readFileSync(path.join(__dirname, "../frontend/app.js"), "utf8");
+  const dashboard = vm.createContext({ stravaConnected: false, garminConnected: true, window: { location: { href: "" } } });
+  vm.runInContext(dashboardSource.slice(dashboardSource.indexOf("function onStravaButton("), dashboardSource.indexOf("\n// ----------------------------------------------------------- vo2 modal")), dashboard);
+  dashboard.onStravaButton();
+  assert.equal(dashboard.window.location.href, "/api/strava/connect?link=1");
+  dashboard.garminConnected = false;
+  dashboard.onStravaButton();
+  assert.equal(dashboard.window.location.href, "/api/strava/connect");
+});
+
 function day(date, changes = {}) {
   return { date, targets: { ...targets }, intake: { ...targets, sugar: 20, sodium: 1500, ...changes } };
 }

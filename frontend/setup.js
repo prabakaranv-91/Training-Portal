@@ -5,7 +5,14 @@ setupModal.setAttribute("role", "dialog");
 setupModal.setAttribute("aria-modal", "true");
 setupModal.setAttribute("aria-labelledby", "setup-title");
 setupModal.innerHTML = `<section class="setup-dialog"><header><div><h2 id="setup-title">Settings</h2><p id="setup-profile" class="setup-profile" hidden></p></div><button type="button" id="setup-close" aria-label="Close settings" title="Close settings">×</button></header>
-  <section class="setup-account" aria-labelledby="setup-apps-title"><div class="setup-apps"><h3 id="setup-apps-title">Connected apps</h3><ul id="connected-apps-list" class="setup-connection-list"></ul></div><a id="setup-link-strava" class="setup-link" href="/api/strava/connect?link=1" hidden>Link Strava to this tracker <span aria-hidden="true">↗</span></a></section>
+  <section class="setup-account" aria-labelledby="setup-apps-title"><div class="setup-apps"><h3 id="setup-apps-title">Connected apps</h3><ul id="connected-apps-list" class="setup-connection-list"></ul></div><a id="setup-link-strava" class="setup-link" href="/api/strava/connect?link=1" hidden>Link Strava to this tracker <span aria-hidden="true">↗</span></a>
+    <form id="setup-garmin-form" class="setup-provider-auth" hidden>
+      <div id="setup-garmin-credentials"><label>Garmin email<input id="setup-garmin-email" type="email" autocomplete="username" required /></label><label>Garmin password<input id="setup-garmin-password" type="password" autocomplete="current-password" required /></label></div>
+      <label id="setup-garmin-mfa" hidden>Verification code<input id="setup-garmin-code" type="text" inputmode="numeric" autocomplete="one-time-code" /></label>
+      <div class="setup-provider-actions"><button id="setup-garmin-submit" type="submit">Connect Garmin</button><button id="setup-garmin-cancel" type="button">Cancel</button></div>
+      <p id="setup-provider-status" role="status"></p>
+    </form>
+  </section>
   <form id="setup-form"><section id="setup-ready-summary" class="setup-ready-summary" aria-labelledby="setup-connections-title" hidden>
     <div class="setup-section-heading"><h3 id="setup-connections-title">Nutrition setup</h3><span class="setup-status-pill is-connected">Ready</span></div>
     <ul class="setup-connection-list"><li><div class="setup-connection-name"><strong>AI model</strong><span id="setup-model-detail"></span></div><span class="setup-status-pill is-connected">Connected</span></li></ul>
@@ -22,7 +29,7 @@ setupModal.innerHTML = `<section class="setup-dialog"><header><div><h2 id="setup
     <p id="setup-status" role="status"></p><footer><button type="button" id="setup-back">Back</button><button type="button" id="setup-skip">Skip for now</button><button type="submit" id="setup-save">Save and check</button></footer>
   </form></section>`;
 document.body.append(setupModal);
-const setupForm = setupModal.querySelector("form");
+const setupForm = setupModal.querySelector("#setup-form");
 const setupStatus = document.getElementById("setup-status");
 const stepNames = ["AI model"];
 const stepKeys = ["llm"];
@@ -31,6 +38,7 @@ let setupState = null;
 let setupBusy = false;
 let setupTrigger = null;
 let editingIntegrationSettings = false;
+let setupGarminMfa = false;
 const AI_MODELS = {
   gemini: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-flash-lite-latest"],
   openai: ["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"],
@@ -95,6 +103,76 @@ function renderModelOptions(savedModel = "") {
   document.getElementById("llm-custom-provider").hidden = fields.llm_provider.value !== "other";
 }
 
+function renderConnectedApps() {
+  const apps = [{ key: "garmin", name: "Garmin", connected: setupState.garmin.ready, available: true }, { key: "strava", name: "Strava", connected: setupState.strava.ready, available: setupState.strava.configured }];
+  document.getElementById("connected-apps-list").innerHTML = apps.map(app => `<li><div class="setup-connection-name"><strong>${app.name}</strong><span class="setup-status-pill ${app.connected ? "is-connected" : "is-disconnected"}">${app.connected ? "Connected" : app.available ? "Not connected" : "Not configured"}</span></div><button type="button" data-connect-provider="${app.key}" ${app.connected || !app.available || setupBusy ? "disabled" : ""}>${app.connected ? "Connected" : "Connect"}</button></li>`).join("");
+}
+
+function resetSetupGarmin() {
+  const form = document.getElementById("setup-garmin-form");
+  form.reset();
+  form.hidden = true;
+  setupGarminMfa = false;
+  document.getElementById("setup-garmin-credentials").hidden = false;
+  document.getElementById("setup-garmin-mfa").hidden = true;
+  document.getElementById("setup-garmin-email").required = true;
+  document.getElementById("setup-garmin-password").required = true;
+  document.getElementById("setup-garmin-code").required = false;
+  document.getElementById("setup-garmin-submit").textContent = "Connect Garmin";
+  document.getElementById("setup-provider-status").textContent = "";
+}
+
+document.getElementById("connected-apps-list").addEventListener("click", event => {
+  const button = event.target.closest("[data-connect-provider]");
+  if (!button || button.disabled || setupBusy) return;
+  if (button.dataset.connectProvider === "strava") {
+    location.assign(setupState.account?.canLinkStrava ? "/api/strava/connect?link=1" : "/api/strava/connect");
+  } else {
+    resetSetupGarmin();
+    document.getElementById("setup-garmin-form").hidden = false;
+    document.getElementById("setup-garmin-email").focus();
+  }
+});
+document.getElementById("setup-garmin-cancel").addEventListener("click", resetSetupGarmin);
+document.getElementById("setup-garmin-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  if (setupBusy) return;
+  setupBusy = true;
+  const button = document.getElementById("setup-garmin-submit");
+  const status = document.getElementById("setup-provider-status");
+  button.disabled = true;
+  document.getElementById("setup-garmin-cancel").disabled = true;
+  status.textContent = setupGarminMfa ? "Verifying code..." : "Connecting Garmin...";
+  try {
+    const result = await setupRequest(setupGarminMfa ? "/api/mfa" : "/api/login", setupGarminMfa ? { code: document.getElementById("setup-garmin-code").value.trim() } : { email: document.getElementById("setup-garmin-email").value.trim(), password: document.getElementById("setup-garmin-password").value });
+    if (result.status === "mfa_required") {
+      setupGarminMfa = true;
+      document.getElementById("setup-garmin-credentials").hidden = true;
+      document.getElementById("setup-garmin-mfa").hidden = false;
+      document.getElementById("setup-garmin-email").required = false;
+      document.getElementById("setup-garmin-password").required = false;
+      document.getElementById("setup-garmin-code").required = true;
+      button.textContent = "Verify code";
+      status.textContent = "Enter your Garmin verification code.";
+      document.getElementById("setup-garmin-code").focus();
+    } else if (result.status === "success") {
+      resetSetupGarmin();
+      await refreshSetup();
+      if (typeof loadDashboard === "function") await loadDashboard();
+      else location.reload();
+    } else throw new Error("Garmin login did not complete. Try again.");
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    document.getElementById("setup-garmin-password").value = "";
+    document.getElementById("setup-garmin-code").value = "";
+    setupBusy = false;
+    button.disabled = false;
+    document.getElementById("setup-garmin-cancel").disabled = false;
+    if (setupState) renderConnectedApps();
+  }
+});
+
 async function refreshSetup() {
   setupState = await setupRequest("/api/settings/integrations");
   const providerSelect = setupForm.elements.llm_provider;
@@ -111,14 +189,13 @@ async function refreshSetup() {
     setupForm.elements[name].value = "";
     setupForm.elements[name].placeholder = configured ? "Configured" : "Not configured";
   }
-  const apps = [{ name: "Garmin", connected: setupState.garmin.ready }, { name: "Strava", connected: setupState.strava.ready }];
-  document.getElementById("connected-apps-list").innerHTML = apps.map(app => `<li><strong>${app.name}</strong><span class="setup-status-pill ${app.connected ? "is-connected" : "is-disconnected"}">${app.connected ? "Connected" : "Not connected"}</span></li>`).join("");
+  renderConnectedApps();
   const profile = document.getElementById("setup-profile");
   profile.textContent = setupState.account?.email || "";
   profile.hidden = !profile.textContent;
   const providerLabel = providerKnown ? providerSelect.selectedOptions[0]?.textContent : setupState.llm.provider;
   document.getElementById("setup-model-detail").textContent = [providerLabel, setupState.llm.model].filter(Boolean).join(" · ");
-  document.getElementById("setup-link-strava").hidden = !setupState.account?.canLinkStrava || setupState.account?.stravaLinked;
+  document.getElementById("setup-link-strava").hidden = !setupState.strava.configured || !setupState.account?.canLinkStrava || setupState.account?.stravaLinked;
   renderSetupStep();
   document.dispatchEvent(new CustomEvent("fit-squad-nutrition-readiness", { detail: { ready: Boolean(setupState.nutritionReady) } }));
 }
@@ -156,10 +233,16 @@ async function openSetup(event) {
 }
 
 function closeSetup() {
+  if (setupBusy) return;
+  resetSetupGarmin();
   setupModal.hidden = true;
   setupForm.elements.llm_api_key.value = "";
   if (!setupState?.nutritionReady && location.pathname !== "/dashboard.html") location.replace("/dashboard.html?setup=skipped");
-  else setupTrigger?.focus();
+  else if (setupTrigger?.getClientRects().length) setupTrigger.focus();
+  else {
+    const settingsButton = document.getElementById("open-settings");
+    (settingsButton?.getClientRects().length ? settingsButton : document.getElementById("dashboard-menu-toggle"))?.focus();
+  }
 }
 document.getElementById("edit-integration-settings").addEventListener("click", () => { editingIntegrationSettings = true; setupStep = 0; renderSetupStep(); });
 document.getElementById("setup-close").addEventListener("click", closeSetup);
@@ -182,7 +265,7 @@ async function busySetup(action) {
   setupModal.querySelectorAll("button").forEach(button => { button.disabled = true; });
   try { await action(); }
   catch (error) { setupStatus.textContent = error.message; }
-  finally { setupBusy = false; setupModal.querySelectorAll("button").forEach(button => { button.disabled = false; }); renderSetupStep(); }
+  finally { setupBusy = false; setupModal.querySelectorAll("button").forEach(button => { button.disabled = false; }); if (setupState) renderConnectedApps(); renderSetupStep(); }
 }
 
 setupForm.addEventListener("submit", event => {

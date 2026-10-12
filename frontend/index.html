@@ -7,11 +7,12 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;family=Source+Sans+3:wght@400;500;600;700&amp;display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20261006chooser" />
+    <link rel="stylesheet" href="styles.css?v=20261012mobilemenu" />
     <link rel="stylesheet" href="analysis.css" />
     <link rel="stylesheet" href="nutrition.css?v=20261007status" />
     <link rel="stylesheet" href="setup.css" />
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.468.0/dist/umd/lucide.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   </head>
   <body>
@@ -75,17 +76,25 @@
 
     <!-- ============================ DASHBOARD =========================== -->
     <div id="dashboard-view" class="view">
-      <header class="topbar">
-        <div class="brand"><img src="logo.svg" alt="" class="brand-logo" /> <span>Fit Squad</span></div>
-        <div class="topbar-right">
-          <a class="btn-ghost chat-nav-link" href="/" title="Open Fit Squad"><span aria-hidden="true">▤</span> Fit Squad</a>
-          <img id="user-avatar" class="user-avatar hidden" alt="" />
-          <span id="user-name" class="user-name"></span>
-          <button id="open-settings" class="btn-ghost" type="button" title="Settings" aria-haspopup="dialog">⚙ Settings</button>
-          <button id="open-analysis" class="btn-ghost">📊 Analysis</button>
-          <button id="refresh-btn" class="btn-ghost" title="Refresh">⟳</button>
-          <button id="logout-btn" class="btn-ghost">Sign out</button>
+      <header class="topbar dashboard-topbar">
+        <div class="dashboard-header-main">
+          <div class="brand"><img src="logo.svg" alt="" class="brand-logo" /> <span>Fit Squad</span></div>
+          <div class="dashboard-account">
+            <div class="profile-avatar" title="Profile">
+              <span class="avatar-placeholder" aria-hidden="true"><i data-lucide="user-round"></i></span>
+              <img id="user-avatar" class="user-avatar hidden" alt="Profile picture" />
+            </div>
+            <span id="user-name" class="user-name"></span>
+            <a class="btn-ghost chat-nav-link" href="/" title="Open Chatbox"><i data-lucide="message-circle" aria-hidden="true"></i><span>Chatbox</span></a>
+            <button id="logout-btn" class="btn-ghost" type="button" title="Sign out"><i data-lucide="log-out" aria-hidden="true"></i><span>Sign out</span></button>
+            <button id="dashboard-menu-toggle" class="btn-ghost dashboard-menu-toggle" type="button" title="Menu" aria-label="Dashboard menu" aria-expanded="false" aria-controls="dashboard-nav"><i data-lucide="menu" aria-hidden="true"></i></button>
+          </div>
         </div>
+        <nav id="dashboard-nav" class="dashboard-nav" aria-label="Dashboard navigation">
+          <button id="open-settings" class="btn-ghost" type="button" title="Settings" aria-haspopup="dialog"><i data-lucide="settings" aria-hidden="true"></i><span>Settings</span></button>
+          <button id="open-analysis" class="btn-ghost" type="button"><i data-lucide="chart-no-axes-combined" aria-hidden="true"></i><span>Analysis</span></button>
+          <button id="refresh-btn" class="btn-ghost" type="button" title="Refresh dashboard"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>Refresh</span></button>
+        </nav>
       </header>
 
       <main class="container">
@@ -129,17 +138,19 @@
         </section>
         </div>
 
-        <section class="panel">
+        <section class="panel activities-panel">
           <div class="panel-head">
             <h2>Activities</h2>
-            <div class="panel-controls">
-              <div id="compare-controls" class="compare-controls">
-                <button id="compare-mode-btn" class="btn-ghost" type="button">⚖️ Compare</button>
+            <div id="compare-controls" class="compare-controls">
+                <button id="compare-mode-btn" class="btn-ghost" type="button"><i data-lucide="columns-2" aria-hidden="true"></i><span>Compare</span></button>
                 <div id="compare-actions" class="compare-actions hidden">
                   <button id="compare-run" class="btn-primary btn-sm" type="button" disabled>Compare</button>
                   <button id="compare-cancel" class="btn-ghost btn-sm" type="button">Cancel</button>
                 </div>
-              </div>
+            </div>
+          </div>
+          <div class="activity-filters" role="group" aria-label="Activity filters">
+            <label for="activity-range">Date range
               <select id="activity-range">
                 <option value="days:30" selected>Last 30 days</option>
                 <option value="days:90">Last 90 days</option>
@@ -149,6 +160,8 @@
                 <option value="limit:100">Last 100 activities</option>
                 <option value="limit:300">All (up to 300)</option>
               </select>
+            </label>
+            <label for="activity-filter">Sport
               <select id="activity-filter">
                 <option value="all">All activities</option>
                 <option value="running">Running</option>
@@ -157,13 +170,15 @@
                 <option value="swimming">Swimming</option>
                 <option value="strength">Strength training</option>
               </select>
+            </label>
+            <label for="activity-tag-filter">Activity type
               <select id="activity-tag-filter">
                 <option value="all">All types</option>
                 <option value="race">🏁 Races</option>
                 <option value="long_run">🏃 Long runs</option>
                 <option value="workout">⚡ Workouts</option>
               </select>
-            </div>
+            </label>
           </div>
           <div id="activities-count" class="activities-count"></div>
           <div id="activities-list" class="activities"></div>
@@ -432,7 +447,7 @@
       </div>
     </div>
 
-    <script src="app.js?v=20261006loading"></script>
+    <script src="app.js?v=20261012mobilemenu"></script>
     <script src="nutrition.js?v=2026100125"></script>
     <script src="setup.js"></script>
   </body>

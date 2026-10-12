@@ -565,3 +565,27 @@
 @media (max-width: 640px) {
   .nh-food-list { grid-template-columns: minmax(0, 1fr); }
 }
+
+@media (max-width: 650px) {
+  .nutrition-panel .panel-head { flex-direction: column; align-items: stretch; gap: 10px; }
+  .nutrition-panel .panel-controls.nutri-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; gap: 8px; }
+  .nutrition-panel .nutri-controls input[type="date"] { grid-column: 1 / -1; width: 100%; min-width: 0; min-height: 44px; font-size: 16px; padding: 8px 10px; }
+  .nutrition-panel .nutri-controls .btn-link { min-height: 44px; padding: 8px; font-size: 13px; white-space: normal; overflow: visible; }
+  .dash-row .run-chart-wrap { max-width: none; }
+  .nutri-chatbox { height: min(620px, calc(100dvh - 24px)); bottom: calc(12px + env(safe-area-inset-bottom)); }
+  .nutri-chatbox .nutri-form input { font-size: 16px; min-height: 44px; }
+  .nutri-chatbox .nutri-chat-min { width: 44px; height: 44px; }
+  .nutri-fab { bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .nh-settings, .nh-progress { padding-left: 12px; padding-right: 12px; }
+  .nh-field select, .nh-field input[type="number"] { min-height: 44px; font-size: 16px; }
+  .nh-control, .nh-weight-edit { flex-wrap: wrap; }
+  .nh-head { flex-wrap: wrap; gap: 6px; }
+  .nh-date { flex-basis: 100%; }
+  .nh-kcal { white-space: normal; }
+  .nh-food-list li { grid-template-columns: minmax(0, 1fr) auto auto 44px; }
+  .nh-f-name { white-space: normal; overflow-wrap: anywhere; }
+  .nh-food-delete { width: 44px; height: 44px; }
+  .ni-meta { white-space: normal; overflow-wrap: anywhere; }
+  .ni-log { min-height: 44px; }
+  .nutri-details summary, .nc-details > summary { max-width: 100%; width: fit-content; }
+}

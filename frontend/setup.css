@@ -13,6 +13,10 @@
 #setup-close:hover { background: #243447; color: #edf4fb; }
 .setup-dialog a { color: #a6d8fa; }
 .setup-account { padding: 18px 0; border-bottom: 1px solid var(--setup-line); }
+.setup-provider-auth { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--setup-line); }
+.setup-provider-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+#setup-provider-status { font-size: 13px; color: var(--setup-muted); overflow-wrap: anywhere; }
+#setup-provider-status:empty { display: none; }
 .setup-connection-list { display: grid; margin: 0; padding: 0; list-style: none; }
 .setup-connection-list li { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 42px; padding: 9px 0; }
 .setup-connection-list li + li { border-top: 1px solid #26394b; }
@@ -51,3 +55,18 @@
 .chat-setup-required button { margin-right: 12px; padding: 8px 12px; border: 1px solid #547897; border-radius: 4px; background: #1b2a3b; color: #edf4fb; cursor: pointer; }
 .chat-setup-required a { color: #a6d8fa; }
 @media (max-width: 420px) { .setup-dialog { padding-inline: 16px; font-size: 13px; } .setup-dialog header { padding-block: 16px; } .setup-connection-list li { gap: 10px; } .setup-dialog footer { gap: 6px; } .setup-dialog footer button { padding-inline: 8px; font-size: 12px; } }
+
+@media (max-width: 650px) {
+	.setup-overlay { padding: 8px; }
+	.setup-dialog { max-height: calc(100dvh - 16px); padding-inline: 16px; }
+	.setup-dialog input, .setup-dialog select { min-height: 44px; font-size: 16px; }
+	.setup-dialog button { min-height: 44px; }
+	#setup-close { width: 44px; height: 44px; }
+	.setup-connection-list li > button { flex: none; min-width: 90px; }
+	.setup-link { min-height: 44px; flex-wrap: wrap; }
+	.setup-dialog footer { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	.setup-dialog footer button { min-width: 0; white-space: normal; }
+	#setup-save { grid-column: 1 / -1; }
+	.setup-provider-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	.setup-section-heading { flex-wrap: wrap; gap: 6px; }
+}
