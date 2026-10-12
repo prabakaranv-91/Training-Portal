@@ -11,11 +11,12 @@ or credentials are included in the image.
   Install using https://docs.docker.com/engine/install/ for your distribution.
 - A domain such as `fitness.example.com`, with an A record pointing at the server.
   Only add an AAAA record if the server also accepts IPv6 traffic.
-- Inbound TCP ports 8080 and 8443 allowed by the server and cloud firewall. Keep
-  SSH restricted to administrator addresses. Do not expose port 8000.
+- Inbound TCP ports 18080 and 18443 (or your configured ports) allowed by the
+  server and cloud firewall. Keep SSH restricted to administrator addresses.
+  Do not expose port 8000.
 - An existing public HTTP server on port 80 forwarding certificate-validation
-  requests to Caddy on port 8080, as described below. Certificate authorities
-  always use public port 80 for HTTP validation, not port 8080.
+  requests to Caddy on the configured HTTP port, as described below. Certificate
+  authorities always use public port 80 for HTTP validation, not a custom port.
 - Outbound HTTPS access to certificate authorities, Garmin, Strava and AI providers.
 - A practical starting size is 2 CPU cores and 2 GB RAM; monitor actual usage.
 
@@ -32,34 +33,40 @@ sh deploy.sh up
 
 Set `APP_DOMAIN` to your hostname only, without `https://`, a port or a path.
 Set `ACME_EMAIL` to your real administrator email. Replace the example values.
+Set `HTTP_PORT=18080` and `HTTPS_PORT=18443`, or choose other available ports.
+These defaults also apply to existing `.env` files without the new settings.
 Caddy obtains a certificate using HTTP validation on port 80 and redirects HTTP
-to HTTPS on port 8443. Docker publishes HTTP on port 8080 and HTTPS on port 8443,
+to your configured HTTPS port. Docker publishes HTTP on port 18080 and HTTPS on
+port 18443 by default,
 leaving host ports 80 and 443 free for an existing Nginx server. Before launching,
 configure its port-80 server block for `APP_DOMAIN` with this location:
 
 ```nginx
 location ^~ /.well-known/acme-challenge/ {
-  proxy_pass http://127.0.0.1:8080;
+  proxy_pass http://127.0.0.1:18080;
   proxy_set_header Host $host;
 }
 ```
 
 Validate and reload Nginx after adding the location. This example assumes Nginx
-runs directly on the same host, not in a separate container. Keep the forwarding
+runs directly on the same host, not in a separate container. Replace `18080` if
+you change `HTTP_PORT`. Keep the forwarding
 in place for certificate renewals. Do not place an unconditional server-level
 redirect ahead of this location. If public port 80 is unavailable entirely,
 this ACME setup cannot issue or renew certificates; use DNS validation or an
 externally managed certificate instead, which requires additional configuration.
 
-Open `http://YOUR_DOMAIN:8080` to redirect to HTTPS on port 8443. HSTS is not enabled
+Open `http://YOUR_DOMAIN:18080` to redirect to HTTPS on port 18443, substituting
+your configured ports if different. HSTS is not enabled
 because its automatic browser upgrades would send port-80 URLs to port 443.
-Open `https://YOUR_DOMAIN:8443` and sign in with Garmin
+Open `https://YOUR_DOMAIN:18443` and sign in with Garmin
 or Strava; configure and verify your AI model in Settings to enable nutrition.
 
 For Strava, register an API application at https://www.strava.com/settings/api.
 Set its Authorization Callback Domain to your hostname and set both
 `STRAVA_CLIENT_ID` and `STRAVA_CLIENT_SECRET` in `.env`. The callback URL is
-`https://YOUR_DOMAIN:8443/api/strava/callback`. Environment credentials override saved
+`https://YOUR_DOMAIN:18443/api/strava/callback` by default. Use your configured
+HTTPS port if different. Environment credentials override saved
 SQLite credentials; setting only one disables Strava rather than mixing secrets.
 Provider approval and athlete capacity limits may restrict who can sign in.
 
@@ -89,6 +96,27 @@ but not automatically restarted unless its process exits; monitor health status.
 Keep one backend replica with one worker. Pending Garmin MFA is process-local and
 SQLite is single-server storage. This deployment makes the service internet
 accessible, not horizontally scalable. Updates interrupt in-progress MFA logins.
+
+## Port Conflicts And Subdomains
+
+Check the proposed ports on the actual server before deploying:
+
+```sh
+sudo ss -ltnp 'sport = :18080 or sport = :18443'
+```
+
+If either port is occupied, choose unused ports and set `HTTP_PORT` and
+`HTTPS_PORT` in the existing `.env` file. Do not stop unrelated applications or
+overwrite `.env` with the example file. Run `git pull --ff-only`, then
+`sh deploy.sh update` to recreate this stack with the new mappings and retain its
+data. Update the Nginx certificate-validation forwarding and firewall rules too.
+
+When you register a subdomain, point its DNS at the server, change `APP_DOMAIN`
+to that subdomain, add its Nginx certificate-validation location, and run
+`sh deploy.sh update`. Access it as `https://SUBDOMAIN:HTTPS_PORT`; DNS alone does
+not remove the port from the URL. Keep using a real, reachable domain for valid
+HTTPS even before registering the subdomain. An unset or example domain cannot
+get a usable public certificate.
 
 ## Backups And Restore
 
@@ -142,7 +170,7 @@ SQLite file alone while ignoring its WAL. Treat migrations as sensitive transfer
 - Keep the OS, Docker, Caddy and Python dependencies patched. The Caddy image uses
   a maintained major-version tag; use tested digests for reproducible releases.
 
-If HTTPS does not work, check DNS, ports 8080/8443, public port-80 challenge
+If HTTPS does not work, check DNS, the configured HTTP/HTTPS ports, public port-80 challenge
 forwarding, conflicting web servers, and
 `docker compose logs proxy`. If the app is unhealthy, check
 `docker compose logs app`, disk space and volume permissions. Certificate issuance

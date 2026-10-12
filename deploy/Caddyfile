@@ -23,12 +23,12 @@
     @cross_origin {
         method POST PUT PATCH DELETE
         header Origin *
-        not header Origin https://{$APP_DOMAIN}:8443
+        not header Origin https://{$APP_DOMAIN}:{$HTTPS_PORT}
     }
     respond @cross_origin "Cross-origin request denied" 403
     reverse_proxy app:8000
 }
 
 http://{$APP_DOMAIN} {
-    redir https://{$APP_DOMAIN}:8443{uri} permanent
+    redir https://{$APP_DOMAIN}:{$HTTPS_PORT}{uri} permanent
 }
