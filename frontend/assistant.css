@@ -168,6 +168,11 @@ button.sidebar-menu-item:disabled { opacity: .5; cursor: wait; }
 .food-save-btn:disabled { opacity: .5; cursor: wait; }
 .food-nutrition-btn { border: 0; border-bottom: 1px dotted currentColor; padding: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .food-edit-nutrition, .food-edit-cancel { padding: 6px 8px; margin-top: 6px; border: 1px solid var(--fc-line); border-radius: 4px; background: transparent; color: var(--fc-blue); font-size: 12px; cursor: pointer; }
+.food-nutrition-line { display: flex; align-items: flex-start; gap: 8px; }
+.food-nutrition-line .food-info-macros { flex: 1; min-width: 0; }
+.food-edit-nutrition-icon { display: grid; place-items: center; width: 28px; height: 28px; flex: 0 0 28px; margin: 0; padding: 0; border: 1px solid var(--fc-line); border-radius: 4px; background: transparent; color: var(--fc-blue); cursor: pointer; }
+.food-edit-nutrition-icon svg { width: 14px; height: 14px; }
+.food-edit-nutrition-icon:hover { background: var(--fc-panel-raised); }
 .food-nutrition-editor[hidden] { display: none !important; }
 .food-nutrition-form { padding: 6px 0; }
 .food-edit-caption { margin: 0 0 8px; color: var(--fc-muted); font-size: 12px; overflow-wrap: anywhere; }

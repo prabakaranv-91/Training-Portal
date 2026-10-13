@@ -357,6 +357,7 @@ function renderDay(day) {
     (entries.length ? entries.map(renderEntry).join("") : empty) +
     (foodDetailsVisible ? renderFoodDetails(day) : "") +
     (contributorsNutrient ? renderNutrientContributors(day, contributorsNutrient) : "");
+  globalThis.lucide?.createIcons();
   $("#conversation").scrollTop = $("#conversation").scrollHeight;
 }
 
@@ -432,8 +433,8 @@ function renderFoodPanel(food, sources) {
     .filter(item => item.ratingWhy)
     .map(item => [`${item.rating}\u0000${item.ratingWhy}`, item])).values()];
   return `<div class="food-info-panel"><div class="food-nutrition-view">
-    <dl class="food-info-macros" aria-label="Nutrition values">${[["Protein", "protein"], ["Carbs", "carbs"], ["Fat", "fat"], ["Fibre", "fiber"]].map(([label, key]) => `<div><dt>${label}</dt><dd>${sources.length ? `<button class="food-nutrition-btn" type="button" data-action="edit-nutrition" title="Edit nutrition" aria-label="Edit ${label.toLowerCase()} for ${escapeHtml(food.name)}">${number(food[key])} g</button>` : `${number(food[key])} g`}</dd></div>`).join("")}</dl>
-    ${sources.length ? `<button type="button" class="food-edit-nutrition" data-action="edit-nutrition">Edit nutrition</button>` : ""}
+    <div class="food-nutrition-line"><dl class="food-info-macros" aria-label="Nutrition values">${[["Protein", "protein"], ["Carbs", "carbs"], ["Fat", "fat"], ["Fibre", "fiber"]].map(([label, key]) => `<div><dt>${label}</dt><dd>${sources.length ? `<button class="food-nutrition-btn" type="button" data-action="edit-nutrition" title="Edit nutrition" aria-label="Edit ${label.toLowerCase()} for ${escapeHtml(food.name)}">${number(food[key])} g</button>` : `${number(food[key])} g`}</dd></div>`).join("")}</dl>
+    ${sources.length ? `<button type="button" class="food-edit-nutrition-icon" data-action="edit-nutrition" title="Edit nutrition" aria-label="Edit nutrition of ${escapeHtml(food.name)}"><i data-lucide="pencil" aria-hidden="true"></i></button>` : ""}</div>
     ${reasons.map(item => `<p class="food-rating-note rating-${escapeHtml(item.rating || "neutral")}"><b>${FOOD_RATINGS[item.rating]?.label || "Food rating"}:</b> ${escapeHtml(item.ratingWhy)}</p>`).join("")}
     </div><div class="food-quantity-list" hidden>${sources.map(source => `<form class="food-quantity-form" data-id="${escapeHtml(source.entryId)}" data-item="${source.index}">
       <label>Quantity${sources.length > 1 ? ` · ${escapeHtml(source.time || "Logged portion")}` : ""}<input type="number" name="qty" min="0.01" max="10000" step="any" value="${escapeHtml(source.item.qty)}" required aria-label="Quantity of ${escapeHtml(food.name)}${source.time ? ` at ${escapeHtml(source.time)}` : ""}"></label>
@@ -553,6 +554,7 @@ function insertSavedEntry(pending, entry) {
     (thread.dataset.time || "99:99").localeCompare(entry.time || "99:99", undefined, { numeric: true }) > 0);
   const anchor = later || conversation.querySelector(".day-food-details, .nutrient-contributors");
   anchor?.before(saved);
+  globalThis.lucide?.createIcons();
 }
 
 async function refreshSavedMeal(date) {
@@ -820,6 +822,7 @@ $("#food-details-btn").addEventListener("click", () => {
   const existing = $("#conversation .day-food-details");
   if (foodDetailsVisible && !existing) $("#conversation").insertAdjacentHTML("beforeend", renderFoodDetails(currentDay));
   else if (!foodDetailsVisible) existing?.remove();
+  globalThis.lucide?.createIcons();
   if (foodDetailsVisible) $("#conversation .day-food-details")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
 });
 $("#recent-days").addEventListener("click", event => {

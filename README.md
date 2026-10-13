@@ -129,7 +129,7 @@ Chat confirms a meal after the SQLite transaction commits. A failed database wri
 is never reported as saved. Chat entries are displayed in chronological order.
 
 To correct a logged food, click its calorie value or open its food details and
-select **Edit nutrition**. Calories, protein, carbs, fat, fibre, sugar, and sodium
+select the pencil icon beside its nutrition values. Calories, protein, carbs, fat, fibre, sugar, and sodium
 can be edited for the currently logged portion. **Save nutrition** persists the
 correction and refreshes daily totals; **Cancel** discards unsaved changes. Foods
 grouped across meals retain separate editable portions. Quantity changes scale

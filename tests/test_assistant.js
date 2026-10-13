@@ -11,6 +11,10 @@ vm.runInContext(source.slice(source.indexOf("function nutritionGoalStatus("), so
 const targets = { kcal: 2000, protein: 120, carbs: 250, fat: 60, fiber: 30, sugar: 50, sodium: 2300 };
 const now = new Date(2026, 9, 9, 9);
 
+test("the complete conversation script has valid syntax", () => {
+  assert.doesNotThrow(() => new vm.Script(source));
+});
+
 test("each logged portion has an editable seven-nutrient form without changing quantities", () => {
   const renderer = vm.createContext({ escapeHtml: value => String(value ?? ""), number: value => Math.round(value || 0) });
   vm.runInContext(source.slice(source.indexOf("function renderFoodPanel("), source.indexOf("\nfunction renderEntry(")), renderer);
@@ -27,6 +31,10 @@ test("each logged portion has an editable seven-nutrient form without changing q
   assert.match(rendered, /data-id="second" data-item="1"/);
   assert.match(rendered, /data-action="cancel-nutrition"/);
   assert.match(rendered, /Edit protein for Bowl/);
+  assert.match(rendered, /class="food-nutrition-line"/);
+  assert.match(rendered, /class="food-edit-nutrition-icon"[^>]*aria-label="Edit nutrition of Bowl"/);
+  assert.match(rendered, /data-lucide="pencil"/);
+  assert.doesNotMatch(rendered, />Edit nutrition<\/button>/);
   assert.equal(portions[0].item.qty, 1);
   assert.equal(portions[1].item.qty, 2);
   const readonly = renderer.renderFoodPanel(food, []);
