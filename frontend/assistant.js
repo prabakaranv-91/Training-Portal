@@ -392,7 +392,7 @@ function renderFoodDetails(day) {
   const rows = foods.map((food, index) => `<tr class="day-food-row">
     <th scope="row"><button class="food-inspect-btn" type="button" data-action="toggle-food-info" data-panel="daily-food-${index}" aria-controls="daily-food-${index}" aria-expanded="false" title="Nutrition details for ${escapeHtml(food.name)}"><span aria-hidden="true">▸</span>${renderFoodRating(food)}<span>${escapeHtml(food.name)}</span></button></th>
     <td class="day-food-portion"><button class="food-qty-btn" type="button" data-action="edit-qty" data-panel="daily-food-${index}" title="Edit portions" aria-label="Edit quantity of ${escapeHtml(food.name)}">${escapeHtml(food.qty.toLocaleString(undefined, { maximumFractionDigits: 2 }))} ${escapeHtml(food.unit)}</button></td>
-    <td class="day-food-kcal">${number(food.kcal)}<span class="day-food-mobile-unit"> kcal</span></td>
+    <td class="day-food-kcal"><button class="food-nutrition-btn" type="button" data-action="edit-nutrition" data-panel="daily-food-${index}" title="Edit nutrition" aria-label="Edit nutrition of ${escapeHtml(food.name)}">${number(food.kcal)}<span class="day-food-mobile-unit"> kcal</span></button></td>
     ${[["protein", "Protein", "P"], ["carbs", "Carbs", "C"], ["fat", "Fat", "F"], ["fiber", "Fibre", "Fib"]].map(([key, label, short]) =>
       `<td class="day-food-nutrient" data-label="${label}" data-short="${short}" aria-label="${label}: ${number(food[key])} grams">${number(food[key])}<span class="day-food-mobile-unit"> g</span></td>`).join("")}
   </tr><tr id="daily-food-${index}" class="day-food-expanded" hidden><td colspan="7">${renderFoodPanel(food, food.sources)}</td></tr>`).join("");
@@ -432,11 +432,17 @@ function renderFoodPanel(food, sources) {
     .filter(item => item.ratingWhy)
     .map(item => [`${item.rating}\u0000${item.ratingWhy}`, item])).values()];
   return `<div class="food-info-panel"><div class="food-nutrition-view">
-    <dl class="food-info-macros" aria-label="Nutrition values">${[["Protein", "protein"], ["Carbs", "carbs"], ["Fat", "fat"], ["Fibre", "fiber"]].map(([label, key]) => `<div><dt>${label}</dt><dd>${number(food[key])} g</dd></div>`).join("")}</dl>
+    <dl class="food-info-macros" aria-label="Nutrition values">${[["Protein", "protein"], ["Carbs", "carbs"], ["Fat", "fat"], ["Fibre", "fiber"]].map(([label, key]) => `<div><dt>${label}</dt><dd>${sources.length ? `<button class="food-nutrition-btn" type="button" data-action="edit-nutrition" title="Edit nutrition" aria-label="Edit ${label.toLowerCase()} for ${escapeHtml(food.name)}">${number(food[key])} g</button>` : `${number(food[key])} g`}</dd></div>`).join("")}</dl>
+    ${sources.length ? `<button type="button" class="food-edit-nutrition" data-action="edit-nutrition">Edit nutrition</button>` : ""}
     ${reasons.map(item => `<p class="food-rating-note rating-${escapeHtml(item.rating || "neutral")}"><b>${FOOD_RATINGS[item.rating]?.label || "Food rating"}:</b> ${escapeHtml(item.ratingWhy)}</p>`).join("")}
     </div><div class="food-quantity-list" hidden>${sources.map(source => `<form class="food-quantity-form" data-id="${escapeHtml(source.entryId)}" data-item="${source.index}">
       <label>Quantity${sources.length > 1 ? ` · ${escapeHtml(source.time || "Logged portion")}` : ""}<input type="number" name="qty" min="0.01" max="10000" step="any" value="${escapeHtml(source.item.qty)}" required aria-label="Quantity of ${escapeHtml(food.name)}${source.time ? ` at ${escapeHtml(source.time)}` : ""}"></label>
       <span>${escapeHtml(source.item.unit || "portion")}</span><button type="submit" class="food-save-btn">Save</button>
+    </form>`).join("")}</div>
+    <div class="food-nutrition-editor" hidden>${sources.map(source => `<form class="food-nutrition-form" data-id="${escapeHtml(source.entryId)}" data-item="${source.index}">
+      <p class="food-edit-caption">${escapeHtml(food.name)}${sources.length > 1 ? ` · ${escapeHtml(source.time || "Logged portion")}` : ""} · ${escapeHtml(source.item.qty)} ${escapeHtml(source.item.unit || "portion")} logged</p>
+      <div class="food-nutrition-fields">${[["Calories", "kcal", "kcal"], ["Protein", "protein", "g"], ["Carbs", "carbs", "g"], ["Fat", "fat", "g"], ["Fibre", "fiber", "g"], ["Sugar", "sugar", "g"], ["Sodium", "sodium", "mg"]].map(([label, key, unit]) => `<label>${label} (${unit})<input type="number" name="${key}" min="0" max="1000000" step="0.1" value="${Number(source.item[key]) || 0}" required /></label>`).join("")}</div>
+      <div class="food-edit-actions"><button class="food-save-btn" type="submit">Save nutrition</button><button class="food-edit-cancel" type="button" data-action="cancel-nutrition">Cancel</button></div>
     </form>`).join("")}</div></div>`;
 }
 
@@ -450,14 +456,16 @@ function renderEntry(entry) {
     if (!item.found) {
       return `<div class="food-item unknown"><span class="food-name">? ${escapeHtml(item.input || item.name)}</span>
         <span class="food-portion">Unmatched</span><span class="food-kcal">—</span>
-        <button class="food-action" type="button" title="Analyse again" aria-label="Analyse this food again" data-action="reanalyze" data-id="${entryId}">↻</button></div>`;
+        <button class="food-action" type="button" title="Analyse again" aria-label="Analyse this food again" data-action="reanalyze" data-id="${entryId}">↻</button>
+        <button class="food-edit-nutrition food-unknown-edit" type="button" data-action="edit-nutrition" data-panel="unknown-food-${entryId}-${index}">Add nutrition</button>
+        <div id="unknown-food-${entryId}-${index}" class="food-inline-details" hidden>${renderFoodPanel(item, [{ entryId: entry.id, index, item }])}</div></div>`;
     }
     const portion = `${item.qty ?? ""} ${item.unit || ""}`.trim();
     const detail = `${portion}${item.grams ? ` · ${number(item.grams)} g` : ""} · ${number(item.kcal)} kcal`;
     const panelId = `entry-food-${entry.id}-${index}`;
     return `<div class="food-item${item.revoked ? " item-revoked" : ""}" title="${escapeHtml(`${item.ratingWhy || ""} ${detail}`.trim())}">
       <span class="food-name"><button class="food-inspect-btn" type="button" data-action="toggle-food-info" data-panel="${escapeHtml(panelId)}" aria-controls="${escapeHtml(panelId)}" aria-expanded="false" title="Nutrition details for ${escapeHtml(item.name)}"><span aria-hidden="true">▸</span>${renderFoodRating(item)}<span>${escapeHtml(item.name)}</span></button></span>
-      <span class="food-portion">${item.revoked ? escapeHtml(portion) : `<button class="food-qty-btn" type="button" data-action="edit-qty" data-panel="${escapeHtml(panelId)}" title="Edit quantity" aria-label="Edit quantity of ${escapeHtml(item.name)}">${escapeHtml(portion)}</button>`}</span><span class="food-kcal">${number(item.kcal)} <small>kcal</small></span>
+      <span class="food-portion">${item.revoked ? escapeHtml(portion) : `<button class="food-qty-btn" type="button" data-action="edit-qty" data-panel="${escapeHtml(panelId)}" title="Edit quantity" aria-label="Edit quantity of ${escapeHtml(item.name)}">${escapeHtml(portion)}</button>`}</span><span class="food-kcal">${item.revoked ? `${number(item.kcal)} <small>kcal</small>` : `<button class="food-nutrition-btn" type="button" data-action="edit-nutrition" data-panel="${escapeHtml(panelId)}" title="Edit nutrition" aria-label="Edit nutrition of ${escapeHtml(item.name)}">${number(item.kcal)} <small>kcal</small></button>`}</span>
       <button class="food-action" type="button" title="${item.revoked ? "Restore food" : "Remove food"}" aria-label="${item.revoked ? "Restore" : "Remove"} ${escapeHtml(item.name)}"
         data-action="${item.revoked ? "restore-item" : "remove-item"}" data-id="${entryId}" data-item="${index}">${item.revoked ? "↶" : "×"}</button>
       <div id="${escapeHtml(panelId)}" class="food-inline-details" hidden>${renderFoodPanel(item, item.revoked ? [] : [{ entryId: entry.id, index, item }])}</div></div>`;
@@ -604,6 +612,18 @@ async function performAction(button) {
     document.querySelector(`.nutrient-link[data-nutrient="${nutrient}"]`)?.focus();
     return;
   }
+  if (action === "edit-nutrition" || action === "cancel-nutrition") {
+    const panel = button.dataset.panel ? document.getElementById(button.dataset.panel) : button.closest(".food-info-panel");
+    if (!panel) return;
+    panel.hidden = false;
+    const editing = action === "edit-nutrition";
+    panel.querySelector(".food-nutrition-view").hidden = editing;
+    panel.querySelector(".food-quantity-list").hidden = true;
+    panel.querySelector(".food-nutrition-editor").hidden = !editing;
+    if (!editing) panel.querySelectorAll(".food-nutrition-form").forEach(form => form.reset());
+    if (editing) panel.querySelector(".food-nutrition-editor input")?.focus();
+    return;
+  }
   if (action === "toggle-food-info" || action === "edit-qty") {
     const panel = document.getElementById(button.dataset.panel);
     if (!panel) return;
@@ -613,6 +633,7 @@ async function performAction(button) {
     panel.hidden = !panel.hidden && !(editing ? quantities : nutrition).hidden;
     nutrition.hidden = editing;
     quantities.hidden = !editing;
+    panel.querySelector(".food-nutrition-editor").hidden = true;
     document.querySelectorAll("[data-panel]").forEach(control => {
       if (control.dataset.panel === panel.id && control.hasAttribute("aria-expanded")) control.setAttribute("aria-expanded", String(!panel.hidden && !editing));
     });
@@ -734,23 +755,25 @@ $("#program-picker").addEventListener("keydown", event => {
   $("#program-current").focus();
 });
 $("#conversation").addEventListener("submit", async event => {
-  const form = event.target.closest(".food-quantity-form");
+  const form = event.target.closest(".food-quantity-form, .food-nutrition-form");
   if (!form) return;
   event.preventDefault();
   if (!form.reportValidity()) return;
   const save = form.querySelector("button");
   if (save.disabled) return;
   const date = selectedDate;
+  const nutritionEdit = form.classList.contains("food-nutrition-form");
+  const values = nutritionEdit ? Object.fromEntries(["kcal", "protein", "carbs", "fat", "fiber", "sugar", "sodium"].map(key => [key, Number(form.elements[key].value)])) : { qty: Number(form.elements.qty.value) };
   save.disabled = true;
   try {
-    await api(`/api/nutrition/entries/${encodeURIComponent(form.dataset.id)}/items/${encodeURIComponent(form.dataset.item)}`, { method: "PATCH", body: JSON.stringify({ qty: Number(form.elements.qty.value) }) });
+    await api(`/api/nutrition/entries/${encodeURIComponent(form.dataset.id)}/items/${encodeURIComponent(form.dataset.item)}${nutritionEdit ? "/nutrition" : ""}`, { method: "PATCH", body: JSON.stringify(values) });
     const day = await api(`/api/nutrition/day?date=${encodeURIComponent(date)}`);
     if (selectedDate === date) {
       currentDay = day;
       renderDay(day);
-      loadReview(day);
+      void loadReview(day);
     }
-    toast("Quantity updated.");
+    toast(nutritionEdit ? "Nutrition updated." : "Quantity updated.");
   } catch (error) {
     toast(error.message);
     save.disabled = false;

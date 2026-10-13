@@ -128,6 +128,14 @@ A pre-import database backup is retained under `data/backups/`.
 Chat confirms a meal after the SQLite transaction commits. A failed database write
 is never reported as saved. Chat entries are displayed in chronological order.
 
+To correct a logged food, click its calorie value or open its food details and
+select **Edit nutrition**. Calories, protein, carbs, fat, fibre, sugar, and sodium
+can be edited for the currently logged portion. **Save nutrition** persists the
+correction and refreshes daily totals; **Cancel** discards unsaved changes. Foods
+grouped across meals retain separate editable portions. Quantity changes scale
+the corrected values. Removed foods cannot be edited, and reanalysis can replace
+manual corrections with newly calculated values.
+
 For named restaurant meals, the configured LLM identifies the restaurant, exact
 dish, and a candidate nutrition-page URL without a fixed restaurant list. The app
 fetches a public HTTPS page and asks the same model to extract published values.

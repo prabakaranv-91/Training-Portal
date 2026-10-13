@@ -11,6 +11,27 @@ vm.runInContext(source.slice(source.indexOf("function nutritionGoalStatus("), so
 const targets = { kcal: 2000, protein: 120, carbs: 250, fat: 60, fiber: 30, sugar: 50, sodium: 2300 };
 const now = new Date(2026, 9, 9, 9);
 
+test("each logged portion has an editable seven-nutrient form without changing quantities", () => {
+  const renderer = vm.createContext({ escapeHtml: value => String(value ?? ""), number: value => Math.round(value || 0) });
+  vm.runInContext(source.slice(source.indexOf("function renderFoodPanel("), source.indexOf("\nfunction renderEntry(")), renderer);
+  const food = { name: "Bowl", qty: 3, unit: "bowl", protein: 126, kcal: 1800 };
+  const portions = [{ entryId: "first", index: 0, time: "12:30", item: { name: "Bowl", qty: 1, unit: "bowl", protein: 42, kcal: 600 } }, { entryId: "second", index: 1, time: "19:00", item: { name: "Bowl", qty: 2, unit: "bowl", protein: 84, kcal: 1200 } }];
+  const rendered = renderer.renderFoodPanel(food, portions);
+  assert.equal((rendered.match(/class="food-nutrition-form"/g) || []).length, 2);
+  for (const nutrient of ["kcal", "protein", "carbs", "fat", "fiber", "sugar", "sodium"]) {
+    assert.equal((rendered.match(new RegExp(`name="${nutrient}"`, "g")) || []).length, 2);
+  }
+  assert.match(rendered, /name="protein"[^>]*value="42"/);
+  assert.match(rendered, /name="protein"[^>]*value="84"/);
+  assert.match(rendered, /data-id="first" data-item="0"/);
+  assert.match(rendered, /data-id="second" data-item="1"/);
+  assert.match(rendered, /data-action="cancel-nutrition"/);
+  assert.match(rendered, /Edit protein for Bowl/);
+  assert.equal(portions[0].item.qty, 1);
+  assert.equal(portions[1].item.qty, 2);
+  const readonly = renderer.renderFoodPanel(food, []);
+  assert.equal((readonly.match(/class="food-nutrition-form"/g) || []).length, 0);
+});
 test("the calendar icon opens the native picker and preserves Safari fallback", () => {
   let opened = 0;
   let prevented = 0;

@@ -166,6 +166,17 @@ button.sidebar-menu-item:disabled { opacity: .5; cursor: wait; }
 .food-quantity-form > span { padding-bottom: 6px; }
 .food-save-btn { padding: 5px 10px; border: 1px solid #527a98; border-radius: 4px; background: #20364a; color: var(--fc-blue); font-size: 12px; cursor: pointer; }
 .food-save-btn:disabled { opacity: .5; cursor: wait; }
+.food-nutrition-btn { border: 0; border-bottom: 1px dotted currentColor; padding: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.food-edit-nutrition, .food-edit-cancel { padding: 6px 8px; margin-top: 6px; border: 1px solid var(--fc-line); border-radius: 4px; background: transparent; color: var(--fc-blue); font-size: 12px; cursor: pointer; }
+.food-nutrition-editor[hidden] { display: none !important; }
+.food-nutrition-form { padding: 6px 0; }
+.food-edit-caption { margin: 0 0 8px; color: var(--fc-muted); font-size: 12px; overflow-wrap: anywhere; }
+.food-nutrition-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.food-nutrition-fields label { display: grid; gap: 4px; min-width: 0; color: var(--fc-muted); font-size: 11px; }
+.food-nutrition-fields input { width: 100%; min-width: 0; min-height: 40px; padding: 6px 8px; border: 1px solid var(--fc-line); border-radius: 4px; background: var(--fc-bg); color: var(--fc-text); font-size: 16px; }
+.food-edit-actions { display: flex; gap: 8px; margin-top: 8px; }
+.food-edit-actions button { margin: 0; min-height: 40px; }
+.food-unknown-edit { grid-column: 1 / -1; justify-self: start; }
 .food-inline-details[hidden], .day-food-expanded[hidden], .food-nutrition-view[hidden], .food-quantity-list[hidden] { display: none !important; }
 .day-food-list .day-food-expanded > td { padding: 0 3px 4px; }
 .day-food-details { max-width: 720px; margin: 10px 0; padding: 6px 0 0; border-top: 1px solid var(--fc-line); animation: rise-in .2s ease both; }
@@ -350,6 +361,7 @@ button.sidebar-menu-item:disabled { opacity: .5; cursor: wait; }
 }
 
 @container (max-width: 580px) {
+  .food-nutrition-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .nutrient-contributors > header > div, .day-food-details > header > div:first-child { min-width: 0; }
   .nutrient-contributors > header .food-action { flex: 0 0 44px; align-items: start; padding-top: 2px; line-height: 20px; }
   .contributor-list { grid-template-columns: minmax(0, 1fr); }

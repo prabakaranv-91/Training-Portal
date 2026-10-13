@@ -694,6 +694,25 @@ def set_item_qty(user: str, entry_id: str, item: int, qty: float) -> dict[str, A
     return entry
 
 
+def set_item_nutrition(user: str, entry_id: str, item: int, values: dict[str, float]) -> dict[str, Any] | None:
+    if not values or any(key not in NUTRIENTS or not 0 <= value <= 1000000 for key, value in values.items()):
+        raise ValueError("Provide valid non-negative nutrition values.")
+    with _LOCK:
+        entry = next((entry for entry in _load(user)["entries"] if entry.get("id") == entry_id), None)
+        if entry is None or entry.get("revoked") or not 0 <= item < len(entry["items"]):
+            return None
+        food = entry["items"][item]
+        if food.get("revoked"):
+            return None
+        food.update({key: round(value, 1) for key, value in values.items()})
+        food["found"] = True
+        food["source"] = "User-edited nutrition"
+        entry["totals"] = _sum([food for food in entry["items"] if not food.get("revoked")])
+        entry["editedAt"] = dt.datetime.now().isoformat(timespec="seconds")
+        nutrition_store.save_entry(app_db.user_scope(), entry)
+    return entry
+
+
 def reanalyse_entry(user: str, entry_id: str) -> dict[str, Any] | None:
     with _LOCK:
         entry = next((e for e in _load(user)["entries"] if e.get("id") == entry_id), None)

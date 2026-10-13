@@ -140,6 +140,17 @@ class NutritionQtyRequest(BaseModel):
     qty: float = Field(gt=0, le=10000)
 
 
+class NutritionValuesRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    kcal: float | None = Field(default=None, ge=0, le=1000000, allow_inf_nan=False)
+    protein: float | None = Field(default=None, ge=0, le=1000000, allow_inf_nan=False)
+    carbs: float | None = Field(default=None, ge=0, le=1000000, allow_inf_nan=False)
+    fat: float | None = Field(default=None, ge=0, le=1000000, allow_inf_nan=False)
+    fiber: float | None = Field(default=None, ge=0, le=1000000, allow_inf_nan=False)
+    sugar: float | None = Field(default=None, ge=0, le=1000000, allow_inf_nan=False)
+    sodium: float | None = Field(default=None, ge=0, le=1000000, allow_inf_nan=False)
+
+
 class NutritionProgramRequest(BaseModel):
     program: str = Field(min_length=1, max_length=40)
     date: dt.date | None = None
@@ -938,6 +949,19 @@ def nutrition_item_qty(
 ):
     user = _nutrition_user(garmin_session)
     if not nutrition_service.set_item_qty(user, entry_id, item, req.qty):
+        raise HTTPException(status_code=404, detail="Item not found")
+    return {"status": "updated"}
+
+
+@app.patch("/api/nutrition/entries/{entry_id}/items/{item}/nutrition")
+def nutrition_item_values(
+    entry_id: str, item: int, req: NutritionValuesRequest, garmin_session: str | None = Cookie(default=None)
+):
+    user = _nutrition_user(garmin_session)
+    values = req.model_dump(exclude_none=True)
+    if not values:
+        raise HTTPException(status_code=422, detail="Provide at least one nutrition value.")
+    if not nutrition_service.set_item_nutrition(user, entry_id, item, values):
         raise HTTPException(status_code=404, detail="Item not found")
     return {"status": "updated"}
 
