@@ -20,7 +20,7 @@ import sys
 from typing import Any
 
 from backend.utils import app_db
-from backend.services import llm_service
+from backend.services import llm_service, restaurant_nutrition
 from mcp.server.fastmcp import FastMCP
 
 UNITS = ["piece", "cup", "bowl", "plate", "scoop", "slice", "tbsp", "tsp", "glass",
@@ -37,6 +37,13 @@ Rules:
 - Preserve nutrition-changing qualifiers and product names; never simplify a specific food into a generic one.
     Examples: whey isolate is not regular whey, egg white is not whole egg, skimmed milk is not whole milk,
     brown rice is not white rice, and unsweetened yogurt is not sweetened yogurt.
+- For a named restaurant or chain, return restaurant_name and restaurant_dish with corrected spelling.
+    Preserve the restaurant and dish variant in name. Do not infer a restaurant for an ordinary homemade dish.
+    Return empty strings for both restaurant fields when no restaurant is identified.
+    Restaurant names alone are not evidence of published nutrition; do not claim remembered menu values are labels.
+    restaurant_menu_url: a public HTTPS nutrition/menu page on that restaurant's own website, if known.
+    Return an empty string when no reliable source URL is known. Do not invent a URL or use a delivery/review site.
+    These rules apply to every named restaurant, without a fixed brand list.
 - "iso whey", "iso whey protein", "isolate whey", "whey isolate", "whey protein isolate" -> name "whey isolate".
     Plain whey/protein shake without an isolate qualifier -> "whey protein". Keep these separate in mixed meals.
     Without a product label, estimate whey isolate as 30 g per scoop with approximately 27 g protein;
@@ -67,6 +74,9 @@ SCHEMA = {
         "properties": {
             "input": {"type": "STRING", "description": "the words from the message for this item"},
             "name": {"type": "STRING"},
+            "restaurant_name": {"type": "STRING"},
+            "restaurant_dish": {"type": "STRING"},
+            "restaurant_menu_url": {"type": "STRING"},
             "qty": _NUM,
             "unit": {"type": "STRING", "enum": UNITS},
             "total_grams": _NUM,
@@ -77,7 +87,7 @@ SCHEMA = {
                 "required": ["kcal", "protein", "carbs", "fat", "fiber", "sugar", "sodium"],
             },
         },
-        "required": ["input", "name", "qty", "unit", "total_grams", "nutrition_basis", "per100g"],
+        "required": ["input", "name", "restaurant_name", "restaurant_dish", "restaurant_menu_url", "qty", "unit", "total_grams", "nutrition_basis", "per100g"],
     },
 }
 
@@ -104,6 +114,9 @@ def llm_parse(text: str) -> list[dict[str, Any]]:
         out.append({
             "input": str(it.get("input") or name),
             "name": name.lower(),
+            "restaurant_name": str(it.get("restaurant_name") or "").strip(),
+            "restaurant_dish": str(it.get("restaurant_dish") or "").strip(),
+            "restaurant_menu_url": str(it.get("restaurant_menu_url") or "").strip(),
             "qty": float(it.get("qty") or 1),
             "unit": it.get("unit") if it.get("unit") in UNITS else "serving",
             "total_grams": float(it["total_grams"]) if it.get("total_grams") else None,
@@ -111,7 +124,7 @@ def llm_parse(text: str) -> list[dict[str, Any]]:
             "per100g": {k: float((it.get("per100g") or {}).get(k) or 0)
                         for k in ("kcal", "protein", "carbs", "fat", "fiber", "sugar", "sodium")},
         })
-    return out
+    return restaurant_nutrition.enrich(out, _generate)
 
 
 REVIEW_PROMPT = """You are a sports nutrition coach for an Indian amateur runner. Review their whole day of eating

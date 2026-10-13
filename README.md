@@ -128,6 +128,22 @@ A pre-import database backup is retained under `data/backups/`.
 Chat confirms a meal after the SQLite transaction commits. A failed database write
 is never reported as saved. Chat entries are displayed in chronological order.
 
+For named restaurant meals, the configured LLM identifies the restaurant, exact
+dish, and a candidate nutrition-page URL without a fixed restaurant list. The app
+fetches a public HTTPS page and asks the same model to extract published values.
+Restaurant identity, dish variant, serving basis, nutrient labels, units, and
+supporting quotes must match the fetched document before values override estimates.
+Explicit nutrition values supplied in your message take priority. Unpublished
+nutrients retain their estimates; unknown sources, inaccessible pages, or ambiguous
+matches keep the existing calculation. The source URL is retained in the food's
+source metadata. A suggested URL is not itself proof that a site is authoritative.
+
+Lookup supports readable HTML, JSON, and text. Image-only menus, PDFs, and
+JavaScript-only calculator results are not extracted. Model suggestions are not
+a live web-search service and may miss newer menus. Matching pages can require
+one additional model completion, with provider charges and extra latency. Existing
+saved meals are not automatically recalculated.
+
 Run the test suite from the repository root with
 `.venv\Scripts\python.exe -m unittest discover -s tests -v`.
 

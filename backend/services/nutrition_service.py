@@ -584,7 +584,14 @@ def _analyse_ai(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         # Exact alias match only: partial hits mislabel dishes ("paneer biryani" -> chicken biryani).
         norm = _norm(name)
         local = next((food for alias, food in _ALIAS_INDEX if alias == norm), None)
-        if it.get("nutrition_basis") == "label":
+        menu = it.get("restaurant_menu") if it.get("nutrition_basis") == "restaurant_menu" else None
+        if menu:
+            grams = it.get("total_grams") or _grams(qty, unit, {"units": {}})
+            if menu.get("serving_grams") and unit in {"piece", "cup", "bowl", "plate", "slice", "serving"}:
+                grams = menu["serving_grams"] * qty
+            per100, label = it["per100g"], name.capitalize()
+            source = f"Restaurant menu + LLM estimates ({menu['source_url']})"
+        elif it.get("nutrition_basis") == "label":
             grams = it.get("total_grams") or _grams(qty, unit, FOODS[local] if local else {"units": {}})
             per100, label, source = it["per100g"], local or name.capitalize(), "User label + LLM estimates"
         elif local:
@@ -598,6 +605,10 @@ def _analyse_ai(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             grams = it.get("total_grams") or _grams(qty, unit, {"units": {}})
             per100, label, source = it["per100g"], name.capitalize(), "LLM estimate"
         factor = grams / 100
+        nutrients = {key: round((per100.get(key) or 0) * factor, 1) for key in NUTRIENTS}
+        if menu:
+            menu_factor = factor if menu["basis"] == "100g" else qty if unit in {"piece", "cup", "bowl", "plate", "slice", "serving"} else grams / menu["serving_grams"]
+            nutrients.update({key: round(value * menu_factor, 1) for key, value in menu["nutrients"].items()})
         said = " ".join(w for w in _norm(it["input"]).split() if w not in UNIT_ALIASES and w not in WORD_NUMBERS)
         out.append({
             "input": it["input"],
@@ -608,7 +619,7 @@ def _analyse_ai(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "grams": round(grams),
             "source": f"{source} · parsed by AI model",
             "found": True,
-            **{k: round((per100.get(k) or 0) * factor, 1) for k in NUTRIENTS},
+            **nutrients,
         })
     return out
 

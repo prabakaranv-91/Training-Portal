@@ -5,6 +5,7 @@ itsdangerous==2.2.0
 python-dateutil==2.9.0.post0
 tzdata>=2024.1
 requests==2.34.2
+urllib3>=2.2,<3
 cryptography>=43,<47
 # MCP 1.x: 2.x needs a newer Starlette than FastAPI 0.115 supports
 mcp>=1.9,<2

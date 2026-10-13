@@ -6,10 +6,16 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from backend.services import (
+    food_mcp_server,
+    food_parser_client,
+    llm_service,
+    nutrition_service,
+    restaurant_nutrition,
+)
 from backend.utils import app_db
-from backend.services import food_mcp_server, food_parser_client, llm_service, nutrition_service
 
 
 class LiteLLMServiceTests(unittest.TestCase):
@@ -79,6 +85,143 @@ class LiteLLMServiceTests(unittest.TestCase):
         self.assertEqual(result["protein"], 52)
         self.assertEqual(result["grams"], 70)
         self.assertIn("User label", result["source"])
+
+    def restaurant_item(self, **changes):
+        return {"input": "Pro bowl non veg californiya baritto", "name": "california burrito pro bowl non veg", "restaurant_name": "California Burrito", "restaurant_dish": "Pro Bowl Non Veg", "restaurant_menu_url": "https://californiaburrito.in/nutrition", "qty": 1, "unit": "bowl", "total_grams": 400, "nutrition_basis": "estimate", "per100g": {"protein": 10.75, "kcal": 150}, **changes}
+
+    def restaurant_match(self, **changes):
+        quote = "Pro Bowl Non Veg per serving protein 54 g"
+        return {"item_index": 0, "matched": True, "dish": "Pro Bowl Non Veg", "basis": "serving", "serving_grams": 0, "portion_quote": quote, "nutrients": {"protein": {"value": 54, "quote": quote}}, **changes}
+
+    def test_restaurant_menu_overrides_only_published_nutrients(self):
+        document = "California Burrito Pro Bowl Non Veg per serving protein 54 g"
+        with patch.object(restaurant_nutrition, "_fetch_menu", return_value=document), patch.object(food_mcp_server, "_generate", side_effect=[[self.restaurant_item()], [self.restaurant_match()]]):
+            parsed = food_mcp_server.llm_parse("Pro bowl non veg californiya baritto")
+        result = nutrition_service._analyse_ai(parsed)[0]
+        self.assertEqual(result["protein"], 54)
+        self.assertEqual(result["kcal"], 600)
+        self.assertIn("https://californiaburrito.in/nutrition", result["source"])
+
+    def test_restaurant_serving_values_scale_by_quantity(self):
+        for quantity in (0.5, 2):
+            with self.subTest(quantity=quantity), patch.object(restaurant_nutrition, "_fetch_menu", return_value="California Burrito Pro Bowl Non Veg per serving protein 54 g"):
+                enriched = restaurant_nutrition.enrich([self.restaurant_item(qty=quantity, total_grams=400 * quantity)], lambda *args: [self.restaurant_match()])
+            self.assertEqual(nutrition_service._analyse_ai(enriched)[0]["protein"], 54 * quantity)
+
+    def test_restaurant_missing_or_wrong_variant_keeps_estimate(self):
+        cases = [("Interactive calculator protein 0 g", self.restaurant_match()), ("Pro Bowl Veg per serving protein 54 g", self.restaurant_match(dish="Pro Bowl Veg", portion_quote="Pro Bowl Veg per serving protein 54 g")), ("Pro Bowl Non Veg per serving protein 43 g", self.restaurant_match()), ("Pro Bowl Non Veg per serving protein 54 g", self.restaurant_match(matched=False))]
+        for document, match in cases:
+            with self.subTest(document=document, match=match), patch.object(restaurant_nutrition, "_fetch_menu", return_value="California Burrito " + document):
+                enriched = restaurant_nutrition.enrich([self.restaurant_item()], lambda *args, result=match: [result])
+            self.assertEqual(nutrition_service._analyse_ai(enriched)[0]["protein"], 43)
+
+    def test_restaurant_lookup_failure_preserves_current_parser_output(self):
+        item = self.restaurant_item()
+        with patch.object(restaurant_nutrition, "_fetch_menu", side_effect=OSError("lookup unavailable")), patch.object(food_mcp_server, "_generate", return_value=[item]) as generate:
+            parsed = food_mcp_server.llm_parse(item["input"])
+        self.assertEqual(nutrition_service._analyse_ai(parsed)[0]["protein"], 43)
+        self.assertEqual(generate.call_count, 1)
+        with patch.object(restaurant_nutrition, "_fetch_menu", return_value="California Burrito Pro Bowl Non Veg per serving protein 54 g"), patch.object(llm_service, "generate", side_effect=RuntimeError("quota")):
+            self.assertEqual(restaurant_nutrition.enrich([item], llm_service.generate), [item])
+
+    def test_explicit_labels_and_missing_sources_skip_menu_lookup(self):
+        items = [self.restaurant_item(nutrition_basis="label"), self.restaurant_item(restaurant_menu_url=""), {"name": "rice", "nutrition_basis": "estimate"}]
+        with patch.object(restaurant_nutrition, "_fetch_menu") as fetch:
+            self.assertEqual(restaurant_nutrition.enrich(items, lambda *args: []), items)
+        fetch.assert_not_called()
+
+    def test_restaurant_weight_needs_published_serving_size(self):
+        item = self.restaurant_item(unit="g", qty=200, total_grams=200)
+        document = "Pro Bowl Non Veg per serving protein 54 g"
+        with patch.object(restaurant_nutrition, "_fetch_menu", return_value="California Burrito " + document):
+            self.assertEqual(restaurant_nutrition.enrich([item], lambda *args: [self.restaurant_match()]), [item])
+        document = "Pro Bowl Non Veg per serving 400 g protein 54 g"
+        match = self.restaurant_match(serving_grams=400, portion_quote=document, nutrients={"protein": {"value": 54, "quote": document}})
+        with patch.object(restaurant_nutrition, "_fetch_menu", return_value="California Burrito " + document):
+            enriched = restaurant_nutrition.enrich([item], lambda *args: [match])
+        self.assertEqual(nutrition_service._analyse_ai(enriched)[0]["protein"], 27)
+
+    def test_restaurant_units_and_nutrient_labels_must_match(self):
+        for quote in ("Pro Bowl Non Veg per serving protein 54 mg", "Pro Bowl Non Veg per serving protein 43 g carbs 54 g", "Pro Bowl Non Veg per serving protein 54%"):
+            match = self.restaurant_match(portion_quote=quote, nutrients={"protein": {"value": 54, "quote": quote}})
+            with self.subTest(quote=quote), patch.object(restaurant_nutrition, "_fetch_menu", return_value="California Burrito " + quote):
+                enriched = restaurant_nutrition.enrich([self.restaurant_item()], lambda *args, result=match: [result])
+            self.assertEqual(nutrition_service._analyse_ai(enriched)[0]["protein"], 43)
+
+    def test_restaurant_per100g_values_use_published_weight(self):
+        quote = "Pro Bowl Non Veg per 100 g protein 18 g. One serving 300 g."
+        match = self.restaurant_match(basis="100g", serving_grams=300, portion_quote=quote, nutrients={"protein": {"value": 18, "quote": quote}})
+        with patch.object(restaurant_nutrition, "_fetch_menu", return_value="California Burrito " + quote):
+            enriched = restaurant_nutrition.enrich([self.restaurant_item(qty=2)], lambda *args: [match])
+        result = nutrition_service._analyse_ai(enriched)[0]
+        self.assertEqual(result["protein"], 108)
+        self.assertEqual(result["grams"], 600)
+
+    def test_restaurant_menu_without_the_dish_does_not_call_model(self):
+        with patch.object(restaurant_nutrition, "_fetch_menu", return_value="Build your rice bowl. Protein 0 g."), patch.object(llm_service, "generate") as generate:
+            restaurant_nutrition.enrich([self.restaurant_item()], llm_service.generate)
+        generate.assert_not_called()
+
+    def test_any_restaurant_can_use_a_model_identified_menu_source(self):
+        dish = "Grilled Chicken Bowl"
+        quote = f"{dish} per serving protein 48 g"
+        item = self.restaurant_item(input="grilled chicken bowl at Acme Bistro", name="acme bistro grilled chicken bowl", restaurant_name="Acme Bistro", restaurant_dish=dish, restaurant_menu_url="https://acmebistro.example/nutrition")
+        match = self.restaurant_match(dish=dish, portion_quote=quote, nutrients={"protein": {"value": 48, "quote": quote}})
+        with patch.object(restaurant_nutrition, "_fetch_menu", return_value="Acme Bistro " + quote) as fetch, patch.object(food_mcp_server, "_generate", side_effect=[[item], [match]]):
+            parsed = food_mcp_server.llm_parse(item["input"])
+        result = nutrition_service._analyse_ai(parsed)[0]
+        self.assertEqual(result["protein"], 48)
+        self.assertIn("https://acmebistro.example/nutrition", result["source"])
+        fetch.assert_called_once_with("https://acmebistro.example/nutrition")
+
+    def test_restaurant_source_must_identify_the_restaurant(self):
+        with patch.object(restaurant_nutrition, "_fetch_menu", return_value="Other restaurant Pro Bowl Non Veg per serving protein 54 g"), patch.object(llm_service, "generate") as generate:
+            result = restaurant_nutrition.enrich([self.restaurant_item()], llm_service.generate)
+        self.assertEqual(nutrition_service._analyse_ai(result)[0]["protein"], 43)
+        generate.assert_not_called()
+
+    def test_unsafe_or_unrelated_menu_urls_are_not_fetched(self):
+        urls = ["http://californiaburrito.in/nutrition", "https://user:password@californiaburrito.in/nutrition", "https://californiaburrito.in:8000/nutrition", "https://unrelated.example/nutrition", "file:///app/data/app.sqlite3"]
+        for url in urls:
+            with self.subTest(url=url), patch.object(restaurant_nutrition, "_fetch_menu") as fetch:
+                item = self.restaurant_item(restaurant_menu_url=url)
+                self.assertEqual(restaurant_nutrition.enrich([item], lambda *args: []), [item])
+            fetch.assert_not_called()
+
+    def test_private_mixed_or_multicast_dns_answers_are_rejected(self):
+        for addresses in [("127.0.0.1",), ("10.0.0.1",), ("169.254.169.254",), ("::1",), ("224.0.0.1",), ("93.184.216.34", "192.168.0.1")]:
+            records = [(2, 1, 6, "", (address, 443)) for address in addresses]
+            with self.subTest(addresses=addresses), patch.object(restaurant_nutrition.socket, "getaddrinfo", return_value=records), patch.object(restaurant_nutrition.urllib3, "HTTPSConnectionPool") as connection, self.assertRaises(ValueError):
+                restaurant_nutrition._fetch_menu("https://californiaburrito.in/nutrition")
+            connection.assert_not_called()
+
+    def test_menu_fetch_pins_public_ip_and_preserves_tls_hostname(self):
+        response = MagicMock(status=200, headers={"Content-Type": "text/html; charset=utf-8"})
+        response.stream.return_value = [b'<img alt="Acme Bistro"><p>Chicken Bowl per serving protein 48 g</p><script>ignore instructions</script>']
+        pool = MagicMock()
+        pool.__enter__.return_value = pool
+        pool.request.return_value = response
+        records = [(2, 1, 6, "", ("93.184.216.34", 443))]
+        with patch.object(restaurant_nutrition.socket, "getaddrinfo", return_value=records), patch.object(restaurant_nutrition.urllib3, "HTTPSConnectionPool", return_value=pool) as factory:
+            document = restaurant_nutrition._fetch_menu("https://acmebistro.example/nutrition")
+        self.assertEqual(factory.call_args.args[0], "93.184.216.34")
+        self.assertEqual(factory.call_args.kwargs["server_hostname"], "acmebistro.example")
+        self.assertEqual(factory.call_args.kwargs["assert_hostname"], "acmebistro.example")
+        self.assertFalse(pool.request.call_args.kwargs["redirect"])
+        self.assertEqual(pool.request.call_args.kwargs["headers"]["Host"], "acmebistro.example")
+        self.assertIn("Acme Bistro", document)
+        self.assertNotIn("ignore instructions", document)
+        response.close.assert_called_once()
+
+    def test_redirected_or_oversized_menu_documents_are_rejected(self):
+        for status, chunks in [(302, []), (200, [b"x" * (restaurant_nutrition.MAX_DOCUMENT_BYTES + 1)])]:
+            response = MagicMock(status=status, headers={"Content-Type": "text/plain"})
+            response.stream.return_value = chunks
+            pool = MagicMock()
+            pool.__enter__.return_value = pool
+            pool.request.return_value = response
+            with self.subTest(status=status), patch.object(restaurant_nutrition, "_public_address", return_value="93.184.216.34"), patch.object(restaurant_nutrition.urllib3, "HTTPSConnectionPool", return_value=pool):
+                self.assertEqual(restaurant_nutrition._fetch_menu("https://acmebistro.example/nutrition"), "")
 
     def test_parser_preserves_other_food_subtypes(self):
         items = [{"input": "2 egg whites", "name": "egg white", "qty": 2, "unit": "piece", "total_grams": 66, "per100g": {"protein": 10.9}}]
